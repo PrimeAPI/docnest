@@ -8,7 +8,7 @@
 ARG PYTHON_VERSION=3.13
 
 # ---------------------------------------------------------------------------
-FROM node:24-slim AS frontend
+FROM node:26-slim AS frontend
 ENV PNPM_HOME=/pnpm PATH=/pnpm:$PATH CI=true
 RUN corepack enable
 WORKDIR /src/frontend
