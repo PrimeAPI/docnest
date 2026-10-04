@@ -1,0 +1,38 @@
+name: Security
+
+on:
+  push:
+  pull_request:
+  schedule:
+    - cron: "17 5 * * 1"   # weekly: catch newly published vulnerabilities
+
+permissions:
+  contents: read
+
+jobs:
+  secrets:
+    name: Secret scan (git history)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+      - run: docker run --rm -v "$PWD:/repo" ghcr.io/gitleaks/gitleaks:latest git /repo --redact --no-banner
+
+  dependencies:
+    name: Dependency audit
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - name: Python
+        run: |
+          pipx install uv
+          cd backend
+          uv export --frozen --no-dev --no-hashes -o /tmp/requirements.txt
+          pipx run pip-audit -r /tmp/requirements.txt --strict
+      - uses: pnpm/action-setup@v4
+        with:
+          package_json_file: frontend/package.json
+      - name: JavaScript
+        working-directory: frontend
+        run: pnpm audit --prod --audit-level high

@@ -1,0 +1,62 @@
+# Development stack: PostgreSQL + a dev container with the source mounted.
+#   docker compose -f deploy/compose.dev.yml up -d db
+#   docker compose -f deploy/compose.dev.yml run --rm dev pytest
+#   docker compose -f deploy/compose.dev.yml up web worker   (http://localhost:8000)
+name: docnest-dev
+
+x-dev: &dev
+  build:
+    context: ..
+    dockerfile: docker/Dockerfile
+    target: dev
+  image: docnest-dev
+  user: "${DOCNEST_UID:-1000}:${DOCNEST_GID:-1000}"
+  working_dir: /app/backend
+  volumes:
+    - ../backend:/app/backend
+    - ../frontend/dist:/app/frontend/dist:ro
+  environment:
+    DOCNEST_DEV: "true"
+    DOCNEST_DEBUG: "true"
+    DOCNEST_DB_HOST: db
+    DOCNEST_DB_PASSWORD: docnest
+    DOCNEST_DATA_DIR: /app/backend/.data
+    DOCNEST_FRONTEND_DIR: /app/frontend/dist
+    DOCNEST_BASE_URL: ${DOCNEST_DEV_BASE_URL:-http://localhost:8000}  # not DOCNEST_BASE_URL: deploy/.env belongs to production
+    DOCNEST_STORAGE_BACKEND: local
+    HOME: /tmp
+    PYTHONPATH: /app/backend
+  depends_on:
+    db:
+      condition: service_healthy
+
+services:
+  db:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_DB: docnest
+      POSTGRES_USER: docnest
+      POSTGRES_PASSWORD: docnest
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U docnest"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+    ports:
+      - "127.0.0.1:55432:5432"
+    tmpfs:
+      - /var/lib/postgresql/data
+
+  dev:
+    <<: *dev
+    command: bash
+
+  web:
+    <<: *dev
+    command: sh -c "python manage.py migrate && python manage.py runserver 0.0.0.0:8000"
+    ports:
+      - "127.0.0.1:8000:8000"
+
+  worker:
+    <<: *dev
+    command: python manage.py worker

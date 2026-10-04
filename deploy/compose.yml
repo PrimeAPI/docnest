@@ -1,0 +1,100 @@
+# DocNest — production deployment.
+#
+#   1. cp .env.example .env            and set DOCNEST_BASE_URL
+#   2. ./init-secrets.sh               creates ./secrets (master key, DB password, app secret)
+#   3. docker compose up -d
+#   4. docker compose exec app docnest createuser <name>
+#   5. docker compose exec app docnest proton-login      (one-time Proton Drive sign-in)
+#
+# Put DocNest behind your HTTPS reverse proxy (see docs/operations.md).
+name: docnest
+
+services:
+  app:
+    image: ghcr.io/primeapi/docnest:${DOCNEST_VERSION:-latest}
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DOCNEST_BASE_URL: ${DOCNEST_BASE_URL:?set DOCNEST_BASE_URL in .env}
+      DOCNEST_STORAGE_BACKEND: ${DOCNEST_STORAGE_BACKEND:-proton}
+      DOCNEST_PROTON_ROOT: ${DOCNEST_PROTON_ROOT:-/my-files/DocNest}
+      DOCNEST_TIME_ZONE: ${DOCNEST_TIME_ZONE:-Europe/Berlin}
+      DOCNEST_OCR_LANGUAGES: ${DOCNEST_OCR_LANGUAGES:-deu+eng}
+      DOCNEST_VIEW_CACHE_MB: ${DOCNEST_VIEW_CACHE_MB:-0}
+      DOCNEST_MAX_UPLOAD_MB: ${DOCNEST_MAX_UPLOAD_MB:-100}
+      DOCNEST_DB_HOST: db
+      DOCNEST_DB_NAME: docnest
+      DOCNEST_DB_USER: docnest
+    secrets:
+      - master_key
+      - django_secret_key
+      - db_password
+    volumes:
+      - data:/var/lib/docnest/data        # encrypted intake (documents not yet in Proton Drive)
+      - proton:/var/lib/docnest/proton    # Proton CLI state; the session in it is encrypted
+    tmpfs:
+      - /tmp:size=${DOCNEST_TMP_SIZE:-2g},mode=1777   # plaintext working files never touch disk
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    ports:
+      - "${DOCNEST_BIND:-127.0.0.1}:${DOCNEST_PORT:-8000}:8000"
+    networks: [default, internal]
+
+  db:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      # Superuser for administration only; the app uses the non-superuser role "docnest"
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD_FILE: /run/secrets/db_admin_password
+    secrets:
+      - db_password
+      - db_admin_password
+    configs:
+      - source: db_init
+        target: /docker-entrypoint-initdb.d/10-docnest-role.sh
+        mode: 0555
+    volumes:
+      - db:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d docnest"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    security_opt: ["no-new-privileges:true"]
+    networks: [internal]
+
+networks:
+  internal:
+    internal: true   # the database is not reachable from outside
+
+volumes:
+  data:
+  proton:
+  db:
+
+configs:
+  db_init:
+    # Runs once when the database volume is created.
+    content: |
+      #!/bin/sh
+      set -eu
+      psql -v ON_ERROR_STOP=1 -v app_password="$$(cat /run/secrets/db_password)" \
+        --username "$$POSTGRES_USER" --dbname postgres <<'SQL'
+      CREATE ROLE docnest LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION PASSWORD :'app_password';
+      CREATE DATABASE docnest OWNER docnest;
+      REVOKE ALL ON DATABASE docnest FROM PUBLIC;
+      SQL
+
+secrets:
+  master_key:
+    file: ./secrets/master_key
+  django_secret_key:
+    file: ./secrets/django_secret_key
+  db_password:
+    file: ./secrets/db_password
+  db_admin_password:
+    file: ./secrets/db_admin_password

@@ -1,0 +1,15 @@
+.git
+.idea
+.vscode
+**/node_modules
+**/__pycache__
+**/.pytest_cache
+**/.mypy_cache
+**/.ruff_cache
+backend/.data
+frontend/dist
+secrets
+proton-drive
+deploy/secrets
+e2e/test-results
+e2e/playwright-report

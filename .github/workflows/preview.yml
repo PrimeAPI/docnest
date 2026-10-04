@@ -1,0 +1,30 @@
+# Every push to any branch: run the full test suite, then publish a preview image.
+#   main      → ghcr.io/<owner>/docnest:edge
+#   any branch → ghcr.io/<owner>/docnest:<branch> and :sha-<commit>
+name: Preview
+
+on:
+  push:
+    branches: ["**"]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: preview-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    uses: ./.github/workflows/ci.yml
+
+  image:
+    needs: test   # only tested commits are published
+    uses: ./.github/workflows/publish-image.yml
+    with:
+      kind: preview
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
+      attestations: write

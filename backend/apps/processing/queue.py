@@ -1,0 +1,105 @@
+"""PostgreSQL-backed job queue.
+
+Workers claim jobs with `SELECT ... FOR UPDATE SKIP LOCKED` and hold a lease
+(`locked_until`). If a worker crashes, the lease expires and another worker
+picks the job up again. New jobs trigger a NOTIFY so idle workers wake up
+immediately.
+"""
+
+from __future__ import annotations
+
+import logging
+from datetime import timedelta
+
+from django.conf import settings
+from django.db import IntegrityError, connection, transaction
+from django.db.models import Q
+from django.utils import timezone
+
+from apps.processing.models import Job
+
+logger = logging.getLogger(__name__)
+CHANNEL = "docnest_jobs"
+
+
+def enqueue(kind: str, *, document: object = None, payload: dict | None = None, delay: int = 0) -> Job | None:
+    """Queue a job. Returns None if an equivalent job is already active."""
+    try:
+        with transaction.atomic():
+            job = Job.objects.create(
+                kind=kind,
+                document=document,  # type: ignore[misc]
+                payload=payload or {},
+                max_attempts=settings.JOB_MAX_ATTEMPTS,
+                run_after=timezone.now() + timedelta(seconds=delay),
+            )
+    except IntegrityError:
+        return None
+    transaction.on_commit(_notify)
+    return job
+
+
+def _notify() -> None:
+    with connection.cursor() as cursor:
+        cursor.execute(f"NOTIFY {CHANNEL}")
+
+
+def claim(worker_id: str) -> Job | None:
+    now = timezone.now()
+    with transaction.atomic():
+        job = (
+            Job.objects.select_for_update(skip_locked=True)
+            .filter(
+                Q(state=Job.State.QUEUED, run_after__lte=now)
+                | Q(state=Job.State.RUNNING, locked_until__lt=now)  # expired lease: worker died
+            )
+            .order_by("run_after", "id")
+            .first()
+        )
+        if job is None:
+            return None
+        job.state = Job.State.RUNNING
+        job.attempts += 1
+        job.locked_by = worker_id
+        job.locked_until = now + timedelta(seconds=settings.JOB_LEASE_SECONDS)
+        job.save(update_fields=["state", "attempts", "locked_by", "locked_until", "updated_at"])
+        return job
+
+
+def complete(job: Job) -> None:
+    Job.objects.filter(pk=job.pk).update(
+        state=Job.State.DONE, locked_by="", locked_until=None, last_error="", updated_at=timezone.now()
+    )
+
+
+def retry_or_fail(job: Job, error: str, *, retryable: bool = True, delay: int | None = None) -> bool:
+    """Schedule a retry with exponential backoff; returns True if the job failed for good."""
+    error = error[:500]
+    if retryable and job.attempts < job.max_attempts:
+        backoff = delay if delay is not None else min(3600, 30 * 2 ** (job.attempts - 1))
+        Job.objects.filter(pk=job.pk).update(
+            state=Job.State.QUEUED,
+            run_after=timezone.now() + timedelta(seconds=backoff),
+            locked_by="",
+            locked_until=None,
+            last_error=error,
+            updated_at=timezone.now(),
+        )
+        return False
+    Job.objects.filter(pk=job.pk).update(
+        state=Job.State.FAILED, locked_by="", locked_until=None, last_error=error, updated_at=timezone.now()
+    )
+    return True
+
+
+def defer(job: Job, seconds: int, reason: str) -> None:
+    """Re-queue without consuming an attempt (e.g. storage temporarily needs re-auth)."""
+    Job.objects.filter(pk=job.pk).update(
+        state=Job.State.QUEUED,
+        attempts=max(0, job.attempts - 1),
+        run_after=timezone.now() + timedelta(seconds=seconds),
+        locked_by="",
+        locked_until=None,
+        last_error=reason[:500],
+        updated_at=timezone.now(),
+    )

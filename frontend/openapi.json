@@ -1,0 +1,4703 @@
+{
+ "openapi": "3.1.0",
+ "info": {
+  "title": "DocNest Web API",
+  "version": "1",
+  "description": ""
+ },
+ "paths": {
+  "/api/v1/csrf": {
+   "get": {
+    "operationId": "apps_core_api_csrf",
+    "summary": "Csrf",
+    "parameters": [],
+    "responses": {
+     "200": {
+      "description": "OK"
+     }
+    },
+    "description": "Ensures the CSRF cookie is set (the SPA calls this on startup).",
+    "tags": [
+     "system"
+    ]
+   }
+  },
+  "/api/v1/overview": {
+   "get": {
+    "operationId": "apps_core_api_overview",
+    "summary": "Overview",
+    "parameters": [],
+    "responses": {
+     "200": {
+      "description": "OK",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/OverviewOut"
+        }
+       }
+      }
+     }
+    },
+    "tags": [
+     "system"
+    ],
+    "security": [
+     {
+      "MfaSessionAuth": []
+     }
+    ]
+   }
+  },
+  "/api/v1/system": {
+   "get": {
+    "operationId": "apps_core_api_system_status",
+    "summary": "System Status",
+    "parameters": [],
+    "responses": {
+     "200": {
+      "description": "OK",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/SystemStatus"
+        }
+       }
+      }
+     }
+    },
+    "tags": [
+     "system"
+    ],
+    "security": [
+     {
+      "MfaSessionAuth": []
+     }
+    ]
+   }
+  },
+  "/api/v1/audit": {
+   "get": {
+    "operationId": "apps_core_api_audit_log",
+    "summary": "Audit Log",
+    "parameters": [
+     {
+      "in": "query",
+      "name": "limit",
+      "schema": {
+       "default": 100,
+       "title": "Limit",
+       "type": "integer"
+      },
+      "required": false
+     },
+     {
+      "in": "query",
+      "name": "before",
+      "schema": {
+       "anyOf": [
+        {
+         "type": "integer"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "title": "Before"
+      },
+      "required": false
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "OK",
+      "content": {
+       "application/json": {
+        "schema": {
+         "items": {
+          "$ref": "#/components/schemas/AuditOut"
+         },
+         "title": "Response",
+         "type": "array"
+        }
+       }
+      }
+     }
+    },
+    "tags": [
+     "system"
+    ],
+    "security": [
+     {
+      "MfaSessionAuth": []
+     }
+    ]
+   }
+  },
+  "/api/v1/auth/session": {
+   "get": {
+    "operationId": "apps_accounts_api_session_state",
+    "summary": "Session State",
+    "parameters": [],
+    "responses": {
+     "200": {
+      "description": "OK",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/SessionStateOut"
+        }
+       }
+      }
+     }
+    },
+    "tags": [
+     "auth"
+    ]
+   }
+  },
+  "/api/v1/auth/login": {
+   "post": {
+    "operationId": "apps_accounts_api_login_password",
+    "summary": "Login Password",
+    "parameters": [],
+    "responses": {
+     "200": {
+      "description": "OK",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/SessionStateOut"
+        }
+       }
+      }
+     }
+    },
+    "tags": [
+     "auth"
+    ],
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/LoginIn"
+       }
+      }
+     },
+     "required": true
+    }
+   }
+  },
+  "/api/v1/auth/mfa/totp": {
+   "post": {
+    "operationId": "apps_accounts_api_login_totp",
+    "summary": "Login Totp",
+    "parameters": [],
+    "responses": {
+     "200": {
+      "description": "OK",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/SessionStateOut"
+        }
+       }
+      }
+     }
+    },
+    "tags": [
+     "auth"
+    ],
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/CodeIn"
+       }
+      }
+     },
+     "required": true
+    }
+   }
+  },
+  "/api/v1/auth/mfa/recovery": {
+   "post": {
+    "operationId": "apps_accounts_api_login_recovery",
+    "summary": "Login Recovery",
+    "parameters": [],
+    "responses": {
+     "200": {
+      "description": "OK",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/SessionStateOut"
+        }
+       }
+      }
+     }
+    },
+    "tags": [
+     "auth"
+    ],
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/CodeIn"
+       }
+      }
+     },
+     "required": true
+    }
+   }
+  },
+  "/api/v1/auth/mfa/webauthn/options": {
+   "post": {
+    "operationId": "apps_accounts_api_login_webauthn_options",
+    "summary": "Login Webauthn Options",
+    "parameters": [],
+    "responses": {
+     "200": {
+      "description": "OK"
+     }
+    },
+    "tags": [
+     "auth"
+    ]
+   }
+  },
+  "/api/v1/auth/mfa/webauthn/verify": {
+   "post": {
+    "operationId": "apps_accounts_api_login_webauthn_verify",
+    "summary": "Login Webauthn Verify",
+    "parameters": [],
+    "responses": {
+     "200": {
+      "description": "OK",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/SessionStateOut"
+        }
+       }
+      }
+     }
+    },
+    "tags": [
+     "auth"
+    ],
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/CredentialIn"
+       }
+      }
+     },
+     "required": true
+    }
+   }
+  },
+  "/api/v1/auth/logout": {
+   "post": {
+    "operationId": "apps_accounts_api_logout_view",
+    "summary": "Logout View",
+    "parameters": [],
+    "responses": {
+     "200": {
+      "description": "OK",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/SessionStateOut"
+        }
+       }
+      }
+     }
+    },
+    "tags": [
+     "auth"
+    ]
+   }
+  },
+  "/api/v1/auth/reauth": {
+   "post": {
+    "operationId": "apps_accounts_api_reauthenticate",
+    "summary": "Reauthenticate",
+    "parameters": [],
+    "responses": {
+     "200": {
+      "description": "OK"
+     }
+    },
+    "tags": [
+     "auth"
+    ],
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/PasswordIn"
+       }
+      }
+     },
+     "required": true
+    },
+    "security": [
+     {
+      "EnrollmentSessionAuth": []
+     }
+    ]
+   }
+  },
+  "/api/v1/account/totp/setup": {
+   "post": {
+    "operationId": "apps_accounts_api_totp_setup",
+    "summary": "Totp Setup",
+    "parameters": [],
+    "responses": {
+     "200": {
+      "description": "OK",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/TotpSetupOut"
+        }
+       }
+      }
+     }
+    },
+    "tags": [
+     "account"
+    ],
+    "security": [
+     {
+      "EnrollmentSessionAuth": []
+     }
+    ]
+   }
+  },
+  "/api/v1/account/totp/confirm": {
+   "post": {
+    "operationId": "apps_accounts_api_totp_confirm",
+    "summary": "Totp Confirm",
+    "parameters": [],
+    "responses": {
+     "200": {
+      "description": "OK",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/SessionStateOut"
+        }
+       }
+      }
+     }
+    },
+    "tags": [
+     "account"
+    ],
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/CodeIn"
+       }
+      }
+     },
+     "required": true
+    },
+    "security": [
+     {
+      "EnrollmentSessionAuth": []
+     }
+    ]
+   }
+  },
+  "/api/v1/account/webauthn/register/options": {
+   "post": {
+    "operationId": "apps_accounts_api_webauthn_register_options",
+    "summary": "Webauthn Register Options",
+    "parameters": [],
+    "responses": {
+     "200": {
+      "description": "OK"
+     }
+    },
+    "tags": [
+     "account"
+    ],
+    "security": [
+     {
+      "EnrollmentSessionAuth": []
+     }
+    ]
+   }
+  },
+  "/api/v1/account/webauthn/register/verify": {
+   "post": {
+    "operationId": "apps_accounts_api_webauthn_register_verify",
+    "summary": "Webauthn Register Verify",
+    "parameters": [],
+    "responses": {
+     "200": {
+      "description": "OK",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/SessionStateOut"
+        }
+       }
+      }
+     }
+    },
+    "tags": [
+     "account"
+    ],
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/CredentialIn"
+       }
+      }
+     },
+     "required": true
+    },
+    "security": [
+     {
+      "EnrollmentSessionAuth": []
+     }
+    ]
+   }
+  },
+  "/api/v1/account/recovery-codes": {
+   "post": {
+    "operationId": "apps_accounts_api_regenerate_recovery_codes",
+    "summary": "Regenerate Recovery Codes",
+    "parameters": [],
+    "responses": {
+     "200": {
+      "description": "OK",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/RecoveryCodesOut"
+        }
+       }
+      }
+     }
+    },
+    "tags": [
+     "account"
+    ],
+    "security": [
+     {
+      "MfaSessionAuth": []
+     }
+    ]
+   }
+  },
+  "/api/v1/account/devices": {
+   "get": {
+    "operationId": "apps_accounts_api_list_devices",
+    "summary": "List Devices",
+    "parameters": [],
+    "responses": {
+     "200": {
+      "description": "OK",
+      "content": {
+       "application/json": {
+        "schema": {
+         "items": {
+          "$ref": "#/components/schemas/DeviceOut"
+         },
+         "title": "Response",
+         "type": "array"
+        }
+       }
+      }
+     }
+    },
+    "tags": [
+     "account"
+    ],
+    "security": [
+     {
+      "MfaSessionAuth": []
+     }
+    ]
+   }
+  },
+  "/api/v1/account/devices/{kind}/{device_id}": {
+   "delete": {
+    "operationId": "apps_accounts_api_delete_device",
+    "summary": "Delete Device",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "kind",
+      "schema": {
+       "title": "Kind",
+       "type": "string"
+      },
+      "required": true
+     },
+     {
+      "in": "path",
+      "name": "device_id",
+      "schema": {
+       "title": "Device Id",
+       "type": "integer"
+      },
+      "required": true
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "OK"
+     }
+    },
+    "tags": [
+     "account"
+    ],
+    "security": [
+     {
+      "MfaSessionAuth": []
+     }
+    ]
+   }
+  },
+  "/api/v1/account/password": {
+   "post": {
+    "operationId": "apps_accounts_api_change_password",
+    "summary": "Change Password",
+    "parameters": [],
+    "responses": {
+     "200": {
+      "description": "OK"
+     }
+    },
+    "tags": [
+     "account"
+    ],
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/ChangePasswordIn"
+       }
+      }
+     },
+     "required": true
+    },
+    "security": [
+     {
+      "MfaSessionAuth": []
+     }
+    ]
+   }
+  },
+  "/api/v1/account/sessions": {
+   "get": {
+    "operationId": "apps_accounts_api_list_sessions",
+    "summary": "List Sessions",
+    "parameters": [],
+    "responses": {
+     "200": {
+      "description": "OK",
+      "content": {
+       "application/json": {
+        "schema": {
+         "items": {
+          "$ref": "#/components/schemas/SessionOut"
+         },
+         "title": "Response",
+         "type": "array"
+        }
+       }
+      }
+     }
+    },
+    "tags": [
+     "account"
+    ],
+    "security": [
+     {
+      "MfaSessionAuth": []
+     }
+    ]
+   }
+  },
+  "/api/v1/account/sessions/revoke-others": {
+   "post": {
+    "operationId": "apps_accounts_api_revoke_other_sessions",
+    "summary": "Revoke Other Sessions",
+    "parameters": [],
+    "responses": {
+     "200": {
+      "description": "OK",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/RevokedOut"
+        }
+       }
+      }
+     }
+    },
+    "tags": [
+     "account"
+    ],
+    "security": [
+     {
+      "MfaSessionAuth": []
+     }
+    ]
+   }
+  },
+  "/api/v1/account/sessions/{session_id}": {
+   "delete": {
+    "operationId": "apps_accounts_api_revoke_session",
+    "summary": "Revoke Session",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "session_id",
+      "schema": {
+       "title": "Session Id",
+       "type": "integer"
+      },
+      "required": true
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "OK"
+     }
+    },
+    "tags": [
+     "account"
+    ],
+    "security": [
+     {
+      "MfaSessionAuth": []
+     }
+    ]
+   }
+  },
+  "/api/v1/documents": {
+   "get": {
+    "operationId": "apps_documents_api_list_documents",
+    "summary": "List Documents",
+    "parameters": [
+     {
+      "in": "query",
+      "name": "q",
+      "schema": {
+       "default": "",
+       "title": "Q",
+       "type": "string"
+      },
+      "required": false
+     },
+     {
+      "in": "query",
+      "name": "bucket",
+      "schema": {
+       "items": {
+        "type": "integer"
+       },
+       "title": "Bucket",
+       "type": "array"
+      },
+      "required": false
+     },
+     {
+      "in": "query",
+      "name": "document_type",
+      "schema": {
+       "items": {
+        "type": "integer"
+       },
+       "title": "Document Type",
+       "type": "array"
+      },
+      "required": false
+     },
+     {
+      "in": "query",
+      "name": "correspondent",
+      "schema": {
+       "items": {
+        "type": "integer"
+       },
+       "title": "Correspondent",
+       "type": "array"
+      },
+      "required": false
+     },
+     {
+      "in": "query",
+      "name": "tag",
+      "schema": {
+       "items": {
+        "type": "integer"
+       },
+       "title": "Tag",
+       "type": "array"
+      },
+      "required": false
+     },
+     {
+      "in": "query",
+      "name": "series",
+      "schema": {
+       "anyOf": [
+        {
+         "type": "integer"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "title": "Series"
+      },
+      "required": false
+     },
+     {
+      "in": "query",
+      "name": "status",
+      "schema": {
+       "items": {
+        "enum": [
+         "new",
+         "todo",
+         "done"
+        ],
+        "type": "string"
+       },
+       "title": "Status",
+       "type": "array"
+      },
+      "required": false
+     },
+     {
+      "in": "query",
+      "name": "important",
+      "schema": {
+       "anyOf": [
+        {
+         "type": "boolean"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "title": "Important"
+      },
+      "required": false
+     },
+     {
+      "in": "query",
+      "name": "unread",
+      "schema": {
+       "anyOf": [
+        {
+         "type": "boolean"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "title": "Unread"
+      },
+      "required": false
+     },
+     {
+      "in": "query",
+      "name": "processing",
+      "schema": {
+       "items": {
+        "enum": [
+         "pending",
+         "running",
+         "done",
+         "failed"
+        ],
+        "type": "string"
+       },
+       "title": "Processing",
+       "type": "array"
+      },
+      "required": false
+     },
+     {
+      "in": "query",
+      "name": "uploaded_from",
+      "schema": {
+       "anyOf": [
+        {
+         "format": "date",
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "title": "Uploaded From"
+      },
+      "required": false
+     },
+     {
+      "in": "query",
+      "name": "uploaded_to",
+      "schema": {
+       "anyOf": [
+        {
+         "format": "date",
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "title": "Uploaded To"
+      },
+      "required": false
+     },
+     {
+      "in": "query",
+      "name": "date_from",
+      "schema": {
+       "anyOf": [
+        {
+         "format": "date",
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "title": "Date From"
+      },
+      "required": false
+     },
+     {
+      "in": "query",
+      "name": "date_to",
+      "schema": {
+       "anyOf": [
+        {
+         "format": "date",
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "title": "Date To"
+      },
+      "required": false
+     },
+     {
+      "in": "query",
+      "name": "sort",
+      "schema": {
+       "default": "relevance",
+       "enum": [
+        "relevance",
+        "uploaded",
+        "-uploaded",
+        "date",
+        "-date"
+       ],
+       "title": "Sort",
+       "type": "string"
+      },
+      "required": false
+     },
+     {
+      "in": "query",
+      "name": "page",
+      "schema": {
+       "default": 1,
+       "minimum": 1,
+       "title": "Page",
+       "type": "integer"
+      },
+      "required": false
+     },
+     {
+      "in": "query",
+      "name": "page_size",
+      "schema": {
+       "default": 25,
+       "maximum": 100,
+       "minimum": 1,
+       "title": "Page Size",
+       "type": "integer"
+      },
+      "required": false
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "OK",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/DocumentPage"
+        }
+       }
+      }
+     }
+    },
+    "tags": [
+     "documents"
+    ],
+    "security": [
+     {
+      "MfaSessionAuth": []
+     }
+    ]
+   }
+  },
+  "/api/v1/documents/upload": {
+   "post": {
+    "operationId": "apps_documents_api_web_upload",
+    "summary": "Web Upload",
+    "parameters": [],
+    "responses": {
+     "200": {
+      "description": "OK",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/WebUploadOut"
+        }
+       }
+      }
+     },
+     "202": {
+      "description": "Accepted",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/WebUploadOut"
+        }
+       }
+      }
+     }
+    },
+    "description": "Upload a PDF from the web UI. Uses the same durable intake and pipeline as scanners.",
+    "tags": [
+     "documents"
+    ],
+    "requestBody": {
+     "content": {
+      "multipart/form-data": {
+       "schema": {
+        "properties": {
+         "file": {
+          "format": "binary",
+          "title": "File",
+          "type": "string"
+         },
+         "bucket_id": {
+          "anyOf": [
+           {
+            "type": "integer"
+           },
+           {
+            "type": "null"
+           }
+          ],
+          "title": "Bucket Id"
+         },
+         "document_type": {
+          "default": "auto",
+          "title": "Document Type",
+          "type": "string"
+         },
+         "todo": {
+          "default": false,
+          "title": "Todo",
+          "type": "boolean"
+         },
+         "important": {
+          "default": false,
+          "title": "Important",
+          "type": "boolean"
+         }
+        },
+        "required": [
+         "file"
+        ],
+        "title": "MultiPartBodyParams",
+        "type": "object"
+       }
+      }
+     },
+     "required": true
+    },
+    "security": [
+     {
+      "MfaSessionAuth": []
+     }
+    ]
+   }
+  },
+  "/api/v1/documents/bulk": {
+   "post": {
+    "operationId": "apps_documents_api_bulk_update",
+    "summary": "Bulk Update",
+    "parameters": [],
+    "responses": {
+     "200": {
+      "description": "OK",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/BulkOut"
+        }
+       }
+      }
+     }
+    },
+    "tags": [
+     "documents"
+    ],
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/BulkAction"
+       }
+      }
+     },
+     "required": true
+    },
+    "security": [
+     {
+      "MfaSessionAuth": []
+     }
+    ]
+   }
+  },
+  "/api/v1/documents/{doc_id}": {
+   "get": {
+    "operationId": "apps_documents_api_document_detail",
+    "summary": "Document Detail",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "doc_id",
+      "schema": {
+       "format": "uuid",
+       "title": "Doc Id",
+       "type": "string"
+      },
+      "required": true
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "OK",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/DocumentDetail"
+        }
+       }
+      }
+     }
+    },
+    "tags": [
+     "documents"
+    ],
+    "security": [
+     {
+      "MfaSessionAuth": []
+     }
+    ]
+   },
+   "patch": {
+    "operationId": "apps_documents_api_update_document",
+    "summary": "Update Document",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "doc_id",
+      "schema": {
+       "format": "uuid",
+       "title": "Doc Id",
+       "type": "string"
+      },
+      "required": true
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "OK",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/DocumentDetail"
+        }
+       }
+      }
+     }
+    },
+    "tags": [
+     "documents"
+    ],
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/DocumentPatch"
+       }
+      }
+     },
+     "required": true
+    },
+    "security": [
+     {
+      "MfaSessionAuth": []
+     }
+    ]
+   },
+   "delete": {
+    "operationId": "apps_documents_api_delete_document",
+    "summary": "Delete Document",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "doc_id",
+      "schema": {
+       "format": "uuid",
+       "title": "Doc Id",
+       "type": "string"
+      },
+      "required": true
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "OK"
+     }
+    },
+    "tags": [
+     "documents"
+    ],
+    "security": [
+     {
+      "MfaSessionAuth": []
+     }
+    ]
+   }
+  },
+  "/api/v1/documents/{doc_id}/unread": {
+   "post": {
+    "operationId": "apps_documents_api_mark_unread",
+    "summary": "Mark Unread",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "doc_id",
+      "schema": {
+       "format": "uuid",
+       "title": "Doc Id",
+       "type": "string"
+      },
+      "required": true
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "OK"
+     }
+    },
+    "tags": [
+     "documents"
+    ],
+    "security": [
+     {
+      "MfaSessionAuth": []
+     }
+    ]
+   }
+  },
+  "/api/v1/documents/{doc_id}/file": {
+   "get": {
+    "operationId": "apps_documents_api_document_file",
+    "summary": "Document File",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "doc_id",
+      "schema": {
+       "format": "uuid",
+       "title": "Doc Id",
+       "type": "string"
+      },
+      "required": true
+     },
+     {
+      "in": "query",
+      "name": "variant",
+      "schema": {
+       "default": "archive",
+       "enum": [
+        "archive",
+        "original"
+       ],
+       "title": "Variant",
+       "type": "string"
+      },
+      "required": false
+     },
+     {
+      "in": "query",
+      "name": "download",
+      "schema": {
+       "default": false,
+       "title": "Download",
+       "type": "boolean"
+      },
+      "required": false
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "OK"
+     }
+    },
+    "tags": [
+     "documents"
+    ],
+    "security": [
+     {
+      "MfaSessionAuth": []
+     }
+    ]
+   }
+  },
+  "/api/v1/documents/{doc_id}/thumbnail": {
+   "get": {
+    "operationId": "apps_documents_api_document_thumbnail",
+    "summary": "Document Thumbnail",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "doc_id",
+      "schema": {
+       "format": "uuid",
+       "title": "Doc Id",
+       "type": "string"
+      },
+      "required": true
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "OK"
+     }
+    },
+    "tags": [
+     "documents"
+    ],
+    "security": [
+     {
+      "MfaSessionAuth": []
+     }
+    ]
+   }
+  },
+  "/api/v1/documents/{doc_id}/text": {
+   "get": {
+    "operationId": "apps_documents_api_document_text",
+    "summary": "Document Text",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "doc_id",
+      "schema": {
+       "format": "uuid",
+       "title": "Doc Id",
+       "type": "string"
+      },
+      "required": true
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "OK",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/TextOut"
+        }
+       }
+      }
+     }
+    },
+    "tags": [
+     "documents"
+    ],
+    "security": [
+     {
+      "MfaSessionAuth": []
+     }
+    ]
+   }
+  },
+  "/api/v1/documents/{doc_id}/reprocess": {
+   "post": {
+    "operationId": "apps_documents_api_reprocess",
+    "summary": "Reprocess",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "doc_id",
+      "schema": {
+       "format": "uuid",
+       "title": "Doc Id",
+       "type": "string"
+      },
+      "required": true
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "OK",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/DocumentDetail"
+        }
+       }
+      }
+     }
+    },
+    "tags": [
+     "documents"
+    ],
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/ReprocessIn"
+       }
+      }
+     },
+     "required": true
+    },
+    "security": [
+     {
+      "MfaSessionAuth": []
+     }
+    ]
+   }
+  },
+  "/api/v1/buckets": {
+   "get": {
+    "operationId": "apps_taxonomy_api_list_buckets",
+    "summary": "List Buckets",
+    "parameters": [],
+    "responses": {
+     "200": {
+      "description": "OK",
+      "content": {
+       "application/json": {
+        "schema": {
+         "items": {
+          "$ref": "#/components/schemas/BucketOut"
+         },
+         "title": "Response",
+         "type": "array"
+        }
+       }
+      }
+     }
+    },
+    "tags": [
+     "taxonomy"
+    ],
+    "security": [
+     {
+      "MfaSessionAuth": []
+     }
+    ]
+   },
+   "post": {
+    "operationId": "apps_taxonomy_api_create_bucket",
+    "summary": "Create Bucket",
+    "parameters": [],
+    "responses": {
+     "200": {
+      "description": "OK",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/BucketOut"
+        }
+       }
+      }
+     }
+    },
+    "tags": [
+     "taxonomy"
+    ],
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/NamedIn"
+       }
+      }
+     },
+     "required": true
+    },
+    "security": [
+     {
+      "MfaSessionAuth": []
+     }
+    ]
+   }
+  },
+  "/api/v1/buckets/{bucket_id}": {
+   "patch": {
+    "operationId": "apps_taxonomy_api_update_bucket",
+    "summary": "Update Bucket",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "bucket_id",
+      "schema": {
+       "title": "Bucket Id",
+       "type": "integer"
+      },
+      "required": true
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "OK",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/BucketOut"
+        }
+       }
+      }
+     }
+    },
+    "tags": [
+     "taxonomy"
+    ],
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/NamedIn"
+       }
+      }
+     },
+     "required": true
+    },
+    "security": [
+     {
+      "MfaSessionAuth": []
+     }
+    ]
+   },
+   "delete": {
+    "operationId": "apps_taxonomy_api_delete_bucket",
+    "summary": "Delete Bucket",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "bucket_id",
+      "schema": {
+       "title": "Bucket Id",
+       "type": "integer"
+      },
+      "required": true
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "OK"
+     }
+    },
+    "tags": [
+     "taxonomy"
+    ],
+    "security": [
+     {
+      "MfaSessionAuth": []
+     }
+    ]
+   }
+  },
+  "/api/v1/document-types": {
+   "get": {
+    "operationId": "apps_taxonomy_api_list_types",
+    "summary": "List Types",
+    "parameters": [],
+    "responses": {
+     "200": {
+      "description": "OK",
+      "content": {
+       "application/json": {
+        "schema": {
+         "items": {
+          "$ref": "#/components/schemas/TypeOut"
+         },
+         "title": "Response",
+         "type": "array"
+        }
+       }
+      }
+     }
+    },
+    "tags": [
+     "taxonomy"
+    ],
+    "security": [
+     {
+      "MfaSessionAuth": []
+     }
+    ]
+   },
+   "post": {
+    "operationId": "apps_taxonomy_api_create_type",
+    "summary": "Create Type",
+    "parameters": [],
+    "responses": {
+     "200": {
+      "description": "OK",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/TypeOut"
+        }
+       }
+      }
+     }
+    },
+    "tags": [
+     "taxonomy"
+    ],
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/NamedIn"
+       }
+      }
+     },
+     "required": true
+    },
+    "security": [
+     {
+      "MfaSessionAuth": []
+     }
+    ]
+   }
+  },
+  "/api/v1/document-types/{type_id}": {
+   "patch": {
+    "operationId": "apps_taxonomy_api_update_type",
+    "summary": "Update Type",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "type_id",
+      "schema": {
+       "title": "Type Id",
+       "type": "integer"
+      },
+      "required": true
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "OK",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/TypeOut"
+        }
+       }
+      }
+     }
+    },
+    "tags": [
+     "taxonomy"
+    ],
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/NamedIn"
+       }
+      }
+     },
+     "required": true
+    },
+    "security": [
+     {
+      "MfaSessionAuth": []
+     }
+    ]
+   },
+   "delete": {
+    "operationId": "apps_taxonomy_api_delete_type",
+    "summary": "Delete Type",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "type_id",
+      "schema": {
+       "title": "Type Id",
+       "type": "integer"
+      },
+      "required": true
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "OK"
+     }
+    },
+    "tags": [
+     "taxonomy"
+    ],
+    "security": [
+     {
+      "MfaSessionAuth": []
+     }
+    ]
+   }
+  },
+  "/api/v1/tags": {
+   "get": {
+    "operationId": "apps_taxonomy_api_list_tags",
+    "summary": "List Tags",
+    "parameters": [],
+    "responses": {
+     "200": {
+      "description": "OK",
+      "content": {
+       "application/json": {
+        "schema": {
+         "items": {
+          "$ref": "#/components/schemas/TagOut"
+         },
+         "title": "Response",
+         "type": "array"
+        }
+       }
+      }
+     }
+    },
+    "tags": [
+     "taxonomy"
+    ],
+    "security": [
+     {
+      "MfaSessionAuth": []
+     }
+    ]
+   },
+   "post": {
+    "operationId": "apps_taxonomy_api_create_tag",
+    "summary": "Create Tag",
+    "parameters": [],
+    "responses": {
+     "200": {
+      "description": "OK",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/TagOut"
+        }
+       }
+      }
+     }
+    },
+    "tags": [
+     "taxonomy"
+    ],
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/NamedIn"
+       }
+      }
+     },
+     "required": true
+    },
+    "security": [
+     {
+      "MfaSessionAuth": []
+     }
+    ]
+   }
+  },
+  "/api/v1/tags/{tag_id}": {
+   "patch": {
+    "operationId": "apps_taxonomy_api_update_tag",
+    "summary": "Update Tag",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "tag_id",
+      "schema": {
+       "title": "Tag Id",
+       "type": "integer"
+      },
+      "required": true
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "OK",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/TagOut"
+        }
+       }
+      }
+     }
+    },
+    "tags": [
+     "taxonomy"
+    ],
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/TagPatch"
+       }
+      }
+     },
+     "required": true
+    },
+    "security": [
+     {
+      "MfaSessionAuth": []
+     }
+    ]
+   },
+   "delete": {
+    "operationId": "apps_taxonomy_api_delete_tag",
+    "summary": "Delete Tag",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "tag_id",
+      "schema": {
+       "title": "Tag Id",
+       "type": "integer"
+      },
+      "required": true
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "OK"
+     }
+    },
+    "tags": [
+     "taxonomy"
+    ],
+    "security": [
+     {
+      "MfaSessionAuth": []
+     }
+    ]
+   }
+  },
+  "/api/v1/tags/{tag_id}/merge": {
+   "post": {
+    "operationId": "apps_taxonomy_api_merge_tag",
+    "summary": "Merge Tag",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "tag_id",
+      "schema": {
+       "title": "Tag Id",
+       "type": "integer"
+      },
+      "required": true
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "OK",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/TagOut"
+        }
+       }
+      }
+     }
+    },
+    "tags": [
+     "taxonomy"
+    ],
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/MergeIn"
+       }
+      }
+     },
+     "required": true
+    },
+    "security": [
+     {
+      "MfaSessionAuth": []
+     }
+    ]
+   }
+  },
+  "/api/v1/correspondents": {
+   "get": {
+    "operationId": "apps_taxonomy_api_list_correspondents",
+    "summary": "List Correspondents",
+    "parameters": [],
+    "responses": {
+     "200": {
+      "description": "OK",
+      "content": {
+       "application/json": {
+        "schema": {
+         "items": {
+          "$ref": "#/components/schemas/CorrespondentOut"
+         },
+         "title": "Response",
+         "type": "array"
+        }
+       }
+      }
+     }
+    },
+    "tags": [
+     "taxonomy"
+    ],
+    "security": [
+     {
+      "MfaSessionAuth": []
+     }
+    ]
+   },
+   "post": {
+    "operationId": "apps_taxonomy_api_create_correspondent",
+    "summary": "Create Correspondent",
+    "parameters": [],
+    "responses": {
+     "200": {
+      "description": "OK",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/CorrespondentOut"
+        }
+       }
+      }
+     }
+    },
+    "tags": [
+     "taxonomy"
+    ],
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/NamedIn"
+       }
+      }
+     },
+     "required": true
+    },
+    "security": [
+     {
+      "MfaSessionAuth": []
+     }
+    ]
+   }
+  },
+  "/api/v1/correspondents/{corr_id}": {
+   "patch": {
+    "operationId": "apps_taxonomy_api_update_correspondent",
+    "summary": "Update Correspondent",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "corr_id",
+      "schema": {
+       "title": "Corr Id",
+       "type": "integer"
+      },
+      "required": true
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "OK",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/CorrespondentOut"
+        }
+       }
+      }
+     }
+    },
+    "tags": [
+     "taxonomy"
+    ],
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/CorrespondentPatch"
+       }
+      }
+     },
+     "required": true
+    },
+    "security": [
+     {
+      "MfaSessionAuth": []
+     }
+    ]
+   },
+   "delete": {
+    "operationId": "apps_taxonomy_api_delete_correspondent",
+    "summary": "Delete Correspondent",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "corr_id",
+      "schema": {
+       "title": "Corr Id",
+       "type": "integer"
+      },
+      "required": true
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "OK"
+     }
+    },
+    "tags": [
+     "taxonomy"
+    ],
+    "security": [
+     {
+      "MfaSessionAuth": []
+     }
+    ]
+   }
+  },
+  "/api/v1/correspondents/{corr_id}/merge": {
+   "post": {
+    "operationId": "apps_taxonomy_api_merge_correspondent",
+    "summary": "Merge Correspondent",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "corr_id",
+      "schema": {
+       "title": "Corr Id",
+       "type": "integer"
+      },
+      "required": true
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "OK",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/CorrespondentOut"
+        }
+       }
+      }
+     }
+    },
+    "tags": [
+     "taxonomy"
+    ],
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/MergeIn"
+       }
+      }
+     },
+     "required": true
+    },
+    "security": [
+     {
+      "MfaSessionAuth": []
+     }
+    ]
+   }
+  },
+  "/api/v1/series": {
+   "get": {
+    "operationId": "apps_taxonomy_api_list_series",
+    "summary": "List Series",
+    "parameters": [],
+    "responses": {
+     "200": {
+      "description": "OK",
+      "content": {
+       "application/json": {
+        "schema": {
+         "items": {
+          "$ref": "#/components/schemas/SeriesOut"
+         },
+         "title": "Response",
+         "type": "array"
+        }
+       }
+      }
+     }
+    },
+    "tags": [
+     "taxonomy"
+    ],
+    "security": [
+     {
+      "MfaSessionAuth": []
+     }
+    ]
+   },
+   "post": {
+    "operationId": "apps_taxonomy_api_create_series",
+    "summary": "Create Series",
+    "parameters": [],
+    "responses": {
+     "200": {
+      "description": "OK",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/SeriesOut"
+        }
+       }
+      }
+     }
+    },
+    "tags": [
+     "taxonomy"
+    ],
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/SeriesIn"
+       }
+      }
+     },
+     "required": true
+    },
+    "security": [
+     {
+      "MfaSessionAuth": []
+     }
+    ]
+   }
+  },
+  "/api/v1/series/{series_id}": {
+   "get": {
+    "operationId": "apps_taxonomy_api_series_detail",
+    "summary": "Series Detail",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "series_id",
+      "schema": {
+       "title": "Series Id",
+       "type": "integer"
+      },
+      "required": true
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "OK",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/SeriesDetail"
+        }
+       }
+      }
+     }
+    },
+    "tags": [
+     "taxonomy"
+    ],
+    "security": [
+     {
+      "MfaSessionAuth": []
+     }
+    ]
+   },
+   "patch": {
+    "operationId": "apps_taxonomy_api_update_series",
+    "summary": "Update Series",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "series_id",
+      "schema": {
+       "title": "Series Id",
+       "type": "integer"
+      },
+      "required": true
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "OK",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/SeriesOut"
+        }
+       }
+      }
+     }
+    },
+    "tags": [
+     "taxonomy"
+    ],
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/SeriesPatch"
+       }
+      }
+     },
+     "required": true
+    },
+    "security": [
+     {
+      "MfaSessionAuth": []
+     }
+    ]
+   },
+   "delete": {
+    "operationId": "apps_taxonomy_api_delete_series",
+    "summary": "Delete Series",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "series_id",
+      "schema": {
+       "title": "Series Id",
+       "type": "integer"
+      },
+      "required": true
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "OK"
+     }
+    },
+    "tags": [
+     "taxonomy"
+    ],
+    "security": [
+     {
+      "MfaSessionAuth": []
+     }
+    ]
+   }
+  },
+  "/api/v1/rules": {
+   "get": {
+    "operationId": "apps_taxonomy_api_list_rules",
+    "summary": "List Rules",
+    "parameters": [],
+    "responses": {
+     "200": {
+      "description": "OK",
+      "content": {
+       "application/json": {
+        "schema": {
+         "items": {
+          "$ref": "#/components/schemas/RuleOut"
+         },
+         "title": "Response",
+         "type": "array"
+        }
+       }
+      }
+     }
+    },
+    "tags": [
+     "taxonomy"
+    ],
+    "security": [
+     {
+      "MfaSessionAuth": []
+     }
+    ]
+   },
+   "post": {
+    "operationId": "apps_taxonomy_api_create_rule",
+    "summary": "Create Rule",
+    "parameters": [],
+    "responses": {
+     "200": {
+      "description": "OK",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/RuleOut"
+        }
+       }
+      }
+     }
+    },
+    "tags": [
+     "taxonomy"
+    ],
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/RuleIn"
+       }
+      }
+     },
+     "required": true
+    },
+    "security": [
+     {
+      "MfaSessionAuth": []
+     }
+    ]
+   }
+  },
+  "/api/v1/rules/{rule_id}": {
+   "delete": {
+    "operationId": "apps_taxonomy_api_delete_rule",
+    "summary": "Delete Rule",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "rule_id",
+      "schema": {
+       "title": "Rule Id",
+       "type": "integer"
+      },
+      "required": true
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "OK"
+     }
+    },
+    "tags": [
+     "taxonomy"
+    ],
+    "security": [
+     {
+      "MfaSessionAuth": []
+     }
+    ]
+   }
+  },
+  "/api/v1/scanners": {
+   "get": {
+    "operationId": "apps_scanners_api_list_scanners",
+    "summary": "List Scanners",
+    "parameters": [],
+    "responses": {
+     "200": {
+      "description": "OK",
+      "content": {
+       "application/json": {
+        "schema": {
+         "items": {
+          "$ref": "#/components/schemas/ScannerOut"
+         },
+         "title": "Response",
+         "type": "array"
+        }
+       }
+      }
+     }
+    },
+    "tags": [
+     "scanners"
+    ],
+    "security": [
+     {
+      "MfaSessionAuth": []
+     }
+    ]
+   },
+   "post": {
+    "operationId": "apps_scanners_api_create_scanner",
+    "summary": "Create Scanner",
+    "parameters": [],
+    "responses": {
+     "200": {
+      "description": "OK",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/ScannerCreated"
+        }
+       }
+      }
+     }
+    },
+    "tags": [
+     "scanners"
+    ],
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/ScannerIn"
+       }
+      }
+     },
+     "required": true
+    },
+    "security": [
+     {
+      "MfaSessionAuth": []
+     }
+    ]
+   }
+  },
+  "/api/v1/scanners/{scanner_id}/rotate": {
+   "post": {
+    "operationId": "apps_scanners_api_rotate_token",
+    "summary": "Rotate Token",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "scanner_id",
+      "schema": {
+       "title": "Scanner Id",
+       "type": "integer"
+      },
+      "required": true
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "OK",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/ScannerCreated"
+        }
+       }
+      }
+     }
+    },
+    "tags": [
+     "scanners"
+    ],
+    "security": [
+     {
+      "MfaSessionAuth": []
+     }
+    ]
+   }
+  },
+  "/api/v1/scanners/{scanner_id}/revoke": {
+   "post": {
+    "operationId": "apps_scanners_api_revoke_scanner",
+    "summary": "Revoke Scanner",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "scanner_id",
+      "schema": {
+       "title": "Scanner Id",
+       "type": "integer"
+      },
+      "required": true
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "OK",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/ScannerOut"
+        }
+       }
+      }
+     }
+    },
+    "tags": [
+     "scanners"
+    ],
+    "security": [
+     {
+      "MfaSessionAuth": []
+     }
+    ]
+   }
+  },
+  "/api/v1/scanners/{scanner_id}": {
+   "delete": {
+    "operationId": "apps_scanners_api_delete_scanner",
+    "summary": "Delete Scanner",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "scanner_id",
+      "schema": {
+       "title": "Scanner Id",
+       "type": "integer"
+      },
+      "required": true
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "OK"
+     }
+    },
+    "tags": [
+     "scanners"
+    ],
+    "security": [
+     {
+      "MfaSessionAuth": []
+     }
+    ]
+   }
+  }
+ },
+ "components": {
+  "schemas": {
+   "OverviewOut": {
+    "properties": {
+     "total": {
+      "title": "Total",
+      "type": "integer"
+     },
+     "new": {
+      "title": "New",
+      "type": "integer"
+     },
+     "unread": {
+      "title": "Unread",
+      "type": "integer"
+     },
+     "todo": {
+      "title": "Todo",
+      "type": "integer"
+     },
+     "important": {
+      "title": "Important",
+      "type": "integer"
+     },
+     "failed": {
+      "title": "Failed",
+      "type": "integer"
+     },
+     "processing": {
+      "title": "Processing",
+      "type": "integer"
+     },
+     "waiting_for_storage": {
+      "title": "Waiting For Storage",
+      "type": "integer"
+     },
+     "series_suggestions": {
+      "title": "Series Suggestions",
+      "type": "integer"
+     },
+     "suggested_tags": {
+      "title": "Suggested Tags",
+      "type": "integer"
+     }
+    },
+    "required": [
+     "total",
+     "new",
+     "unread",
+     "todo",
+     "important",
+     "failed",
+     "processing",
+     "waiting_for_storage",
+     "series_suggestions",
+     "suggested_tags"
+    ],
+    "title": "OverviewOut",
+    "type": "object"
+   },
+   "StorageStatus": {
+    "properties": {
+     "backend": {
+      "title": "Backend",
+      "type": "string"
+     },
+     "ok": {
+      "anyOf": [
+       {
+        "type": "boolean"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Ok"
+     },
+     "needs_reauth": {
+      "title": "Needs Reauth",
+      "type": "boolean"
+     },
+     "message": {
+      "title": "Message",
+      "type": "string"
+     },
+     "checked_at": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Checked At"
+     }
+    },
+    "required": [
+     "backend",
+     "ok",
+     "needs_reauth",
+     "message",
+     "checked_at"
+    ],
+    "title": "StorageStatus",
+    "type": "object"
+   },
+   "SystemStatus": {
+    "properties": {
+     "version": {
+      "title": "Version",
+      "type": "string"
+     },
+     "storage": {
+      "$ref": "#/components/schemas/StorageStatus"
+     },
+     "worker_online": {
+      "title": "Worker Online",
+      "type": "boolean"
+     },
+     "worker_last_seen": {
+      "anyOf": [
+       {
+        "format": "date-time",
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Worker Last Seen"
+     },
+     "queued_jobs": {
+      "title": "Queued Jobs",
+      "type": "integer"
+     },
+     "failed_jobs": {
+      "title": "Failed Jobs",
+      "type": "integer"
+     }
+    },
+    "required": [
+     "version",
+     "storage",
+     "worker_online",
+     "worker_last_seen",
+     "queued_jobs",
+     "failed_jobs"
+    ],
+    "title": "SystemStatus",
+    "type": "object"
+   },
+   "AuditOut": {
+    "properties": {
+     "id": {
+      "title": "Id",
+      "type": "integer"
+     },
+     "created_at": {
+      "format": "date-time",
+      "title": "Created At",
+      "type": "string"
+     },
+     "actor_type": {
+      "title": "Actor Type",
+      "type": "string"
+     },
+     "actor_label": {
+      "title": "Actor Label",
+      "type": "string"
+     },
+     "action": {
+      "title": "Action",
+      "type": "string"
+     },
+     "target": {
+      "title": "Target",
+      "type": "string"
+     },
+     "ip": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Ip"
+     },
+     "details": {
+      "additionalProperties": true,
+      "title": "Details",
+      "type": "object"
+     }
+    },
+    "required": [
+     "id",
+     "created_at",
+     "actor_type",
+     "actor_label",
+     "action",
+     "target",
+     "ip",
+     "details"
+    ],
+    "title": "AuditOut",
+    "type": "object"
+   },
+   "MfaMethodsOut": {
+    "properties": {
+     "webauthn": {
+      "title": "Webauthn",
+      "type": "boolean"
+     },
+     "totp": {
+      "title": "Totp",
+      "type": "boolean"
+     },
+     "recovery": {
+      "title": "Recovery",
+      "type": "boolean"
+     }
+    },
+    "required": [
+     "webauthn",
+     "totp",
+     "recovery"
+    ],
+    "title": "MfaMethodsOut",
+    "type": "object"
+   },
+   "SessionStateOut": {
+    "properties": {
+     "authenticated": {
+      "title": "Authenticated",
+      "type": "boolean"
+     },
+     "mfa_complete": {
+      "title": "Mfa Complete",
+      "type": "boolean"
+     },
+     "needs_enrollment": {
+      "title": "Needs Enrollment",
+      "type": "boolean"
+     },
+     "pending_mfa": {
+      "anyOf": [
+       {
+        "$ref": "#/components/schemas/MfaMethodsOut"
+       },
+       {
+        "type": "null"
+       }
+      ]
+     },
+     "username": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Username"
+     },
+     "has_recovery_codes": {
+      "default": false,
+      "title": "Has Recovery Codes",
+      "type": "boolean"
+     }
+    },
+    "required": [
+     "authenticated",
+     "mfa_complete",
+     "needs_enrollment"
+    ],
+    "title": "SessionStateOut",
+    "type": "object"
+   },
+   "LoginIn": {
+    "properties": {
+     "username": {
+      "title": "Username",
+      "type": "string"
+     },
+     "password": {
+      "title": "Password",
+      "type": "string"
+     }
+    },
+    "required": [
+     "username",
+     "password"
+    ],
+    "title": "LoginIn",
+    "type": "object"
+   },
+   "CodeIn": {
+    "properties": {
+     "code": {
+      "title": "Code",
+      "type": "string"
+     }
+    },
+    "required": [
+     "code"
+    ],
+    "title": "CodeIn",
+    "type": "object"
+   },
+   "CredentialIn": {
+    "properties": {
+     "credential": {
+      "additionalProperties": true,
+      "title": "Credential",
+      "type": "object"
+     },
+     "name": {
+      "default": "",
+      "title": "Name",
+      "type": "string"
+     }
+    },
+    "required": [
+     "credential"
+    ],
+    "title": "CredentialIn",
+    "type": "object"
+   },
+   "PasswordIn": {
+    "properties": {
+     "password": {
+      "title": "Password",
+      "type": "string"
+     }
+    },
+    "required": [
+     "password"
+    ],
+    "title": "PasswordIn",
+    "type": "object"
+   },
+   "TotpSetupOut": {
+    "properties": {
+     "secret": {
+      "title": "Secret",
+      "type": "string"
+     },
+     "uri": {
+      "title": "Uri",
+      "type": "string"
+     }
+    },
+    "required": [
+     "secret",
+     "uri"
+    ],
+    "title": "TotpSetupOut",
+    "type": "object"
+   },
+   "RecoveryCodesOut": {
+    "properties": {
+     "codes": {
+      "items": {
+       "type": "string"
+      },
+      "title": "Codes",
+      "type": "array"
+     }
+    },
+    "required": [
+     "codes"
+    ],
+    "title": "RecoveryCodesOut",
+    "type": "object"
+   },
+   "DeviceOut": {
+    "properties": {
+     "id": {
+      "title": "Id",
+      "type": "integer"
+     },
+     "kind": {
+      "title": "Kind",
+      "type": "string"
+     },
+     "name": {
+      "title": "Name",
+      "type": "string"
+     },
+     "created_at": {
+      "format": "date-time",
+      "title": "Created At",
+      "type": "string"
+     },
+     "last_used_at": {
+      "anyOf": [
+       {
+        "format": "date-time",
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Last Used At"
+     }
+    },
+    "required": [
+     "id",
+     "kind",
+     "name",
+     "created_at"
+    ],
+    "title": "DeviceOut",
+    "type": "object"
+   },
+   "ChangePasswordIn": {
+    "properties": {
+     "current_password": {
+      "title": "Current Password",
+      "type": "string"
+     },
+     "new_password": {
+      "title": "New Password",
+      "type": "string"
+     }
+    },
+    "required": [
+     "current_password",
+     "new_password"
+    ],
+    "title": "ChangePasswordIn",
+    "type": "object"
+   },
+   "SessionOut": {
+    "properties": {
+     "id": {
+      "title": "Id",
+      "type": "integer"
+     },
+     "current": {
+      "title": "Current",
+      "type": "boolean"
+     },
+     "created_at": {
+      "format": "date-time",
+      "title": "Created At",
+      "type": "string"
+     },
+     "last_seen_at": {
+      "format": "date-time",
+      "title": "Last Seen At",
+      "type": "string"
+     },
+     "ip": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Ip"
+     },
+     "user_agent": {
+      "title": "User Agent",
+      "type": "string"
+     }
+    },
+    "required": [
+     "id",
+     "current",
+     "created_at",
+     "last_seen_at",
+     "ip",
+     "user_agent"
+    ],
+    "title": "SessionOut",
+    "type": "object"
+   },
+   "RevokedOut": {
+    "properties": {
+     "revoked": {
+      "title": "Revoked",
+      "type": "integer"
+     }
+    },
+    "required": [
+     "revoked"
+    ],
+    "title": "RevokedOut",
+    "type": "object"
+   },
+   "DocumentFilters": {
+    "properties": {
+     "q": {
+      "default": "",
+      "title": "Q",
+      "type": "string"
+     },
+     "bucket": {
+      "items": {
+       "type": "integer"
+      },
+      "title": "Bucket",
+      "type": "array"
+     },
+     "document_type": {
+      "items": {
+       "type": "integer"
+      },
+      "title": "Document Type",
+      "type": "array"
+     },
+     "correspondent": {
+      "items": {
+       "type": "integer"
+      },
+      "title": "Correspondent",
+      "type": "array"
+     },
+     "tag": {
+      "items": {
+       "type": "integer"
+      },
+      "title": "Tag",
+      "type": "array"
+     },
+     "series": {
+      "anyOf": [
+       {
+        "type": "integer"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Series"
+     },
+     "status": {
+      "items": {
+       "enum": [
+        "new",
+        "todo",
+        "done"
+       ],
+       "type": "string"
+      },
+      "title": "Status",
+      "type": "array"
+     },
+     "important": {
+      "anyOf": [
+       {
+        "type": "boolean"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Important"
+     },
+     "unread": {
+      "anyOf": [
+       {
+        "type": "boolean"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Unread"
+     },
+     "processing": {
+      "items": {
+       "enum": [
+        "pending",
+        "running",
+        "done",
+        "failed"
+       ],
+       "type": "string"
+      },
+      "title": "Processing",
+      "type": "array"
+     },
+     "uploaded_from": {
+      "anyOf": [
+       {
+        "format": "date",
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Uploaded From"
+     },
+     "uploaded_to": {
+      "anyOf": [
+       {
+        "format": "date",
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Uploaded To"
+     },
+     "date_from": {
+      "anyOf": [
+       {
+        "format": "date",
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Date From"
+     },
+     "date_to": {
+      "anyOf": [
+       {
+        "format": "date",
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Date To"
+     },
+     "sort": {
+      "default": "relevance",
+      "enum": [
+       "relevance",
+       "uploaded",
+       "-uploaded",
+       "date",
+       "-date"
+      ],
+      "title": "Sort",
+      "type": "string"
+     },
+     "page": {
+      "default": 1,
+      "minimum": 1,
+      "title": "Page",
+      "type": "integer"
+     },
+     "page_size": {
+      "default": 25,
+      "maximum": 100,
+      "minimum": 1,
+      "title": "Page Size",
+      "type": "integer"
+     }
+    },
+    "title": "DocumentFilters",
+    "type": "object"
+   },
+   "DocumentListItem": {
+    "properties": {
+     "id": {
+      "format": "uuid",
+      "title": "Id",
+      "type": "string"
+     },
+     "title": {
+      "title": "Title",
+      "type": "string"
+     },
+     "bucket": {
+      "$ref": "#/components/schemas/RefOut"
+     },
+     "document_type": {
+      "anyOf": [
+       {
+        "$ref": "#/components/schemas/RefOut"
+       },
+       {
+        "type": "null"
+       }
+      ]
+     },
+     "correspondent": {
+      "anyOf": [
+       {
+        "$ref": "#/components/schemas/RefOut"
+       },
+       {
+        "type": "null"
+       }
+      ]
+     },
+     "series": {
+      "anyOf": [
+       {
+        "$ref": "#/components/schemas/RefOut"
+       },
+       {
+        "type": "null"
+       }
+      ]
+     },
+     "period_label": {
+      "title": "Period Label",
+      "type": "string"
+     },
+     "tags": {
+      "items": {
+       "$ref": "#/components/schemas/TagRefOut"
+      },
+      "title": "Tags",
+      "type": "array"
+     },
+     "status": {
+      "title": "Status",
+      "type": "string"
+     },
+     "is_important": {
+      "title": "Is Important",
+      "type": "boolean"
+     },
+     "is_read": {
+      "title": "Is Read",
+      "type": "boolean"
+     },
+     "document_date": {
+      "anyOf": [
+       {
+        "format": "date",
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Document Date"
+     },
+     "uploaded_at": {
+      "format": "date-time",
+      "title": "Uploaded At",
+      "type": "string"
+     },
+     "page_count": {
+      "title": "Page Count",
+      "type": "integer"
+     },
+     "processing_state": {
+      "title": "Processing State",
+      "type": "string"
+     },
+     "processing_error": {
+      "title": "Processing Error",
+      "type": "string"
+     },
+     "has_series_suggestion": {
+      "title": "Has Series Suggestion",
+      "type": "boolean"
+     },
+     "score": {
+      "anyOf": [
+       {
+        "type": "number"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Score"
+     },
+     "snippet": {
+      "anyOf": [
+       {
+        "$ref": "#/components/schemas/SnippetOut"
+       },
+       {
+        "type": "null"
+       }
+      ]
+     }
+    },
+    "required": [
+     "id",
+     "title",
+     "bucket",
+     "document_type",
+     "correspondent",
+     "series",
+     "period_label",
+     "tags",
+     "status",
+     "is_important",
+     "is_read",
+     "document_date",
+     "uploaded_at",
+     "page_count",
+     "processing_state",
+     "processing_error",
+     "has_series_suggestion"
+    ],
+    "title": "DocumentListItem",
+    "type": "object"
+   },
+   "DocumentPage": {
+    "properties": {
+     "items": {
+      "items": {
+       "$ref": "#/components/schemas/DocumentListItem"
+      },
+      "title": "Items",
+      "type": "array"
+     },
+     "total": {
+      "title": "Total",
+      "type": "integer"
+     },
+     "page": {
+      "title": "Page",
+      "type": "integer"
+     },
+     "page_size": {
+      "title": "Page Size",
+      "type": "integer"
+     }
+    },
+    "required": [
+     "items",
+     "total",
+     "page",
+     "page_size"
+    ],
+    "title": "DocumentPage",
+    "type": "object"
+   },
+   "RefOut": {
+    "properties": {
+     "id": {
+      "title": "Id",
+      "type": "integer"
+     },
+     "name": {
+      "title": "Name",
+      "type": "string"
+     }
+    },
+    "required": [
+     "id",
+     "name"
+    ],
+    "title": "RefOut",
+    "type": "object"
+   },
+   "SnippetOut": {
+    "properties": {
+     "text": {
+      "title": "Text",
+      "type": "string"
+     },
+     "highlights": {
+      "items": {
+       "items": {
+        "type": "integer"
+       },
+       "type": "array"
+      },
+      "title": "Highlights",
+      "type": "array"
+     }
+    },
+    "required": [
+     "text",
+     "highlights"
+    ],
+    "title": "SnippetOut",
+    "type": "object"
+   },
+   "TagRefOut": {
+    "properties": {
+     "id": {
+      "title": "Id",
+      "type": "integer"
+     },
+     "name": {
+      "title": "Name",
+      "type": "string"
+     },
+     "color": {
+      "title": "Color",
+      "type": "string"
+     },
+     "source": {
+      "title": "Source",
+      "type": "string"
+     }
+    },
+    "required": [
+     "id",
+     "name",
+     "color",
+     "source"
+    ],
+    "title": "TagRefOut",
+    "type": "object"
+   },
+   "WebUploadOut": {
+    "properties": {
+     "id": {
+      "format": "uuid",
+      "title": "Id",
+      "type": "string"
+     },
+     "duplicate": {
+      "title": "Duplicate",
+      "type": "boolean"
+     }
+    },
+    "required": [
+     "id",
+     "duplicate"
+    ],
+    "title": "WebUploadOut",
+    "type": "object"
+   },
+   "BulkOut": {
+    "properties": {
+     "updated": {
+      "title": "Updated",
+      "type": "integer"
+     }
+    },
+    "required": [
+     "updated"
+    ],
+    "title": "BulkOut",
+    "type": "object"
+   },
+   "BulkAction": {
+    "properties": {
+     "ids": {
+      "items": {
+       "format": "uuid",
+       "type": "string"
+      },
+      "title": "Ids",
+      "type": "array"
+     },
+     "action": {
+      "enum": [
+       "mark_read",
+       "mark_unread",
+       "status_done",
+       "status_todo",
+       "status_new",
+       "important",
+       "unimportant"
+      ],
+      "title": "Action",
+      "type": "string"
+     }
+    },
+    "required": [
+     "ids",
+     "action"
+    ],
+    "title": "BulkAction",
+    "type": "object"
+   },
+   "DocumentDetail": {
+    "properties": {
+     "id": {
+      "format": "uuid",
+      "title": "Id",
+      "type": "string"
+     },
+     "title": {
+      "title": "Title",
+      "type": "string"
+     },
+     "bucket": {
+      "$ref": "#/components/schemas/RefOut"
+     },
+     "document_type": {
+      "anyOf": [
+       {
+        "$ref": "#/components/schemas/RefOut"
+       },
+       {
+        "type": "null"
+       }
+      ]
+     },
+     "correspondent": {
+      "anyOf": [
+       {
+        "$ref": "#/components/schemas/RefOut"
+       },
+       {
+        "type": "null"
+       }
+      ]
+     },
+     "series": {
+      "anyOf": [
+       {
+        "$ref": "#/components/schemas/RefOut"
+       },
+       {
+        "type": "null"
+       }
+      ]
+     },
+     "period_label": {
+      "title": "Period Label",
+      "type": "string"
+     },
+     "tags": {
+      "items": {
+       "$ref": "#/components/schemas/TagRefOut"
+      },
+      "title": "Tags",
+      "type": "array"
+     },
+     "status": {
+      "title": "Status",
+      "type": "string"
+     },
+     "is_important": {
+      "title": "Is Important",
+      "type": "boolean"
+     },
+     "is_read": {
+      "title": "Is Read",
+      "type": "boolean"
+     },
+     "document_date": {
+      "anyOf": [
+       {
+        "format": "date",
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Document Date"
+     },
+     "uploaded_at": {
+      "format": "date-time",
+      "title": "Uploaded At",
+      "type": "string"
+     },
+     "page_count": {
+      "title": "Page Count",
+      "type": "integer"
+     },
+     "processing_state": {
+      "title": "Processing State",
+      "type": "string"
+     },
+     "processing_error": {
+      "title": "Processing Error",
+      "type": "string"
+     },
+     "has_series_suggestion": {
+      "title": "Has Series Suggestion",
+      "type": "boolean"
+     },
+     "score": {
+      "anyOf": [
+       {
+        "type": "number"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Score"
+     },
+     "snippet": {
+      "anyOf": [
+       {
+        "$ref": "#/components/schemas/SnippetOut"
+       },
+       {
+        "type": "null"
+       }
+      ]
+     },
+     "series_suggestion": {
+      "anyOf": [
+       {
+        "$ref": "#/components/schemas/RefOut"
+       },
+       {
+        "type": "null"
+       }
+      ]
+     },
+     "field_sources": {
+      "additionalProperties": true,
+      "title": "Field Sources",
+      "type": "object"
+     },
+     "extracted": {
+      "additionalProperties": true,
+      "title": "Extracted",
+      "type": "object"
+     },
+     "scanner_metadata": {
+      "additionalProperties": true,
+      "title": "Scanner Metadata",
+      "type": "object"
+     },
+     "original_filename": {
+      "title": "Original Filename",
+      "type": "string"
+     },
+     "received_from": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Received From"
+     },
+     "size": {
+      "title": "Size",
+      "type": "integer"
+     },
+     "processing_stage": {
+      "title": "Processing Stage",
+      "type": "string"
+     },
+     "stored": {
+      "title": "Stored",
+      "type": "boolean"
+     },
+     "events": {
+      "items": {
+       "$ref": "#/components/schemas/EventOut"
+      },
+      "title": "Events",
+      "type": "array"
+     }
+    },
+    "required": [
+     "id",
+     "title",
+     "bucket",
+     "document_type",
+     "correspondent",
+     "series",
+     "period_label",
+     "tags",
+     "status",
+     "is_important",
+     "is_read",
+     "document_date",
+     "uploaded_at",
+     "page_count",
+     "processing_state",
+     "processing_error",
+     "has_series_suggestion",
+     "series_suggestion",
+     "field_sources",
+     "extracted",
+     "scanner_metadata",
+     "original_filename",
+     "received_from",
+     "size",
+     "processing_stage",
+     "stored",
+     "events"
+    ],
+    "title": "DocumentDetail",
+    "type": "object"
+   },
+   "EventOut": {
+    "properties": {
+     "stage": {
+      "title": "Stage",
+      "type": "string"
+     },
+     "outcome": {
+      "title": "Outcome",
+      "type": "string"
+     },
+     "message": {
+      "title": "Message",
+      "type": "string"
+     },
+     "duration_ms": {
+      "title": "Duration Ms",
+      "type": "integer"
+     },
+     "created_at": {
+      "format": "date-time",
+      "title": "Created At",
+      "type": "string"
+     }
+    },
+    "required": [
+     "stage",
+     "outcome",
+     "message",
+     "duration_ms",
+     "created_at"
+    ],
+    "title": "EventOut",
+    "type": "object"
+   },
+   "DocumentPatch": {
+    "properties": {
+     "title": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Title"
+     },
+     "document_date": {
+      "anyOf": [
+       {
+        "format": "date",
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Document Date"
+     },
+     "clear_document_date": {
+      "default": false,
+      "title": "Clear Document Date",
+      "type": "boolean"
+     },
+     "document_type_id": {
+      "anyOf": [
+       {
+        "type": "integer"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Document Type Id"
+     },
+     "bucket_id": {
+      "anyOf": [
+       {
+        "type": "integer"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Bucket Id"
+     },
+     "correspondent_id": {
+      "anyOf": [
+       {
+        "type": "integer"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Correspondent Id"
+     },
+     "correspondent_name": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Correspondent Name"
+     },
+     "clear_correspondent": {
+      "default": false,
+      "title": "Clear Correspondent",
+      "type": "boolean"
+     },
+     "tag_ids": {
+      "anyOf": [
+       {
+        "items": {
+         "type": "integer"
+        },
+        "type": "array"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Tag Ids"
+     },
+     "tag_names": {
+      "anyOf": [
+       {
+        "items": {
+         "type": "string"
+        },
+        "type": "array"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Tag Names"
+     },
+     "status": {
+      "anyOf": [
+       {
+        "enum": [
+         "new",
+         "todo",
+         "done"
+        ],
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Status"
+     },
+     "is_important": {
+      "anyOf": [
+       {
+        "type": "boolean"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Is Important"
+     },
+     "series_id": {
+      "anyOf": [
+       {
+        "type": "integer"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Series Id"
+     },
+     "clear_series": {
+      "default": false,
+      "title": "Clear Series",
+      "type": "boolean"
+     },
+     "accept_series_suggestion": {
+      "default": false,
+      "title": "Accept Series Suggestion",
+      "type": "boolean"
+     },
+     "reject_series_suggestion": {
+      "default": false,
+      "title": "Reject Series Suggestion",
+      "type": "boolean"
+     }
+    },
+    "title": "DocumentPatch",
+    "type": "object"
+   },
+   "TextOut": {
+    "properties": {
+     "text": {
+      "title": "Text",
+      "type": "string"
+     }
+    },
+    "required": [
+     "text"
+    ],
+    "title": "TextOut",
+    "type": "object"
+   },
+   "ReprocessIn": {
+    "properties": {
+     "stage": {
+      "default": "ocr",
+      "enum": [
+       "ocr",
+       "analyze"
+      ],
+      "title": "Stage",
+      "type": "string"
+     }
+    },
+    "title": "ReprocessIn",
+    "type": "object"
+   },
+   "BucketOut": {
+    "properties": {
+     "id": {
+      "title": "Id",
+      "type": "integer"
+     },
+     "name": {
+      "title": "Name",
+      "type": "string"
+     },
+     "slug": {
+      "title": "Slug",
+      "type": "string"
+     },
+     "color": {
+      "title": "Color",
+      "type": "string"
+     },
+     "document_count": {
+      "title": "Document Count",
+      "type": "integer"
+     }
+    },
+    "required": [
+     "id",
+     "name",
+     "slug",
+     "color",
+     "document_count"
+    ],
+    "title": "BucketOut",
+    "type": "object"
+   },
+   "NamedIn": {
+    "properties": {
+     "name": {
+      "title": "Name",
+      "type": "string"
+     },
+     "color": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Color"
+     }
+    },
+    "required": [
+     "name"
+    ],
+    "title": "NamedIn",
+    "type": "object"
+   },
+   "TypeOut": {
+    "properties": {
+     "id": {
+      "title": "Id",
+      "type": "integer"
+     },
+     "name": {
+      "title": "Name",
+      "type": "string"
+     },
+     "slug": {
+      "title": "Slug",
+      "type": "string"
+     },
+     "document_count": {
+      "title": "Document Count",
+      "type": "integer"
+     }
+    },
+    "required": [
+     "id",
+     "name",
+     "slug",
+     "document_count"
+    ],
+    "title": "TypeOut",
+    "type": "object"
+   },
+   "TagOut": {
+    "properties": {
+     "id": {
+      "title": "Id",
+      "type": "integer"
+     },
+     "name": {
+      "title": "Name",
+      "type": "string"
+     },
+     "color": {
+      "title": "Color",
+      "type": "string"
+     },
+     "is_suggested": {
+      "title": "Is Suggested",
+      "type": "boolean"
+     },
+     "aliases": {
+      "items": {
+       "type": "string"
+      },
+      "title": "Aliases",
+      "type": "array"
+     },
+     "document_count": {
+      "title": "Document Count",
+      "type": "integer"
+     }
+    },
+    "required": [
+     "id",
+     "name",
+     "color",
+     "is_suggested",
+     "aliases",
+     "document_count"
+    ],
+    "title": "TagOut",
+    "type": "object"
+   },
+   "TagPatch": {
+    "properties": {
+     "name": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Name"
+     },
+     "color": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Color"
+     },
+     "confirm": {
+      "default": false,
+      "title": "Confirm",
+      "type": "boolean"
+     },
+     "aliases": {
+      "anyOf": [
+       {
+        "items": {
+         "type": "string"
+        },
+        "type": "array"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Aliases"
+     }
+    },
+    "title": "TagPatch",
+    "type": "object"
+   },
+   "MergeIn": {
+    "properties": {
+     "target_id": {
+      "title": "Target Id",
+      "type": "integer"
+     }
+    },
+    "required": [
+     "target_id"
+    ],
+    "title": "MergeIn",
+    "type": "object"
+   },
+   "CorrespondentOut": {
+    "properties": {
+     "id": {
+      "title": "Id",
+      "type": "integer"
+     },
+     "name": {
+      "title": "Name",
+      "type": "string"
+     },
+     "aliases": {
+      "items": {
+       "type": "string"
+      },
+      "title": "Aliases",
+      "type": "array"
+     },
+     "document_count": {
+      "title": "Document Count",
+      "type": "integer"
+     }
+    },
+    "required": [
+     "id",
+     "name",
+     "aliases",
+     "document_count"
+    ],
+    "title": "CorrespondentOut",
+    "type": "object"
+   },
+   "CorrespondentPatch": {
+    "properties": {
+     "name": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Name"
+     },
+     "aliases": {
+      "anyOf": [
+       {
+        "items": {
+         "type": "string"
+        },
+        "type": "array"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Aliases"
+     }
+    },
+    "title": "CorrespondentPatch",
+    "type": "object"
+   },
+   "SeriesOut": {
+    "properties": {
+     "id": {
+      "title": "Id",
+      "type": "integer"
+     },
+     "name": {
+      "title": "Name",
+      "type": "string"
+     },
+     "cadence": {
+      "title": "Cadence",
+      "type": "string"
+     },
+     "is_suggested": {
+      "title": "Is Suggested",
+      "type": "boolean"
+     },
+     "correspondent": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Correspondent"
+     },
+     "document_type": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Document Type"
+     },
+     "document_count": {
+      "title": "Document Count",
+      "type": "integer"
+     },
+     "latest_date": {
+      "anyOf": [
+       {
+        "format": "date",
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Latest Date"
+     }
+    },
+    "required": [
+     "id",
+     "name",
+     "cadence",
+     "is_suggested",
+     "correspondent",
+     "document_type",
+     "document_count",
+     "latest_date"
+    ],
+    "title": "SeriesOut",
+    "type": "object"
+   },
+   "SeriesIn": {
+    "properties": {
+     "name": {
+      "title": "Name",
+      "type": "string"
+     },
+     "correspondent_id": {
+      "anyOf": [
+       {
+        "type": "integer"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Correspondent Id"
+     },
+     "document_type_id": {
+      "anyOf": [
+       {
+        "type": "integer"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Document Type Id"
+     }
+    },
+    "required": [
+     "name"
+    ],
+    "title": "SeriesIn",
+    "type": "object"
+   },
+   "SeriesDetail": {
+    "properties": {
+     "id": {
+      "title": "Id",
+      "type": "integer"
+     },
+     "name": {
+      "title": "Name",
+      "type": "string"
+     },
+     "cadence": {
+      "title": "Cadence",
+      "type": "string"
+     },
+     "is_suggested": {
+      "title": "Is Suggested",
+      "type": "boolean"
+     },
+     "correspondent": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Correspondent"
+     },
+     "document_type": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Document Type"
+     },
+     "document_count": {
+      "title": "Document Count",
+      "type": "integer"
+     },
+     "latest_date": {
+      "anyOf": [
+       {
+        "format": "date",
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Latest Date"
+     },
+     "members": {
+      "items": {
+       "$ref": "#/components/schemas/SeriesMemberOut"
+      },
+      "title": "Members",
+      "type": "array"
+     },
+     "missing_periods": {
+      "items": {
+       "type": "string"
+      },
+      "title": "Missing Periods",
+      "type": "array"
+     }
+    },
+    "required": [
+     "id",
+     "name",
+     "cadence",
+     "is_suggested",
+     "correspondent",
+     "document_type",
+     "document_count",
+     "latest_date",
+     "members",
+     "missing_periods"
+    ],
+    "title": "SeriesDetail",
+    "type": "object"
+   },
+   "SeriesMemberOut": {
+    "properties": {
+     "id": {
+      "format": "uuid",
+      "title": "Id",
+      "type": "string"
+     },
+     "title": {
+      "title": "Title",
+      "type": "string"
+     },
+     "period_label": {
+      "title": "Period Label",
+      "type": "string"
+     },
+     "document_date": {
+      "anyOf": [
+       {
+        "format": "date",
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Document Date"
+     },
+     "status": {
+      "title": "Status",
+      "type": "string"
+     }
+    },
+    "required": [
+     "id",
+     "title",
+     "period_label",
+     "document_date",
+     "status"
+    ],
+    "title": "SeriesMemberOut",
+    "type": "object"
+   },
+   "SeriesPatch": {
+    "properties": {
+     "name": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Name"
+     },
+     "cadence": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Cadence"
+     },
+     "confirm": {
+      "default": false,
+      "title": "Confirm",
+      "type": "boolean"
+     }
+    },
+    "title": "SeriesPatch",
+    "type": "object"
+   },
+   "RuleOut": {
+    "properties": {
+     "id": {
+      "title": "Id",
+      "type": "integer"
+     },
+     "phrase": {
+      "title": "Phrase",
+      "type": "string"
+     },
+     "correspondent": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Correspondent"
+     },
+     "document_type": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Document Type"
+     },
+     "tags": {
+      "items": {
+       "type": "string"
+      },
+      "title": "Tags",
+      "type": "array"
+     }
+    },
+    "required": [
+     "id",
+     "phrase",
+     "correspondent",
+     "document_type",
+     "tags"
+    ],
+    "title": "RuleOut",
+    "type": "object"
+   },
+   "RuleIn": {
+    "properties": {
+     "phrase": {
+      "title": "Phrase",
+      "type": "string"
+     },
+     "correspondent_id": {
+      "anyOf": [
+       {
+        "type": "integer"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Correspondent Id"
+     },
+     "document_type_id": {
+      "anyOf": [
+       {
+        "type": "integer"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Document Type Id"
+     },
+     "tag_ids": {
+      "default": [],
+      "items": {
+       "type": "integer"
+      },
+      "title": "Tag Ids",
+      "type": "array"
+     }
+    },
+    "required": [
+     "phrase"
+    ],
+    "title": "RuleIn",
+    "type": "object"
+   },
+   "ScannerOut": {
+    "properties": {
+     "id": {
+      "title": "Id",
+      "type": "integer"
+     },
+     "name": {
+      "title": "Name",
+      "type": "string"
+     },
+     "token_prefix": {
+      "title": "Token Prefix",
+      "type": "string"
+     },
+     "scopes": {
+      "items": {
+       "type": "string"
+      },
+      "title": "Scopes",
+      "type": "array"
+     },
+     "allowed_ips": {
+      "items": {
+       "type": "string"
+      },
+      "title": "Allowed Ips",
+      "type": "array"
+     },
+     "created_at": {
+      "format": "date-time",
+      "title": "Created At",
+      "type": "string"
+     },
+     "last_used_at": {
+      "anyOf": [
+       {
+        "format": "date-time",
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Last Used At"
+     },
+     "last_used_ip": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Last Used Ip"
+     },
+     "expires_at": {
+      "anyOf": [
+       {
+        "format": "date-time",
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Expires At"
+     },
+     "revoked_at": {
+      "anyOf": [
+       {
+        "format": "date-time",
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Revoked At"
+     },
+     "active": {
+      "title": "Active",
+      "type": "boolean"
+     },
+     "document_count": {
+      "title": "Document Count",
+      "type": "integer"
+     }
+    },
+    "required": [
+     "id",
+     "name",
+     "token_prefix",
+     "scopes",
+     "allowed_ips",
+     "created_at",
+     "last_used_at",
+     "last_used_ip",
+     "expires_at",
+     "revoked_at",
+     "active",
+     "document_count"
+    ],
+    "title": "ScannerOut",
+    "type": "object"
+   },
+   "ScannerCreated": {
+    "properties": {
+     "scanner": {
+      "$ref": "#/components/schemas/ScannerOut"
+     },
+     "token": {
+      "title": "Token",
+      "type": "string"
+     }
+    },
+    "required": [
+     "scanner",
+     "token"
+    ],
+    "title": "ScannerCreated",
+    "type": "object"
+   },
+   "ScannerIn": {
+    "properties": {
+     "name": {
+      "title": "Name",
+      "type": "string"
+     },
+     "allow_status": {
+      "default": true,
+      "title": "Allow Status",
+      "type": "boolean"
+     },
+     "allowed_ips": {
+      "default": [],
+      "items": {
+       "type": "string"
+      },
+      "title": "Allowed Ips",
+      "type": "array"
+     },
+     "expires_at": {
+      "anyOf": [
+       {
+        "format": "date-time",
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Expires At"
+     }
+    },
+    "required": [
+     "name"
+    ],
+    "title": "ScannerIn",
+    "type": "object"
+   }
+  },
+  "securitySchemes": {
+   "MfaSessionAuth": {
+    "type": "apiKey",
+    "in": "cookie",
+    "name": "__Host-docnest_session"
+   },
+   "EnrollmentSessionAuth": {
+    "type": "apiKey",
+    "in": "cookie",
+    "name": "__Host-docnest_session"
+   }
+  }
+ },
+ "servers": []
+}

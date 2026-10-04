@@ -1,0 +1,71 @@
+[project]
+name = "docnest"
+version = "0.1.0"
+description = "Secure, self-hosted document management with OCR, encrypted search and Proton Drive storage."
+readme = "../README.md"
+license = "Apache-2.0"
+requires-python = ">=3.13"
+dependencies = [
+    "django>=5.2,<5.3",
+    "django-ninja>=1.4,<2",
+    "psycopg[binary]>=3.2,<4",
+    "argon2-cffi>=23.1",
+    "cryptography>=43",
+    "webauthn>=2.5,<4",
+    "pyotp>=2.9",
+    "pikepdf>=9",
+    "ocrmypdf>=16",
+    "snowballstemmer>=2.2",
+    "dateparser>=1.2",
+    "rapidfuzz>=3.9",
+    "gunicorn>=23",
+    "whitenoise>=6.7",
+    "supervisor>=4.2",
+    "pillow>=10",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=8",
+    "pytest-django>=4.9",
+    "pytest-cov>=5",
+    "ruff>=0.6",
+    "mypy>=1.11",
+    "django-stubs>=5.1",
+    "reportlab>=4.2",
+    "freezegun>=1.5",
+]
+
+[tool.uv]
+package = false
+
+[tool.ruff]
+line-length = 110
+target-version = "py313"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "B", "UP", "S", "DJ", "SIM", "RUF"]
+ignore = ["S101", "S603", "S607", "RUF012", "S311", "DJ008", "RUF001", "RUF002", "RUF003", "SIM108", "S608"]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["S105", "S106", "S108", "RUF059", "E501"]
+"**/migrations/**" = ["E501", "RUF"]
+"apps/analysis/keywords.py" = ["E501"]
+
+[tool.pytest.ini_options]
+DJANGO_SETTINGS_MODULE = "docnest.settings"
+python_files = ["test_*.py"]
+testpaths = ["tests"]
+addopts = "-ra --strict-markers"
+markers = [
+    "ocr: tests that run the real OCR toolchain (slow)",
+]
+
+[tool.mypy]
+python_version = "3.13"
+plugins = ["mypy_django_plugin.main"]
+ignore_missing_imports = true
+check_untyped_defs = true
+
+[tool.django-stubs]
+django_settings_module = "docnest.settings"
