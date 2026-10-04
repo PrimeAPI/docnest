@@ -1,0 +1,21 @@
+# IDE
+.idea/
+.vscode/
+
+# Secrets — never commit
+/secrets/
+
+# Local Proton Drive CLI binary (downloaded by the Docker build instead)
+/proton-drive
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+
+# Node
+node_modules/
+dist/
+/deploy/secrets/
+/deploy/.env
+/backend/.data/

@@ -1,0 +1,44 @@
+# Version tag vX.Y.Z: run the full test suite, then publish
+#   ghcr.io/<owner>/docnest:X.Y.Z, :X.Y and :latest
+name: Release
+
+on:
+  push:
+    tags: ["v*.*.*"]
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    uses: ./.github/workflows/ci.yml
+
+  image:
+    needs: test   # failing tests block the release
+    uses: ./.github/workflows/publish-image.yml
+    with:
+      kind: release
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
+      attestations: write
+
+  github-release:
+    needs: image
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Create GitHub release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          OWNER="${GITHUB_REPOSITORY_OWNER,,}"
+          VERSION="${GITHUB_REF_NAME#v}"
+          gh release create "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --generate-notes --notes "$(cat <<NOTES
+          Docker image: \`ghcr.io/${OWNER}/docnest:${VERSION}\` (also \`:latest\`)
+
+          Upgrade: \`docker compose pull && docker compose up -d\`
+          NOTES
+          )"

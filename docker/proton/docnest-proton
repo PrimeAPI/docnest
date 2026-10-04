@@ -1,0 +1,16 @@
+#!/bin/sh
+# Runs the Proton Drive CLI with DocNest's hardened settings.
+# Regular calls are serialized with a lock: the CLI rotates the refresh token,
+# and two processes refreshing concurrently could invalidate the session.
+# `auth ...` (interactive login/logout) does not take the lock, so a pending
+# login can never block document storage.
+set -eu
+: "${DOCNEST_PROTON_SESSION_DIR:?not set}"
+: "${PROTON_DRIVE_CACHE_DIR:?not set}"
+mkdir -p "$DOCNEST_PROTON_SESSION_DIR" "$PROTON_DRIVE_CACHE_DIR"
+chmod 700 "$DOCNEST_PROTON_SESSION_DIR" "$PROTON_DRIVE_CACHE_DIR"
+CLI=/opt/proton-drive/proton-drive
+if [ "${1:-}" = "auth" ]; then
+  exec "$CLI" "$@"
+fi
+exec flock -w "${DOCNEST_PROTON_LOCK_WAIT:-900}" -E 75 "$DOCNEST_PROTON_SESSION_DIR/.cli.lock" "$CLI" "$@"

@@ -1,0 +1,103 @@
+from __future__ import annotations
+
+from django.db import models
+from django.db.models.functions import Lower
+from django.utils import timezone
+
+
+class Bucket(models.Model):
+    """Logical separation of document areas (e.g. Private, Business, Studies)."""
+
+    name = models.CharField(max_length=80, unique=True)
+    slug = models.SlugField(max_length=80, unique=True)
+    color = models.CharField(max_length=20, default="slate")
+
+    class Meta:
+        ordering = ["name"]
+
+    def __str__(self) -> str:
+        return self.name
+
+
+class DocumentType(models.Model):
+    name = models.CharField(max_length=80, unique=True)
+    slug = models.SlugField(max_length=80, unique=True)
+
+    class Meta:
+        ordering = ["name"]
+
+    def __str__(self) -> str:
+        return self.name
+
+
+class Tag(models.Model):
+    name = models.CharField(max_length=80)
+    color = models.CharField(max_length=20, default="slate")
+    is_suggested = models.BooleanField(
+        default=False, help_text="Created automatically, awaiting confirmation"
+    )
+    created_at = models.DateTimeField(default=timezone.now)
+
+    class Meta:
+        ordering = ["name"]
+        constraints = [models.UniqueConstraint(Lower("name"), name="tag_name_ci_unique")]
+
+    def __str__(self) -> str:
+        return self.name
+
+
+class TagAlias(models.Model):
+    tag = models.ForeignKey(Tag, on_delete=models.CASCADE, related_name="aliases")
+    alias = models.CharField(max_length=80)
+
+    class Meta:
+        constraints = [models.UniqueConstraint(Lower("alias"), name="tag_alias_ci_unique")]
+
+
+class Correspondent(models.Model):
+    """Sender / organisation of a document."""
+
+    name = models.CharField(max_length=150)
+    aliases = models.JSONField(default=list, blank=True, help_text="Alternative spellings to match in text")
+    created_at = models.DateTimeField(default=timezone.now)
+
+    class Meta:
+        ordering = ["name"]
+        constraints = [models.UniqueConstraint(Lower("name"), name="correspondent_name_ci_unique")]
+
+    def __str__(self) -> str:
+        return self.name
+
+
+class Series(models.Model):
+    """A group of recurring documents (e.g. monthly payslips)."""
+
+    class Cadence(models.TextChoices):
+        MONTHLY = "monthly"
+        QUARTERLY = "quarterly"
+        YEARLY = "yearly"
+        IRREGULAR = "irregular"
+
+    name = models.CharField(max_length=150)
+    correspondent = models.ForeignKey(Correspondent, null=True, blank=True, on_delete=models.SET_NULL)
+    document_type = models.ForeignKey(DocumentType, null=True, blank=True, on_delete=models.SET_NULL)
+    cadence = models.CharField(max_length=20, choices=Cadence.choices, default=Cadence.IRREGULAR)
+    is_suggested = models.BooleanField(default=False)
+    created_at = models.DateTimeField(default=timezone.now)
+
+    class Meta:
+        ordering = ["name"]
+        verbose_name_plural = "series"
+
+    def __str__(self) -> str:
+        return self.name
+
+
+class MatchRule(models.Model):
+    """User-defined rule: if the text contains a phrase, set correspondent/type/tags."""
+
+    phrase = models.CharField(max_length=200)
+    correspondent = models.ForeignKey(Correspondent, null=True, blank=True, on_delete=models.CASCADE)
+    document_type = models.ForeignKey(DocumentType, null=True, blank=True, on_delete=models.CASCADE)
+    tags = models.ManyToManyField(Tag, blank=True)
+    created_at = models.DateTimeField(default=timezone.now)

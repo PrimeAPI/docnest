@@ -1,0 +1,86 @@
+# Reusable: builds the production image and pushes it to GHCR.
+name: Publish image
+
+on:
+  workflow_call:
+    inputs:
+      kind:
+        description: "preview (every push) or release (version tags)"
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  image:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
+      attestations: write
+    steps:
+      - uses: actions/checkout@v5
+      - name: Image name (GHCR requires lowercase)
+        run: echo "IMAGE=ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/docnest" >> "$GITHUB_ENV"
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.IMAGE }}
+          flavor: latest=false
+          tags: |
+            # preview: every push → :edge (default branch), :<branch>, :sha-<short>
+            type=raw,value=edge,enable=${{ inputs.kind == 'preview' && github.ref_name == github.event.repository.default_branch }}
+            type=ref,event=branch,enable=${{ inputs.kind == 'preview' }}
+            type=sha,prefix=sha-,format=short,enable=${{ inputs.kind == 'preview' }}
+            # release: vX.Y.Z → :X.Y.Z, :X.Y, :latest
+            type=semver,pattern={{version}},enable=${{ inputs.kind == 'release' }}
+            type=semver,pattern={{major}}.{{minor}},enable=${{ inputs.kind == 'release' }}
+            type=raw,value=latest,enable=${{ inputs.kind == 'release' }}
+      - name: Version string
+        run: |
+          if [ "${{ inputs.kind }}" = release ]; then echo "VERSION=${GITHUB_REF_NAME#v}" >> "$GITHUB_ENV";
+          else echo "VERSION=${GITHUB_REF_NAME}-${GITHUB_SHA::7}" >> "$GITHUB_ENV"; fi
+      - name: Build and push
+        id: push
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: docker/Dockerfile
+          target: runtime
+          # The Proton Drive CLI is published for linux-x64 (see docs/proton-drive.md)
+          platforms: linux/amd64
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          build-args: VERSION=${{ env.VERSION }}
+          provenance: mode=max
+          sbom: true
+          cache-from: type=gha,scope=runtime
+          cache-to: type=gha,mode=max,scope=runtime
+      - uses: actions/attest-build-provenance@v2
+        with:
+          subject-name: ${{ env.IMAGE }}
+          subject-digest: ${{ steps.push.outputs.digest }}
+          push-to-registry: true
+      - name: Vulnerability scan (report only)
+        run: |
+          docker run --rm aquasec/trivy:latest image --severity CRITICAL,HIGH --ignore-unfixed \
+            --exit-code 0 --no-progress "${IMAGE}@${{ steps.push.outputs.digest }}"
+      - name: Summary
+        run: |
+          {
+            echo "### Image published (${{ inputs.kind }})"
+            echo
+            echo '```'
+            echo "${{ steps.meta.outputs.tags }}"
+            echo '```'
+            echo "Digest: \`${{ steps.push.outputs.digest }}\`"
+          } >> "$GITHUB_STEP_SUMMARY"

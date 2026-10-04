@@ -1,0 +1,17 @@
+# Overrides for the local end-to-end test stack (see run-local.sh).
+services:
+  app:
+    image: ghcr.io/primeapi/docnest:e2e
+    environment:
+      DOCNEST_STORAGE_BACKEND: local
+      DOCNEST_STORAGE_LOCAL_DIR: /var/lib/docnest/data/storage
+
+secrets:
+  master_key:
+    file: ${E2E_SECRETS:?}/master_key
+  django_secret_key:
+    file: ${E2E_SECRETS:?}/django_secret_key
+  db_password:
+    file: ${E2E_SECRETS:?}/db_password
+  db_admin_password:
+    file: ${E2E_SECRETS:?}/db_admin_password

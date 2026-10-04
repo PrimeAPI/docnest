@@ -1,0 +1,13 @@
+DocNest
+Copyright 2026 The DocNest Authors
+
+This product is licensed under the Apache License, Version 2.0 (see LICENSE).
+Redistributions and derivative works must retain this NOTICE file and the
+copyright notices, and must state any significant changes made.
+
+The DocNest container image additionally contains third-party software under
+its own licenses, including:
+  - Proton Drive CLI (https://proton.me/support/drive-cli), © Proton AG
+  - Tesseract OCR, OCRmyPDF, Ghostscript, Poppler, qpdf, pikepdf
+  - Django, Django Ninja, React, PDF.js and other open-source libraries listed
+    in backend/uv.lock and frontend/pnpm-lock.yaml
