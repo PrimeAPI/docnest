@@ -74,10 +74,16 @@ jobs:
           subject-digest: ${{ steps.push.outputs.digest }}
           push-to-registry: true
       - name: Vulnerability scan (report only)
+        continue-on-error: true
+        env:
+          TRIVY_USERNAME: ${{ github.actor }}
+          TRIVY_PASSWORD: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          docker run --rm aquasec/trivy:latest image --severity CRITICAL,HIGH --ignore-unfixed \
-            --exit-code 0 --no-progress "${IMAGE}@${{ steps.push.outputs.digest }}"
+          docker run --rm -e TRIVY_USERNAME -e TRIVY_PASSWORD aquasec/trivy:latest image \
+            --scanners vuln --severity CRITICAL,HIGH --ignore-unfixed --exit-code 0 --no-progress \
+            "${IMAGE}@${{ steps.push.outputs.digest }}"
       - name: Summary
+        if: always() && steps.push.outcome == 'success'
         run: |
           {
             echo "### Image published (${{ inputs.kind }})"
