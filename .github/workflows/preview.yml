@@ -5,7 +5,7 @@ name: Preview
 
 on:
   push:
-    branches: ["**"]
+    branches: ["**", "!dependabot/**"]   # Dependabot PRs are not built
 
 permissions:
   contents: read
