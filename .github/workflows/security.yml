@@ -30,7 +30,7 @@ jobs:
           cd backend
           uv export --frozen --no-dev --no-hashes -o /tmp/requirements.txt
           pipx run pip-audit -r /tmp/requirements.txt --strict
-      - uses: pnpm/action-setup@v4
+      - uses: pnpm/action-setup@v6
         with:
           package_json_file: frontend/package.json
       - name: JavaScript
