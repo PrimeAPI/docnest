@@ -69,10 +69,13 @@ Never use real documents. `backend/tests/pdfs.py` generates synthetic letters (t
 
 | Workflow | Trigger | What it does |
 |---|---|---|
-| `preview.yml` | every push, any branch | full test suite (backend incl. OCR, frontend, browser e2e), then publishes `:sha-<commit>`, `:<branch>` and — on `main` — `:edge` |
-| `release.yml` | tag `vX.Y.Z` | full test suite, then publishes `:X.Y.Z`, `:X.Y`, `:latest` and creates a GitHub release |
-| `ci.yml` | pull requests (and called by the two above) | tests only, nothing is published |
+| `preview.yml` | every push, any branch | builds and publishes `:sha-<commit>`, `:<branch>` and — on `main` — `:edge` (no tests) |
+| `release.yml` | tag `vX.Y.Z` | builds and publishes `:X.Y.Z`, `:X.Y`, `:latest` and creates a GitHub release |
+| `ci.yml` | pull requests, manual | backend (lint, types, tests incl. OCR) and frontend (types, tests, build) |
+| `e2e.yml` | manual | browser end-to-end tests against the production image |
 | `security.yml` | push, PR, weekly | gitleaks over the git history, pip-audit, pnpm audit |
+
+Run the tests before tagging a release: `gh workflow run ci.yml` (and `gh workflow run e2e.yml`), or locally as described above.
 
 Images are built for linux/amd64 with SBOM and provenance attestation; a Trivy report is in the job log.
 

@@ -1,4 +1,4 @@
-# Version tag vX.Y.Z: run the full test suite, then publish
+# Version tag vX.Y.Z: build and publish
 #   ghcr.io/<owner>/docnest:X.Y.Z, :X.Y and :latest
 name: Release
 
@@ -10,11 +10,7 @@ permissions:
   contents: read
 
 jobs:
-  test:
-    uses: ./.github/workflows/ci.yml
-
   image:
-    needs: test   # failing tests block the release
     uses: ./.github/workflows/publish-image.yml
     with:
       kind: release

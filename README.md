@@ -1,6 +1,6 @@
 # DocNest
 
-[![Preview](https://github.com/PrimeAPI/docnest/actions/workflows/preview.yml/badge.svg)](https://github.com/PrimeAPI/docnest/actions/workflows/preview.yml)
+[![Build](https://github.com/PrimeAPI/docnest/actions/workflows/preview.yml/badge.svg)](https://github.com/PrimeAPI/docnest/actions/workflows/preview.yml)
 [![Security](https://github.com/PrimeAPI/docnest/actions/workflows/security.yml/badge.svg)](https://github.com/PrimeAPI/docnest/actions/workflows/security.yml)
 
 **A self-hosted, security-first document archive for scanned mail.** A scanner uploads PDFs; DocNest runs OCR, recognizes sender, date, type and tags, groups recurring documents into series, stores the files in **Proton Drive** and makes everything searchable — without ever keeping readable document text in its database.
@@ -50,7 +50,7 @@ Point your reverse proxy at `127.0.0.1:8000` (examples in [docs/operations.md](d
 | Tag | Built from | Use for |
 |---|---|---|
 | `latest`, `X.Y.Z`, `X.Y` | release tags `vX.Y.Z` | production |
-| `edge` | every push to `main` (after all tests pass) | trying the newest version |
+| `edge` | every push to `main` | trying the newest version |
 | `<branch>`, `sha-<commit>` | every push to any branch | testing a specific change |
 
 Set `DOCNEST_VERSION` in `.env` accordingly, then `docker compose pull && docker compose up -d`.
