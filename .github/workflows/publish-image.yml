@@ -65,7 +65,7 @@ jobs:
           sbom: true
           cache-from: type=gha,scope=runtime
           cache-to: type=gha,mode=max,scope=runtime
-      - uses: actions/attest-build-provenance@v2
+      - uses: actions/attest-build-provenance@v4
         with:
           subject-name: ${{ env.IMAGE }}
           subject-digest: ${{ steps.push.outputs.digest }}
