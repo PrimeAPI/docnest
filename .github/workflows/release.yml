@@ -30,6 +30,11 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
+          # A release drafted in the GitHub UI creates the tag itself; keep it as is.
+          if gh release view "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "Release $GITHUB_REF_NAME already exists, leaving it unchanged."
+            exit 0
+          fi
           OWNER="${GITHUB_REPOSITORY_OWNER,,}"
           VERSION="${GITHUB_REF_NAME#v}"
           gh release create "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --generate-notes --notes "$(cat <<NOTES
