@@ -10,6 +10,11 @@ set -eu
 mkdir -p "$DOCNEST_PROTON_SESSION_DIR" "$PROTON_DRIVE_CACHE_DIR"
 chmod 700 "$DOCNEST_PROTON_SESSION_DIR" "$PROTON_DRIVE_CACHE_DIR"
 CLI=/opt/proton-drive/proton-drive
+# The standard x64 build needs AVX2 and dies with SIGILL (exit 132) without it,
+# e.g. in VMs with a generic CPU model. Those CPUs get the baseline build.
+if [ -x /opt/proton-drive/proton-drive-baseline ] && ! grep -qw avx2 /proc/cpuinfo; then
+  CLI=/opt/proton-drive/proton-drive-baseline
+fi
 if [ "${1:-}" = "auth" ]; then
   exec "$CLI" "$@"
 fi

@@ -41,7 +41,7 @@ Telemetry follows the Proton account setting. To turn it off, disable usage stat
   - Writes are atomic (temp file, fsync, rename, directory fsync) under an flock. Only the one entry name is accepted.
 - **`docnest-proton` wrapper** (`docker/proton/docnest-proton`): every CLI call except `auth` goes through `flock`. The CLI rotates refresh tokens, and two processes refreshing at the same moment could invalidate the session. Parallel calls work as such, but DocNest serializes them on purpose.
 - **Container**: non-root UID 10001, read-only root filesystem, all capabilities dropped, `no-new-privileges`. CLI state lives in the volume `/var/lib/docnest/proton` (`session/` and `cache/`). Log level is `WARNING`.
-- **Binary**: downloaded during the image build from `https://proton.me/download/drive/cli/<version>/linux-x64/proton-drive` and pinned by SHA-256. It is never committed to Git.
+- **Binary**: downloaded during the image build from `https://proton.me/download/drive/cli/<version>/<platform>/proton-drive` and pinned by SHA-256. It is never committed to Git. amd64 images contain both `linux-x64` and `linux-x64-baseline`: the standard build needs AVX2, which many VMs don't expose (generic CPU models such as Proxmox's `kvm64`), and crashes there with exit code 132. `docnest-proton` checks `/proc/cpuinfo` on every call and uses the baseline build when AVX2 is missing. arm64 builds use `linux-arm64`.
 
 ## One-time login (operator)
 

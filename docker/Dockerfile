@@ -20,8 +20,14 @@ RUN pnpm build
 # ---------------------------------------------------------------------------
 FROM python:${PYTHON_VERSION}-slim-trixie AS base
 
+# Proton Drive CLI builds, pinned by SHA-256. amd64 images carry both the
+# standard build (needs AVX2) and the baseline build; `docnest-proton` picks
+# one at runtime from the CPU flags.
+ARG TARGETARCH
 ARG PROTON_DRIVE_CLI_VERSION=0.8.0
-ARG PROTON_DRIVE_CLI_SHA256=9443d771719c892790db17e6f02ecd99ad7c53593329f3a67c77677dce577735
+ARG PROTON_DRIVE_CLI_SHA256_X64=9443d771719c892790db17e6f02ecd99ad7c53593329f3a67c77677dce577735
+ARG PROTON_DRIVE_CLI_SHA256_X64_BASELINE=765fd434e7ea53f1f45c823408ad10dfdca60069885a3b577c420e2511775175
+ARG PROTON_DRIVE_CLI_SHA256_ARM64=086bc4740a73cb8eb4900d51836bff0c332dda390b3f0780d9f805fd5c2a5fe3
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
@@ -34,11 +40,18 @@ RUN apt-get update \
       tesseract-ocr tesseract-ocr-deu tesseract-ocr-eng \
       ghostscript poppler-utils unpaper pngquant qpdf \
       libpq5 util-linux \
- && curl -fsSL -o /tmp/proton-drive \
-      "https://proton.me/download/drive/cli/${PROTON_DRIVE_CLI_VERSION}/linux-x64/proton-drive" \
- && echo "${PROTON_DRIVE_CLI_SHA256}  /tmp/proton-drive" | sha256sum -c - \
- && install -D -m 0755 /tmp/proton-drive /opt/proton-drive/proton-drive \
- && rm /tmp/proton-drive \
+ && fetch_cli() { \
+      curl -fsSL -o /tmp/proton-drive \
+        "https://proton.me/download/drive/cli/${PROTON_DRIVE_CLI_VERSION}/$1/proton-drive" \
+   && echo "$2  /tmp/proton-drive" | sha256sum -c - \
+   && install -D -m 0755 /tmp/proton-drive "/opt/proton-drive/$3" \
+   && rm /tmp/proton-drive; } \
+ && case "${TARGETARCH:-amd64}" in \
+      amd64) fetch_cli linux-x64 "${PROTON_DRIVE_CLI_SHA256_X64}" proton-drive \
+          && fetch_cli linux-x64-baseline "${PROTON_DRIVE_CLI_SHA256_X64_BASELINE}" proton-drive-baseline ;; \
+      arm64) fetch_cli linux-arm64 "${PROTON_DRIVE_CLI_SHA256_ARM64}" proton-drive ;; \
+      *) echo "unsupported architecture: ${TARGETARCH}" >&2; exit 1 ;; \
+    esac \
  && apt-get purge -y curl && apt-get autoremove -y \
  && rm -rf /var/lib/apt/lists/*
 
