@@ -27,7 +27,7 @@ Deviations from the original plan (the original plan below is kept unchanged for
 | Postgres app role | Separate superuser (`postgres`) + non-superuser `docnest` role owning the DB | Least privilege (SEC05) |
 | Proton login | In-container `docnest proton-login` with an encrypted `pass` shim (see `docs/proton-drive.md`) | Verified in spike S1 |
 
-Open point: whether Proton's terms allow redistributing the CLI binary inside the public image (it is currently downloaded and pinned at build time).
+Resolved: the Proton Drive CLI is MIT-licensed (github.com/ProtonDriveApps/sdk), so bundling it in the public image is allowed; its license text ships in the image.
 
 ---
 

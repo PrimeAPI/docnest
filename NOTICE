@@ -7,7 +7,9 @@ copyright notices, and must state any significant changes made.
 
 The DocNest container image additionally contains third-party software under
 its own licenses, including:
-  - Proton Drive CLI (https://proton.me/support/drive-cli), © Proton AG
+  - Proton Drive CLI, © Proton AG, MIT License
+    (source: https://github.com/ProtonDriveApps/sdk; license text in the image at
+    /opt/proton-drive/LICENSE.md and in docker/proton/LICENSE.proton-drive-cli.md)
   - Tesseract OCR, OCRmyPDF, Ghostscript, Poppler, qpdf, pikepdf
   - Django, Django Ninja, React, PDF.js and other open-source libraries listed
     in backend/uv.lock and frontend/pnpm-lock.yaml

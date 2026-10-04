@@ -50,6 +50,8 @@ RUN groupadd --gid 10001 docnest \
 # Proton Drive CLI integration: `pass` is DocNest's encrypted credentials shim.
 COPY --chmod=0755 docker/proton/docnest-pass /usr/local/bin/pass
 COPY --chmod=0755 docker/proton/docnest-proton /usr/local/bin/docnest-proton
+# The Proton Drive CLI is MIT-licensed (github.com/ProtonDriveApps/sdk); its license ships with the binary.
+COPY docker/proton/LICENSE.proton-drive-cli.md /opt/proton-drive/LICENSE.md
 
 ENV VIRTUAL_ENV=/opt/venv \
     PATH=/opt/venv/bin:$PATH \

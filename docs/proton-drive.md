@@ -82,9 +82,12 @@ Implications for the storage adapter:
 - Expect ~3–4 s per call. This is fine for background jobs, but the latency is noticeable when opening a document. An optional encrypted view cache helps there.
 - `fs list` can raise `EPIPE` when its output is cut off early. The adapter must read stdout completely.
 
+## License
+
+The CLI is open source under the MIT license (source in the [Drive SDK repository](https://github.com/ProtonDriveApps/sdk), `cli/`, © Proton AG). MIT permits redistribution, so the pinned binary is bundled in the public DocNest image together with its license text (`/opt/proton-drive/LICENSE.md`).
+
 ## Open points
 
-- Proton's terms for redistributing the CLI binary inside a public GHCR image. Until this is clarified, the image downloads the pinned binary at build time. If redistribution is not allowed, the download can move to first container start.
 - Session lifetime without use. The worker's health check runs `fs list /` every 10 minutes, which also keeps the session refreshed.
 
 ## Adapter verification (2026-10-04)
