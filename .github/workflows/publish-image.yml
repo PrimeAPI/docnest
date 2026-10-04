@@ -65,7 +65,10 @@ jobs:
           sbom: true
           cache-from: type=gha,scope=runtime
           cache-to: type=gha,mode=max,scope=runtime
-      - uses: actions/attest-build-provenance@v2
+      - name: Attest build provenance
+        # GitHub supports attestations only for public (or organization) repositories
+        if: ${{ !github.event.repository.private }}
+        uses: actions/attest-build-provenance@v2
         with:
           subject-name: ${{ env.IMAGE }}
           subject-digest: ${{ steps.push.outputs.digest }}
