@@ -68,7 +68,7 @@ REFERENCE_RE = re.compile(
     r"customer\s?(?:no|number|id)|vertrags-?\s?(?:nr|nummer)|contract\s?(?:no|number)|"
     r"versicherungs(?:schein)?-?\s?(?:nr|nummer)|policy\s?(?:no|number)|steuer-?\s?(?:nr|nummer)|"
     r"aktenzeichen|personal-?\s?(?:nr|nummer)|kennzeichen|matrikel-?\s?(?:nr|nummer))"
-    r"\.?\s*[:#]?\s*(?P<value>[A-Z0-9][A-Z0-9\-/ ]{2,30}[A-Z0-9])",
+    r"\.?\s*[:#]?\s*(?P<value>(?:[A-Z]{1,4} )?[A-Z0-9][A-Z0-9\-/]{2,30})",
     re.I,
 )
 

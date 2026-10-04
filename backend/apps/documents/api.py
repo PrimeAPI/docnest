@@ -548,8 +548,12 @@ def document_file(
     response["Cache-Control"] = "no-store"
     response["X-Content-Type-Options"] = "nosniff"
     response["Content-Security-Policy"] = "default-src 'none'; sandbox"
-    if download:
-        audit("document.downloaded", request=request, target=str(document.uuid), variant=variant)
+    audit(
+        "document.downloaded" if download else "document.opened",
+        request=request,
+        target=str(document.uuid),
+        variant=variant,
+    )
     return response
 
 

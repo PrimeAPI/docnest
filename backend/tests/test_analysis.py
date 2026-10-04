@@ -153,3 +153,9 @@ def test_tag_merge_and_alias(api):
 
     assert find_tag("Kfz").name == "Fahrzeug"
     assert TagAlias.objects.filter(alias="KFZ").exists()
+
+
+def test_reference_numbers_do_not_swallow_following_words():
+    refs = extraction.find_references("Personalnummer 004711   Steuerklasse 1\nKundennummer: KD 778899")
+    assert refs["personalnummer"] == "004711"
+    assert refs["kundennummer"] == "KD 778899"

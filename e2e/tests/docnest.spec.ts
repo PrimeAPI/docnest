@@ -248,6 +248,82 @@ test("PDFs can be uploaded from the web UI by drag & drop and file picker", asyn
   await expect(page.getByText("invoice-scan.pdf is already in DocNest")).toBeVisible();
 });
 
+test("the inbox can be reviewed one document at a time using the OCR text", async ({ page }) => {
+  await login(page);
+  await page.getByRole("button", { name: "Use authenticator app" }).click();
+  await page.getByLabel("6-digit code from your authenticator app").fill(await freshTotp(totpSecret));
+  await page.getByRole("button", { name: "Verify" }).click();
+  await expect(page).toHaveURL(/\/inbox/);
+
+  await page.getByRole("button", { name: /Review inbox/ }).click();
+  await expect(page.getByText(/Reviewing 1 of \d+/)).toBeVisible();
+  const total = Number((await page.getByText(/Reviewing 1 of \d+/).textContent())?.match(/of (\d+)/)?.[1]);
+  await page.getByRole("button", { name: "Text", exact: true }).click();
+  const ocr = page.getByTestId("ocr-text");
+  await expect(ocr).toBeVisible();
+
+  // select a word in the OCR text and send it to the title field
+  const selectText = async (needle: RegExp) => {
+    await ocr.evaluate((el, source) => {
+      const re = new RegExp(source);
+      const node = el.firstChild as Text;
+      const m = re.exec(node.data);
+      if (!m) throw new Error(`not found: ${source}`);
+      const range = document.createRange();
+      range.setStart(node, m.index);
+      range.setEnd(node, m.index + m[0].length);
+      const sel = window.getSelection()!;
+      sel.removeAllRanges();
+      sel.addRange(range);
+      el.dispatchEvent(new MouseEvent("mouseup", { bubbles: true }));
+    }, needle.source);
+  };
+  await selectText(/Gehaltsabrechnung \S+ 2026|Rechnung Nr\. \S+|Beitragsrechnung[^\n]*/);
+  await page.getByRole("button", { name: "Title", exact: true }).click();
+  const title = await page.getByLabel("Title").inputValue();
+  expect(title.length).toBeGreaterThan(5);
+
+  await selectText(/\d{2}\.\d{2}\.\d{4}/);
+  await page.getByRole("button", { name: "Date", exact: true }).click();
+  await expect(page.getByLabel("Document date")).toHaveValue(/^\d{4}-\d{2}-\d{2}$/);
+
+  await page.getByRole("button", { name: "Save & next" }).click();
+  if (total > 1) await expect(page.getByText(`Reviewing 2 of ${total}`)).toBeVisible();
+  else await expect(page.getByText("All done — inbox reviewed")).toBeVisible();
+
+  // the saved document left the inbox with the chosen title
+  await page.goto(`/documents?q=${encodeURIComponent(title.split(" ")[0])}&status=done`);
+  await expect(page.getByRole("link", { name: title })).toBeVisible();
+});
+
+test("sign-ins are logged with device, failures and per-session actions", async ({ page }) => {
+  // a failed attempt by "someone else"
+  const failedLogin = await page.context().browser()!.newContext();
+  const p2 = await failedLogin.newPage();
+  await p2.goto("/login");
+  await p2.getByLabel("Username").fill(USER);
+  await p2.getByLabel("Password").fill("definitely-wrong");
+  await p2.getByRole("button", { name: "Continue" }).click();
+  await expect(p2.getByText("Invalid username or password")).toBeVisible();
+  await failedLogin.close();
+
+  await login(page);
+  await page.getByRole("button", { name: "Use authenticator app" }).click();
+  await page.getByLabel("6-digit code from your authenticator app").fill(await freshTotp(totpSecret));
+  await page.getByRole("button", { name: "Verify" }).click();
+  await expect(page.getByText(/failed sign-in attempt/)).toBeVisible();
+  await expect(page.getByText(/Last sign-in .* from /)).toBeVisible();
+
+  await page.getByRole("link", { name: "Settings" }).click();
+  await expect(page.getByText("Sign-in activity")).toBeVisible();
+  await expect(page.getByText("This session")).toBeVisible();
+  await expect(page.getByText("Wrong password").first()).toBeVisible();
+  await expect(page.getByText(/Chrome on \w+ · /).first()).toBeVisible();
+  // an earlier session in which documents were opened and edited
+  await page.getByRole("button", { name: /authenticator app.*actions/ }).first().click();
+  await expect(page.getByText(/Opened|Edited|Uploaded/).first()).toBeVisible();
+});
+
 test("screenshots of the main pages", async ({ page }) => {
   test.skip(!process.env.SCREENSHOTS, "set SCREENSHOTS=1 to capture");
   await page.setViewportSize({ width: 1440, height: 900 });
@@ -276,6 +352,20 @@ test("screenshots of the main pages", async ({ page }) => {
   await page.locator("main a[href^='/documents/']").first().click();
   await expect(page.locator(".pdf-page canvas").first()).toBeVisible({ timeout: 30_000 });
   await shot("document");
+  await page.goto("/inbox/review");
+  await page.getByRole("button", { name: "Both", exact: true }).click();
+  await expect(page.locator(".pdf-page canvas").first()).toBeVisible({ timeout: 30_000 });
+  await page.getByTestId("ocr-text").evaluate((el) => {
+    const node = el.firstChild as Text;
+    const i = node.data.indexOf("Muenchen");
+    const range = document.createRange();
+    range.setStart(node, Math.max(0, i));
+    range.setEnd(node, Math.max(0, i) + 8);
+    window.getSelection()!.removeAllRanges();
+    window.getSelection()!.addRange(range);
+    el.dispatchEvent(new MouseEvent("mouseup", { bubbles: true }));
+  });
+  await shot("review");
   await page.emulateMedia({ colorScheme: "dark" });
   await page.goto("/inbox");
   await shot("inbox-dark");

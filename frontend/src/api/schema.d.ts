@@ -398,6 +398,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/account/activity": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Sign In Activity
+         * @description Sign-ins (successful and failed) of the current user and what happened in each session.
+         */
+        get: operations["apps_accounts_api_sign_in_activity"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/documents": {
         parameters: {
             query?: never;
@@ -962,6 +982,20 @@ export interface components {
             /** Recovery */
             recovery: boolean;
         };
+        /** PreviousLoginOut */
+        PreviousLoginOut: {
+            /**
+             * At
+             * Format: date-time
+             */
+            at: string;
+            /** Ip */
+            ip: string | null;
+            /** User Agent */
+            user_agent: string;
+            /** Method */
+            method: string;
+        };
         /** SessionStateOut */
         SessionStateOut: {
             /** Authenticated */
@@ -978,6 +1012,12 @@ export interface components {
              * @default false
              */
             has_recovery_codes: boolean;
+            previous_login?: components["schemas"]["PreviousLoginOut"] | null;
+            /**
+             * Failed Since Previous Login
+             * @default 0
+             */
+            failed_since_previous_login: number;
         };
         /** LoginIn */
         LoginIn: {
@@ -1068,6 +1108,50 @@ export interface components {
         RevokedOut: {
             /** Revoked */
             revoked: number;
+        };
+        /** ActivityActionOut */
+        ActivityActionOut: {
+            /**
+             * At
+             * Format: date-time
+             */
+            at: string;
+            /** Action */
+            action: string;
+            /** Target */
+            target: string;
+            /** Target Title */
+            target_title?: string | null;
+            /** Details */
+            details: {
+                [key: string]: unknown;
+            };
+        };
+        /** SignInOut */
+        SignInOut: {
+            /** Id */
+            id: number;
+            /**
+             * At
+             * Format: date-time
+             */
+            at: string;
+            /** Outcome */
+            outcome: string;
+            /** Method */
+            method: string;
+            /** Ip */
+            ip: string | null;
+            /** User Agent */
+            user_agent: string;
+            /** Current */
+            current: boolean;
+            /** Active */
+            active: boolean;
+            /** Last Activity At */
+            last_activity_at: string | null;
+            /** Actions */
+            actions: components["schemas"]["ActivityActionOut"][];
         };
         /** DocumentFilters */
         DocumentFilters: {
@@ -2103,6 +2187,28 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+        };
+    };
+    apps_accounts_api_sign_in_activity: {
+        parameters: {
+            query?: {
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SignInOut"][];
+                };
             };
         };
     };

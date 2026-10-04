@@ -1,6 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   Activity,
+  ChevronDown,
   Copy,
   HardDrive,
   KeyRound,
@@ -31,7 +32,9 @@ import { Input, Label } from "@/components/ui/input";
 import { EmptyState, ErrorNote, PageHeader, Spinner } from "@/components/ui/misc";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { KeyEnroll, RecoveryCodes, TotpEnroll } from "@/features/auth/enroll";
-import { formatDateTime, relativeTime } from "@/lib/utils";
+import { Link } from "react-router";
+import { describeAction, describeAgent, describeMethod } from "@/lib/agent";
+import { cn, formatDateTime, relativeTime } from "@/lib/utils";
 
 export function SettingsPage() {
   return (
@@ -50,6 +53,7 @@ export function SettingsPage() {
           </TabsTrigger>
         </TabsList>
         <TabsContent value="security" className="flex flex-col gap-6">
+          <SignInActivity />
           <SecondFactors />
           <Sessions />
           <PasswordCard />
@@ -67,6 +71,109 @@ export function SettingsPage() {
 }
 
 // --- Security -------------------------------------------------------------------
+
+const OUTCOME: Record<string, { label: string; variant: "success" | "danger" | "warning" }> = {
+  success: { label: "Signed in", variant: "success" },
+  failed: { label: "Wrong password", variant: "danger" },
+  wrong_second_factor: { label: "Wrong second factor", variant: "danger" },
+  blocked: { label: "Blocked (too many attempts)", variant: "warning" },
+};
+
+function SignInActivity() {
+  const activity = useQuery({
+    queryKey: ["sign-in-activity"],
+    queryFn: () => call(() => client.GET("/api/v1/account/activity", { params: { query: { limit: 50 } } })),
+  });
+  const [open, setOpen] = useState<number | null>(null);
+  const failed = activity.data?.filter((a) => a.outcome !== "success").length ?? 0;
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>Sign-in activity</CardTitle>
+        <CardDescription>
+          Every sign-in and failed attempt for your account, with what happened in each session. If you see something
+          you don't recognize, sign out the other sessions and change your password.
+        </CardDescription>
+      </CardHeader>
+      <CardContent>
+        {activity.isPending ? (
+          <Spinner />
+        ) : activity.error ? (
+          <ErrorNote error={activity.error} />
+        ) : (
+          <>
+            {failed > 0 && (
+              <p className="mb-3 text-sm text-amber-700 dark:text-amber-300">
+                {failed} failed attempt{failed === 1 ? "" : "s"} in the last {activity.data.length} entries.
+              </p>
+            )}
+            <div className="divide-y rounded-md border">
+              {activity.data.map((a) => {
+                const o = OUTCOME[a.outcome] ?? { label: a.outcome, variant: "warning" as const };
+                const expandable = a.actions.length > 0;
+                return (
+                  <div key={a.id} className="text-sm">
+                    <button
+                      type="button"
+                      disabled={!expandable}
+                      onClick={() => setOpen(open === a.id ? null : a.id)}
+                      className="flex w-full items-center gap-3 px-3 py-2.5 text-left enabled:cursor-pointer enabled:hover:bg-muted/50"
+                    >
+                      <Badge variant={o.variant} className="shrink-0">
+                        {o.label}
+                      </Badge>
+                      <div className="min-w-0 flex-1">
+                        <div className="truncate font-medium">
+                          {describeAgent(a.user_agent)} · {a.ip ?? "unknown IP"}
+                        </div>
+                        <div className="text-xs text-muted-foreground">
+                          {formatDateTime(a.at)}
+                          {a.outcome === "success" && a.method && ` · ${describeMethod(a.method)}`}
+                          {a.last_activity_at && ` · last activity ${relativeTime(a.last_activity_at)}`}
+                          {expandable && ` · ${a.actions.length} action${a.actions.length === 1 ? "" : "s"}`}
+                        </div>
+                      </div>
+                      {a.current ? (
+                        <Badge variant="success">This session</Badge>
+                      ) : a.active ? (
+                        <Badge variant="outline">Active</Badge>
+                      ) : null}
+                      {expandable && (
+                        <ChevronDown className={cn("size-4 shrink-0 transition-transform", open === a.id && "rotate-180")} />
+                      )}
+                    </button>
+                    {open === a.id && (
+                      <ol className="border-t bg-muted/30 px-3 py-2">
+                        {a.actions.map((act, i) => (
+                          <li key={i} className="flex gap-3 py-1 text-xs">
+                            <span className="w-28 shrink-0 tabular-nums text-muted-foreground">
+                              {formatDateTime(act.at).replace(/^.*?, /, "")}
+                            </span>
+                            <span className="font-medium">{describeAction(act.action)}</span>
+                            {act.target_title ? (
+                              <Link to={`/documents/${act.target}`} className="min-w-0 truncate hover:underline">
+                                {act.target_title}
+                              </Link>
+                            ) : act.target && !/^[0-9a-f-]{36}$/.test(act.target) ? (
+                              <span className="min-w-0 truncate text-muted-foreground">{act.target}</span>
+                            ) : act.target ? (
+                              <span className="text-muted-foreground">(deleted document)</span>
+                            ) : null}
+                          </li>
+                        ))}
+                      </ol>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          </>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
 
 function SecondFactors() {
   const qc = useQueryClient();
@@ -192,7 +299,9 @@ function Sessions() {
             <div key={s.id} className="flex items-center gap-3 px-3 py-2.5 text-sm">
               <Monitor className="size-4 shrink-0" />
               <div className="min-w-0 flex-1">
-                <div className="truncate font-medium">{s.user_agent || "Unknown browser"}</div>
+                <div className="truncate font-medium" title={s.user_agent}>
+                  {describeAgent(s.user_agent)}
+                </div>
                 <div className="text-xs text-muted-foreground">
                   {s.ip ?? "unknown IP"} · signed in {relativeTime(s.created_at)} · active{" "}
                   {relativeTime(s.last_seen_at)}

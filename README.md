@@ -6,6 +6,7 @@
 **A self-hosted, security-first document archive for scanned mail.** A scanner uploads PDFs; DocNest runs OCR, recognizes sender, date, type and tags, groups recurring documents into series, stores the files in **Proton Drive** and makes everything searchable — without ever keeping readable document text in its database.
 
 - **Inbox workflow** — new, unread, todo and important documents at a glance; one click to mark done.
+- **Review mode** — go through the inbox one document at a time: PDF and OCR text side by side, select text to fill title, sender, date or tags, then “Save & next”.
 - **Upload from anywhere** — scanners use the upload API; in the browser just drag & drop PDFs onto DocNest.
 - **Full-text search over scans** — finds words that exist only as pixels in a scanned letter, with prefix and German compound-word matching (`versicherung` finds `Fahrzeugversicherung`).
 - **Automatic analysis, no AI service** — rules, heuristics and a small classifier that learns from your corrections. Nothing leaves your server.

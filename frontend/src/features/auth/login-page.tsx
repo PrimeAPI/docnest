@@ -7,8 +7,28 @@ import { keys, type SessionState, useSession } from "@/api/queries";
 import { Button } from "@/components/ui/button";
 import { Input, Label } from "@/components/ui/input";
 import { ErrorNote, Spinner } from "@/components/ui/misc";
+import { toast } from "sonner";
+import { describeAgent } from "@/lib/agent";
+import { formatDateTime } from "@/lib/utils";
 import { AuthShell } from "./auth-shell";
 import { cancelWebauthn, getAssertion, webauthnErrorMessage, webauthnSupported } from "./webauthn";
+
+function announcePreviousLogin(state: SessionState) {
+  const prev = state.previous_login;
+  const failed = state.failed_since_previous_login ?? 0;
+  if (failed > 0) {
+    toast.warning(`${failed} failed sign-in attempt${failed === 1 ? "" : "s"} since your last visit`, {
+      description: "Check Settings → Security → Sign-in activity. Change your password if this wasn't you.",
+      duration: 15000,
+    });
+  }
+  if (prev) {
+    toast.info("Welcome back", {
+      description: `Last sign-in ${formatDateTime(prev.at)} from ${prev.ip ?? "unknown IP"} (${describeAgent(prev.user_agent)})`,
+      duration: 8000,
+    });
+  }
+}
 
 function safeNext(next: string | null): string {
   return next && next.startsWith("/") && !next.startsWith("//") ? next : "/inbox";
@@ -23,7 +43,10 @@ export function LoginPage() {
 
   const done = (state: SessionState) => {
     qc.setQueryData(keys.session, state);
-    if (state.mfa_complete) navigate(next, { replace: true });
+    if (state.mfa_complete) {
+      announcePreviousLogin(state);
+      navigate(next, { replace: true });
+    }
     else if (state.authenticated) navigate("/setup", { replace: true });
   };
 

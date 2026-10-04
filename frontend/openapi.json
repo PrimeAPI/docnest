@@ -687,6 +687,49 @@
     ]
    }
   },
+  "/api/v1/account/activity": {
+   "get": {
+    "operationId": "apps_accounts_api_sign_in_activity",
+    "summary": "Sign In Activity",
+    "parameters": [
+     {
+      "in": "query",
+      "name": "limit",
+      "schema": {
+       "default": 50,
+       "title": "Limit",
+       "type": "integer"
+      },
+      "required": false
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "OK",
+      "content": {
+       "application/json": {
+        "schema": {
+         "items": {
+          "$ref": "#/components/schemas/SignInOut"
+         },
+         "title": "Response",
+         "type": "array"
+        }
+       }
+      }
+     }
+    },
+    "description": "Sign-ins (successful and failed) of the current user and what happened in each session.",
+    "tags": [
+     "account"
+    ],
+    "security": [
+     {
+      "MfaSessionAuth": []
+     }
+    ]
+   }
+  },
   "/api/v1/documents": {
    "get": {
     "operationId": "apps_documents_api_list_documents",
@@ -2735,6 +2778,42 @@
     "title": "MfaMethodsOut",
     "type": "object"
    },
+   "PreviousLoginOut": {
+    "properties": {
+     "at": {
+      "format": "date-time",
+      "title": "At",
+      "type": "string"
+     },
+     "ip": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Ip"
+     },
+     "user_agent": {
+      "title": "User Agent",
+      "type": "string"
+     },
+     "method": {
+      "title": "Method",
+      "type": "string"
+     }
+    },
+    "required": [
+     "at",
+     "ip",
+     "user_agent",
+     "method"
+    ],
+    "title": "PreviousLoginOut",
+    "type": "object"
+   },
    "SessionStateOut": {
     "properties": {
      "authenticated": {
@@ -2774,6 +2853,21 @@
       "default": false,
       "title": "Has Recovery Codes",
       "type": "boolean"
+     },
+     "previous_login": {
+      "anyOf": [
+       {
+        "$ref": "#/components/schemas/PreviousLoginOut"
+       },
+       {
+        "type": "null"
+       }
+      ]
+     },
+     "failed_since_previous_login": {
+      "default": 0,
+      "title": "Failed Since Previous Login",
+      "type": "integer"
      }
     },
     "required": [
@@ -2998,6 +3092,124 @@
      "revoked"
     ],
     "title": "RevokedOut",
+    "type": "object"
+   },
+   "ActivityActionOut": {
+    "properties": {
+     "at": {
+      "format": "date-time",
+      "title": "At",
+      "type": "string"
+     },
+     "action": {
+      "title": "Action",
+      "type": "string"
+     },
+     "target": {
+      "title": "Target",
+      "type": "string"
+     },
+     "target_title": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Target Title"
+     },
+     "details": {
+      "additionalProperties": true,
+      "title": "Details",
+      "type": "object"
+     }
+    },
+    "required": [
+     "at",
+     "action",
+     "target",
+     "details"
+    ],
+    "title": "ActivityActionOut",
+    "type": "object"
+   },
+   "SignInOut": {
+    "properties": {
+     "id": {
+      "title": "Id",
+      "type": "integer"
+     },
+     "at": {
+      "format": "date-time",
+      "title": "At",
+      "type": "string"
+     },
+     "outcome": {
+      "title": "Outcome",
+      "type": "string"
+     },
+     "method": {
+      "title": "Method",
+      "type": "string"
+     },
+     "ip": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Ip"
+     },
+     "user_agent": {
+      "title": "User Agent",
+      "type": "string"
+     },
+     "current": {
+      "title": "Current",
+      "type": "boolean"
+     },
+     "active": {
+      "title": "Active",
+      "type": "boolean"
+     },
+     "last_activity_at": {
+      "anyOf": [
+       {
+        "format": "date-time",
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Last Activity At"
+     },
+     "actions": {
+      "items": {
+       "$ref": "#/components/schemas/ActivityActionOut"
+      },
+      "title": "Actions",
+      "type": "array"
+     }
+    },
+    "required": [
+     "id",
+     "at",
+     "outcome",
+     "method",
+     "ip",
+     "user_agent",
+     "current",
+     "active",
+     "last_activity_at",
+     "actions"
+    ],
+    "title": "SignInOut",
     "type": "object"
    },
    "DocumentFilters": {
@@ -4690,12 +4902,12 @@
    "MfaSessionAuth": {
     "type": "apiKey",
     "in": "cookie",
-    "name": "__Host-docnest_session"
+    "name": "docnest_session"
    },
    "EnrollmentSessionAuth": {
     "type": "apiKey",
     "in": "cookie",
-    "name": "__Host-docnest_session"
+    "name": "docnest_session"
    }
   }
  },

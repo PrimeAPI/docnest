@@ -193,6 +193,7 @@ MAX_PAGES = env_int("DOCNEST_MAX_PAGES", 500)
 JOB_LEASE_SECONDS = env_int("DOCNEST_JOB_LEASE_SECONDS", 1800)
 JOB_MAX_ATTEMPTS = env_int("DOCNEST_JOB_MAX_ATTEMPTS", 5)
 WORKER_POLL_SECONDS = env_int("DOCNEST_WORKER_POLL_SECONDS", 30)
+AUDIT_RETENTION_DAYS = env_int("DOCNEST_AUDIT_RETENTION_DAYS", 365)
 
 # --- Static / SPA -----------------------------------------------------------
 

@@ -41,7 +41,7 @@ Check **Settings → System**: storage should show *Connected* and the worker *R
 | `DOCNEST_TMP_SIZE` | `2g` | RAM-backed work area for OCR and downloads. |
 | `DOCNEST_MAX_UPLOAD_MB` | `100` | Maximum upload size. |
 
-Advanced variables (set under `environment:` in `compose.yml` if needed): `DOCNEST_SESSION_IDLE_TIMEOUT_MINUTES` (30), `DOCNEST_SESSION_ABSOLUTE_TIMEOUT_MINUTES` (720), `DOCNEST_LOGIN_MAX_FAILURES` (5), `DOCNEST_LOGIN_LOCKOUT_SECONDS` (900), `DOCNEST_OCR_JOBS` (2), `DOCNEST_MAX_PAGES` (500), `DOCNEST_WEB_WORKERS` (2), `DOCNEST_LOG_LEVEL` (INFO).
+Advanced variables (set under `environment:` in `compose.yml` if needed): `DOCNEST_SESSION_IDLE_TIMEOUT_MINUTES` (30), `DOCNEST_SESSION_ABSOLUTE_TIMEOUT_MINUTES` (720), `DOCNEST_LOGIN_MAX_FAILURES` (5), `DOCNEST_LOGIN_LOCKOUT_SECONDS` (900), `DOCNEST_OCR_JOBS` (2), `DOCNEST_MAX_PAGES` (500), `DOCNEST_WEB_WORKERS` (2), `DOCNEST_LOG_LEVEL` (INFO), `DOCNEST_AUDIT_RETENTION_DAYS` (365).
 
 ## Reverse proxy
 

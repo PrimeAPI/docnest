@@ -12,6 +12,7 @@ export function PdfViewer({ url }: { url: string }) {
   const [pdf, setPdf] = useState<PDFDocumentProxy | null>(null);
   const [error, setError] = useState<unknown>(null);
   const [scale, setScale] = useState(1.2);
+  const scroller = useRef<HTMLDivElement>(null);
   const [rotation, setRotation] = useState(0);
 
   useEffect(() => {
@@ -36,7 +37,13 @@ export function PdfViewer({ url }: { url: string }) {
           iccUrl: "/pdfjs/iccs/",
         });
         const loaded = await loadingTask.promise;
-        if (!cancelled) setPdf(loaded);
+        if (cancelled) return;
+        // Fit the first page to the available width.
+        const first = await loaded.getPage(1);
+        const width = first.getViewport({ scale: 1 }).width;
+        const available = (scroller.current?.clientWidth ?? 800) - 40;
+        setScale(Math.min(2, Math.max(0.5, Math.round((available / width) * 10) / 10)));
+        setPdf(loaded);
       } catch (err) {
         if (!cancelled) setError(err);
       }
@@ -50,7 +57,7 @@ export function PdfViewer({ url }: { url: string }) {
   if (error) return <ErrorNote error={error} />;
   if (!pdf)
     return (
-      <div className="flex h-96 flex-col items-center justify-center gap-2 text-sm text-muted-foreground">
+      <div ref={scroller} className="flex h-96 w-full flex-col items-center justify-center gap-2 text-sm text-muted-foreground">
         <Spinner className="size-6" />
         Loading document from secure storage…
       </div>

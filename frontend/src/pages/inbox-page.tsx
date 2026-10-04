@@ -1,6 +1,6 @@
-import { AlertCircle, CheckCheck, CheckSquare, CircleDot, Inbox, Layers, Loader2, Star } from "lucide-react";
+import { AlertCircle, CheckCheck, CheckSquare, CircleDot, Inbox, Layers, ListChecks, Loader2, Star } from "lucide-react";
 import { useState } from "react";
-import { Link } from "react-router";
+import { Link, useNavigate } from "react-router";
 import { useBulkAction, useDocuments, useOverview } from "@/api/queries";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -44,6 +44,7 @@ export function InboxPage() {
   const suggestions = useDocuments({ sort: "-uploaded", page_size: 50 });
   const bulk = useBulkAction();
   const [selected, setSelected] = useState<string[]>([]);
+  const navigate = useNavigate();
 
   const items = inbox.data?.items ?? [];
   const withSuggestion = (suggestions.data?.items ?? []).filter((d) => d.has_series_suggestion);
@@ -55,12 +56,17 @@ export function InboxPage() {
         description="New documents that have not been handled yet."
         actions={
           items.length > 0 && (
-            <Button
-              variant="outline"
-              onClick={() => bulk.mutate({ ids: items.map((d) => d.id), action: "mark_read" })}
-            >
-              <CheckCheck /> Mark all read
-            </Button>
+            <>
+              <Button
+                variant="outline"
+                onClick={() => bulk.mutate({ ids: items.map((d) => d.id), action: "mark_read" })}
+              >
+                <CheckCheck /> Mark all read
+              </Button>
+              <Button onClick={() => navigate("/inbox/review")}>
+                <ListChecks /> Review inbox ({items.length})
+              </Button>
+            </>
           )
         }
       />

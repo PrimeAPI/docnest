@@ -27,6 +27,7 @@ logger = logging.getLogger("docnest.worker")
 
 HEALTHCHECK_INTERVAL = 600
 TRAIN_INTERVAL = 120
+CLEANUP_INTERVAL = 24 * 3600
 HEARTBEAT_INTERVAL = 30
 
 
@@ -37,6 +38,7 @@ class Worker:
         self._last_health = 0.0
         self._last_train = 0.0
         self._last_heartbeat = 0.0
+        self._last_cleanup = 0.0
         self._listen_conn: psycopg.Connection | None = None
 
     # -- lifecycle
@@ -133,12 +135,25 @@ class Worker:
         if now - self._last_health > HEALTHCHECK_INTERVAL:
             self._last_health = now
             self.check_storage()
+        if now - self._last_cleanup > CLEANUP_INTERVAL:
+            self._last_cleanup = now
+            self.cleanup()
         if now - self._last_train > TRAIN_INTERVAL:
             self._last_train = now
             dirty = SystemState.objects.filter(key="classifier_dirty", value__dirty=True).exists()
             if dirty:
                 SystemState.objects.filter(key="classifier_dirty").update(value={"dirty": False})
                 queue.enqueue(Job.Kind.TRAIN_CLASSIFIER)
+
+    def cleanup(self) -> None:
+        """Retention: old audit entries, expired login throttles, finished jobs."""
+        from apps.accounts.models import LoginThrottle
+        from apps.audit.models import AuditLog
+
+        now = timezone.now()
+        AuditLog.objects.filter(created_at__lt=now - timedelta(days=settings.AUDIT_RETENTION_DAYS)).delete()
+        LoginThrottle.objects.filter(window_started_at__lt=now - timedelta(days=1)).delete()
+        Job.objects.filter(state=Job.State.DONE, updated_at__lt=now - timedelta(days=30)).delete()
 
     def check_storage(self) -> None:
         """Also keeps the Proton session fresh (token refresh on use)."""

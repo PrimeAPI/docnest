@@ -13,6 +13,7 @@ from ninja.errors import HttpError
 
 from apps.accounts import services, webauthn_service
 from apps.accounts.models import TotpDevice, User, UserSession, WebAuthnCredential
+from apps.audit.models import AuditLog
 from apps.audit.service import audit
 from apps.core.auth import enrollment_auth, mfa_auth, require_csrf, require_recent_auth
 
@@ -20,6 +21,8 @@ auth_router = Router(tags=["auth"])
 account_router = Router(tags=["account"], auth=mfa_auth)
 
 GENERIC_LOGIN_ERROR = "Invalid username or password"
+FAILED_LOGIN_ACTIONS = ["login.failed", "login.mfa_failed", "login.throttled"]
+LOGIN_ACTIONS = ["login.success", *FAILED_LOGIN_ACTIONS]
 
 
 # --- Schemas -----------------------------------------------------------------
@@ -36,6 +39,13 @@ class MfaMethodsOut(Schema):
     recovery: bool
 
 
+class PreviousLoginOut(Schema):
+    at: datetime
+    ip: str | None
+    user_agent: str
+    method: str
+
+
 class SessionStateOut(Schema):
     authenticated: bool
     mfa_complete: bool
@@ -43,6 +53,8 @@ class SessionStateOut(Schema):
     pending_mfa: MfaMethodsOut | None = None
     username: str | None = None
     has_recovery_codes: bool = False
+    previous_login: PreviousLoginOut | None = None
+    failed_since_previous_login: int = 0
 
 
 class CodeIn(Schema):
@@ -100,16 +112,44 @@ def _me(request: HttpRequest) -> User:
     return request.user  # type: ignore[return-value]  # endpoints are authenticated
 
 
+def _login_history(username: str) -> tuple[PreviousLoginOut | None, int]:
+    """The sign-in before the current one, and failed attempts since then."""
+    logins = list(
+        AuditLog.objects.filter(subject__iexact=username, action="login.success").order_by("-id")[:2]
+    )
+    if len(logins) < 2:
+        return None, 0
+    current, previous = logins
+    failed = AuditLog.objects.filter(
+        subject__iexact=username,
+        action__in=FAILED_LOGIN_ACTIONS,
+        id__gt=previous.id,
+        id__lt=current.id,
+    ).count()
+    return (
+        PreviousLoginOut(
+            at=previous.created_at,
+            ip=previous.ip,
+            user_agent=previous.user_agent,
+            method=str(previous.details.get("method", "")),
+        ),
+        failed,
+    )
+
+
 def _state(request: HttpRequest) -> SessionStateOut:
     user = request.user
     if user.is_authenticated:
         mfa_complete = services.is_mfa_authenticated(request)
+        previous, failed = _login_history(user.get_username()) if mfa_complete else (None, 0)
         return SessionStateOut(
             authenticated=True,
             mfa_complete=mfa_complete,
             needs_enrollment=not mfa_complete and not user.has_mfa,
             username=user.get_username(),
             has_recovery_codes=user.recovery_codes.filter(used_at__isnull=True).exists(),
+            previous_login=previous,
+            failed_since_previous_login=failed,
         )
     pending = services.get_pending_user(request)
     if pending is not None:
@@ -136,7 +176,7 @@ def _pending_or_401(request: HttpRequest) -> User:
 
 def _mfa_failed(request: HttpRequest, user: User, method: str) -> None:
     services.register_failure(request, user.get_username())
-    audit("login.mfa_failed", request=request, target=user.get_username(), method=method)
+    audit("login.mfa_failed", request=request, subject=user.get_username(), method=method)
     raise HttpError(400, "Verification failed")
 
 
@@ -161,18 +201,18 @@ def login_password(request: HttpRequest, data: LoginIn) -> SessionStateOut:
     try:
         services.check_throttle(request, username)
     except services.Throttled as exc:
-        audit("login.throttled", request=request, target=username)
+        audit("login.throttled", request=request, subject=username)
         raise HttpError(429, "Too many attempts. Try again later.") from exc
 
     user = authenticate(request, username=username, password=data.password)
     if user is None:
         services.register_failure(request, username)
-        audit("login.failed", request=request, target=username)
+        audit("login.failed", request=request, subject=username)
         raise HttpError(400, GENERIC_LOGIN_ERROR)
 
     if user.has_mfa:
         services.set_pending_user(request, user)
-        audit("login.password_ok", request=request, target=username)
+        audit("login.password_ok", request=request, subject=username)
     else:
         # No second factor yet: partial session that can only enroll one.
         services.complete_login(request, user, mfa_ok=False)
@@ -275,6 +315,7 @@ def totp_confirm(request: HttpRequest, data: CodeIn) -> SessionStateOut:
     audit("mfa.totp_added", request=request)
     if not services.is_mfa_authenticated(request):
         services.promote_to_mfa(request, user)
+        audit("login.success", request=request, user=user, method="enrollment")
     return _state(request)
 
 
@@ -294,6 +335,7 @@ def webauthn_register_verify(request: HttpRequest, data: CredentialIn) -> Sessio
     audit("mfa.webauthn_added", request=request)
     if not services.is_mfa_authenticated(request):
         services.promote_to_mfa(request, user)
+        audit("login.success", request=request, user=user, method="enrollment")
     return _state(request)
 
 
@@ -405,3 +447,110 @@ def revoke_session(request: HttpRequest, session_id: int) -> dict[str, bool]:
     row.delete()
     audit("account.session_revoked", request=request)
     return {"ok": True}
+
+
+# --- Sign-in activity ------------------------------------------------------------
+
+
+class ActivityActionOut(Schema):
+    at: datetime
+    action: str
+    target: str
+    target_title: str | None = None
+    details: dict[str, Any]
+
+
+class SignInOut(Schema):
+    id: int
+    at: datetime
+    outcome: str  # success | failed | wrong_second_factor | blocked
+    method: str
+    ip: str | None
+    user_agent: str
+    current: bool
+    active: bool
+    last_activity_at: datetime | None
+    actions: list[ActivityActionOut]
+
+
+_OUTCOMES = {
+    "login.success": "success",
+    "login.failed": "failed",
+    "login.mfa_failed": "wrong_second_factor",
+    "login.throttled": "blocked",
+}
+
+
+@account_router.get("/activity", response=list[SignInOut])
+def sign_in_activity(request: HttpRequest, limit: int = 50) -> list[SignInOut]:
+    """Sign-ins (successful and failed) of the current user and what happened in each session."""
+    from apps.documents.crypto_fields import get_title
+    from apps.documents.models import Document
+
+    me = _me(request)
+    events = list(
+        AuditLog.objects.filter(subject__iexact=me.get_username(), action__in=LOGIN_ACTIONS).order_by("-id")[
+            : min(limit, 200)
+        ]
+    )
+    refs = [e.session_ref for e in events if e.session_ref]
+    actions_by_ref: dict[str, list[AuditLog]] = {}
+    for a in (
+        AuditLog.objects.filter(session_ref__in=refs)
+        .exclude(action__in=LOGIN_ACTIONS)
+        .exclude(action="login.password_ok")
+        .order_by("id")
+    ):
+        actions_by_ref.setdefault(a.session_ref, []).append(a)
+
+    doc_ids = {a.target for acts in actions_by_ref.values() for a in acts if a.action.startswith("document.")}
+    titles: dict[str, str] = {}
+    for doc in Document.objects.filter(uuid__in=[t for t in doc_ids if len(t) == 36]):
+        try:
+            titles[str(doc.uuid)] = get_title(doc)
+        except Exception:  # noqa: S112 - a broken value must not break the log view
+            continue
+
+    active_keys = set(
+        UserSession.objects.filter(user=me)
+        .filter(session_key__in=Session.objects.filter(expire_date__gt=timezone.now()).values("session_key"))
+        .values_list("pk", flat=True)
+    )
+    current_ref = ""
+    current_pk = (
+        UserSession.objects.filter(session_key=request.session.session_key)
+        .values_list("pk", flat=True)
+        .first()
+    )
+    if current_pk:
+        current_ref = f"s{current_pk}"
+
+    out = []
+    for e in events:
+        acts = actions_by_ref.get(e.session_ref, []) if e.session_ref else []
+        out.append(
+            SignInOut(
+                id=e.pk,
+                at=e.created_at,
+                outcome=_OUTCOMES.get(e.action, e.action),
+                method=str(e.details.get("method", "password")),
+                ip=e.ip,
+                user_agent=e.user_agent,
+                current=bool(e.session_ref) and e.session_ref == current_ref,
+                active=bool(e.session_ref)
+                and e.session_ref.startswith("s")
+                and int(e.session_ref[1:]) in active_keys,
+                last_activity_at=acts[-1].created_at if acts else None,
+                actions=[
+                    ActivityActionOut(
+                        at=a.created_at,
+                        action=a.action,
+                        target=a.target,
+                        target_title=titles.get(a.target),
+                        details=a.details,
+                    )
+                    for a in acts[-200:]
+                ],
+            )
+        )
+    return out

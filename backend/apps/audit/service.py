@@ -21,6 +21,19 @@ def client_ip(request: HttpRequest | None) -> str | None:
     return request.META.get("HTTP_X_REAL_IP") or request.META.get("REMOTE_ADDR")
 
 
+def _session_ref(request: HttpRequest | None) -> str:
+    if request is None or not hasattr(request, "session") or not request.session.session_key:
+        return ""
+    from apps.accounts.models import UserSession
+
+    pk = (
+        UserSession.objects.filter(session_key=request.session.session_key)
+        .values_list("pk", flat=True)
+        .first()
+    )
+    return f"s{pk}" if pk else ""
+
+
 def audit(
     action: str,
     *,
@@ -28,6 +41,7 @@ def audit(
     user: Any = None,
     scanner: Any = None,
     target: str = "",
+    subject: str = "",
     **details: Any,
 ) -> None:
     if scanner is not None:
@@ -40,6 +54,8 @@ def audit(
         actor_type, actor_id, label = AuditLog.Actor.SYSTEM, "", ""
     else:
         actor_type, actor_id, label = AuditLog.Actor.ANONYMOUS, "", ""
+    if not subject and actor_type == AuditLog.Actor.USER:
+        subject = label
     AuditLog.objects.create(
         actor_type=actor_type,
         actor_id=actor_id,
@@ -48,5 +64,8 @@ def audit(
         target=target,
         ip=client_ip(request),
         details=details,
+        subject=subject[:150],
+        session_ref=_session_ref(request) if actor_type == AuditLog.Actor.USER else "",
+        user_agent=(request.META.get("HTTP_USER_AGENT", "")[:300] if request is not None else ""),
     )
     logger.info("audit", extra={"action": action, "actor": actor_type, "target": target})

@@ -66,6 +66,12 @@ Logs are structured JSON. Document text is never passed to the logger (enforced 
 
 No default users or passwords; secrets only via files (`*_FILE`), and startup fails if a secret file is world-readable or too short; debug mode cannot be enabled in production; strict Content-Security-Policy (`default-src 'self'`, no inline scripts), `X-Frame-Options: DENY`, `Referrer-Policy: no-referrer`, `Cache-Control: no-store` for API responses; uploaded PDFs are sanitized (JavaScript, auto-actions, embedded files and launch actions removed) and served with a sandboxing CSP.
 
-## Audit log
+## Audit log and sign-in activity
 
-Sign-ins (successful and failed), second-factor changes, scanner token changes, uploads, downloads, edits and deletions are recorded (Settings → System).
+Sign-ins (successful and failed, with IP, device and method), second-factor and password changes, scanner token changes, uploads, opened and downloaded documents, edits and deletions are recorded. Every action is linked to the sign-in session it happened in.
+
+- **Settings → Security → Sign-in activity** lists your sign-ins and failed attempts; expand a session to see what was done in it. Active sessions are marked and can be signed out below.
+- **After every sign-in** DocNest shows when and from where you last signed in, and warns about failed attempts since then.
+- **Settings → System → Security log** shows the raw log for all actors (users, scanners, system).
+
+IP addresses are shown as received from the reverse proxy; no external geolocation service is used. Entries are kept for `DOCNEST_AUDIT_RETENTION_DAYS` (default 365).
