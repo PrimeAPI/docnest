@@ -13,7 +13,7 @@ jobs:
     name: End-to-end (browser)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
       - uses: pnpm/action-setup@v4
         with:
           package_json_file: e2e/package.json
