@@ -95,6 +95,7 @@ class DocumentDetail(DocumentListItem):
     received_from: str | None
     size: int
     processing_stage: str
+    ocr_backend: str
     stored: bool
     events: list[EventOut]
 
@@ -147,6 +148,13 @@ class BulkAction(Schema):
 
 class TextOut(Schema):
     text: str
+    format: str
+    backend: str
+
+
+class StructureOut(Schema):
+    backend: str
+    data: dict[str, object]
 
 
 class BulkOut(Schema):
@@ -155,6 +163,7 @@ class BulkOut(Schema):
 
 class ReprocessIn(Schema):
     stage: Literal["ocr", "analyze"] = "ocr"
+    backend: Literal["ocrmypdf", "docling"] | None = None
 
 
 # --- Helpers ------------------------------------------------------------------
@@ -225,6 +234,7 @@ def to_detail(document: Document) -> DocumentDetail:
         received_from=document.received_from.name if document.received_from else "Web upload",
         size=document.size,
         processing_stage=document.processing_stage,
+        ocr_backend=document.ocr_backend or str(settings.OCR_BACKEND),
         stored=bool(document.storage_original),
         events=[
             EventOut(
@@ -570,7 +580,22 @@ def document_thumbnail(request: HttpRequest, doc_id: UUID) -> HttpResponse:
 
 @router.get("/{doc_id}/text", response=TextOut)
 def document_text(request: HttpRequest, doc_id: UUID) -> dict[str, str]:
-    return {"text": crypto_fields.get_content(get_document(doc_id))}
+    document = get_document(doc_id)
+    content = getattr(document, "content", None)
+    return {
+        "text": crypto_fields.get_content(document),
+        "format": content.format if content else "text",
+        "backend": document.ocr_backend or str(settings.OCR_BACKEND),
+    }
+
+
+@router.get("/{doc_id}/structure", response=StructureOut)
+def document_structure(request: HttpRequest, doc_id: UUID) -> dict[str, object]:
+    document = get_document(doc_id)
+    return {
+        "backend": document.ocr_backend or str(settings.OCR_BACKEND),
+        "data": crypto_fields.get_structure(document),
+    }
 
 
 @router.post("/{doc_id}/reprocess", response=DocumentDetail)
@@ -581,6 +606,11 @@ def reprocess(request: HttpRequest, doc_id: UUID, data: ReprocessIn) -> Document
     ).exists():
         raise HttpError(409, "Document is already being processed")
     stage: str = Document.Stage.OCR if data.stage == "ocr" else Document.Stage.ANALYZE
+    if data.backend is not None:
+        if data.stage != "ocr":
+            raise HttpError(422, "An OCR backend can only be selected when reprocessing OCR")
+        document.ocr_backend = data.backend
+        document.save(update_fields=["ocr_backend"])
     if document.processing_state == Document.State.FAILED and document.processing_stage in (
         Document.Stage.VALIDATE,
         Document.Stage.OCR,

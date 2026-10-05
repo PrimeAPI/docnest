@@ -82,6 +82,9 @@ WORKDIR /app/backend
 FROM base AS dev
 COPY backend/pyproject.toml backend/uv.lock ./
 RUN uv sync --frozen --no-install-project
+# Runtime conversion is offline: bake only the layout/table models used by
+# DocNest's standard Docling PDF pipeline into the image.
+RUN docling-tools models download --output-dir /opt/docling-models layout tableformer
 ENV DOCNEST_DEV=true
 CMD ["bash"]
 
@@ -89,10 +92,12 @@ CMD ["bash"]
 FROM base AS runtime-deps
 COPY backend/pyproject.toml backend/uv.lock ./
 RUN uv sync --frozen --no-dev --no-install-project
+RUN docling-tools models download --output-dir /opt/docling-models layout tableformer
 
 # ---------------------------------------------------------------------------
 FROM base AS runtime
 COPY --from=runtime-deps /opt/venv /opt/venv
+COPY --from=runtime-deps /opt/docling-models /opt/docling-models
 RUN pip uninstall -y uv
 COPY backend/ /app/backend/
 COPY --from=frontend /src/frontend/dist /app/frontend/dist

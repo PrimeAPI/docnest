@@ -41,12 +41,12 @@ DocNest is a modular monolith: a Django backend and a React frontend in one repo
 
 1. **Intake** (web process — from the scanner API or a drag & drop upload in the UI): validate type/size, HMAC for dedupe, encrypt to the intake volume (fsync), create the `Document` and a `process_document` job in one transaction → `202`.
 2. **validate**: pikepdf opens the file strictly, rejects encrypted/oversized PDFs, strips active content; the sanitized file replaces the intake copy.
-3. **ocr**: OCRmyPDF (`--skip-text`, PDF/A, deskew, rotation) → archive PDF; text via `pdftotext`; WebP thumbnail. Text and thumbnail are stored encrypted; the archive goes to the intake (encrypted).
+3. **ocr**: selectable per document. OCRmyPDF (`--skip-text`, PDF/A, deskew, rotation) produces a searchable archive and extracts text with `pdftotext`. Docling extracts Markdown plus its lossless layout/table JSON; the sanitized original remains the archive because Docling does not emit searchable PDF/A. Text, structured output, and thumbnails are encrypted; the archive goes to the intake encrypted. The default is selected with `DOCNEST_OCR_BACKEND`.
 4. **analyze**: rules → known senders in the text → classifiers → keyword knowledge; date, amounts, IBANs, references; tags; series; title. User-set fields are never changed.
 5. **store**: upload original + archive to `<root>/<bucket>/<year>/<uuid>/`, verify size and SHA-1, then delete the intake copies.
 6. **index**: blind-index title, content and metadata.
 
-Each stage is idempotent; `processing_stage` records where to resume. Failures retry with exponential backoff; permanent failures (invalid PDF) are shown in the UI. If Proton Drive needs a new login, storage jobs are deferred without consuming retries.
+Each stage is idempotent; `processing_stage` records where to resume. Failures retry with exponential backoff; permanent failures (invalid PDF) are shown in the UI. If Proton Drive needs a new login, storage jobs are deferred without consuming retries. A background heartbeat renews the active job lease throughout long OCR/model inference, so slow Docling work is not mistaken for a crashed worker.
 
 ## Design decisions
 

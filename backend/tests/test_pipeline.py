@@ -9,6 +9,7 @@ from django.utils import timezone
 from apps.documents import crypto_fields
 from apps.documents.models import Document
 from apps.processing import queue
+from apps.processing.docling_backend import DoclingResult
 from apps.processing.models import Job
 from apps.processing.worker import Worker
 from apps.storage import backends
@@ -63,6 +64,22 @@ def test_scanned_document_is_ocrd_stored_and_searchable(scanner, api, isolated_d
     assert not list((isolated_dirs / "work").glob("dl-*"))
 
 
+@pytest.mark.ocr
+def test_scanned_document_can_be_processed_with_docling(scanner, settings):
+    _, token = scanner
+    settings.OCR_BACKEND = "docling"
+    doc_id = upload(Client(), token, scanned_pdf(INVOICE_LINES)).json()["id"]
+    process_all()
+
+    doc = Document.objects.get(uuid=doc_id)
+    assert doc.processing_state == "done", doc.processing_error
+    assert doc.ocr_backend == "docling"
+    assert "Stromlieferung" in crypto_fields.get_content(doc)
+    structure = crypto_fields.get_structure(doc)
+    assert structure.get("schema_name") == "DoclingDocument"
+    assert structure.get("texts")
+
+
 def test_database_contains_no_plaintext_content(scanner):
     _, token = scanner
     upload(Client(), token, text_pdf(INVOICE_LINES))
@@ -90,6 +107,41 @@ def test_database_contains_no_plaintext_content(scanner):
     blob = " ".join(dump)
     for secret_word in ("Stromlieferung", "Zaehlerstand", "RE-2026-0042", "DE89", "Beispielstrasse"):
         assert secret_word not in blob, secret_word
+
+
+def test_docling_stores_markdown_and_structure_encrypted(scanner, api, monkeypatch, settings):
+    _, token = scanner
+    settings.OCR_BACKEND = "docling"
+    markdown = "# Electricity bill\n\n| Total | EUR 42.00 |"
+    structure = {
+        "schema_name": "DoclingDocument",
+        "texts": [{"label": "section_header", "text": "Electricity bill"}],
+        "tables": [{"cells": [{"text": "EUR 42.00"}]}],
+    }
+
+    def fake_convert(_src):
+        return DoclingResult(markdown=markdown, structured=structure)
+
+    monkeypatch.setattr("apps.processing.docling_backend.convert", fake_convert)
+    doc_id = upload(Client(), token, text_pdf(INVOICE_LINES)).json()["id"]
+    process_all()
+
+    doc = Document.objects.get(uuid=doc_id)
+    assert doc.processing_state == "done", doc.processing_error
+    assert doc.ocr_backend == "docling"
+    assert crypto_fields.get_content(doc) == markdown
+    assert crypto_fields.get_structure(doc) == structure
+    assert doc.content.format == "markdown"
+
+    response = api.get(f"/api/v1/documents/{doc_id}/structure")
+    assert response.status_code == 200
+    assert response.json() == {"backend": "docling", "data": structure}
+
+    with connection.cursor() as cursor:
+        cursor.execute("SELECT text_enc, structured_enc FROM documents_documentcontent")
+        stored = b"".join(bytes(value) for value in cursor.fetchone())
+    assert b"Electricity bill" not in stored
+    assert b"EUR 42.00" not in stored
 
 
 def test_javascript_is_stripped(scanner, isolated_dirs):
@@ -152,6 +204,32 @@ def test_crashed_worker_job_is_reclaimed_without_duplicates(scanner):
     assert Document.objects.count() == 1
     assert Document.objects.get().processing_state == "done"
     assert Job.objects.get(pk=job.pk).state == "done"
+
+
+def test_running_job_lease_can_be_renewed(scanner, settings):
+    _, token = scanner
+    settings.JOB_LEASE_SECONDS = 60
+    upload(Client(), token, text_pdf(INVOICE_LINES))
+    job = queue.claim("slow-worker")
+    assert job is not None
+    previous = job.locked_until
+    assert queue.renew(job)
+    job.refresh_from_db()
+    assert job.locked_until and previous and job.locked_until > previous
+
+
+def test_stale_worker_cannot_finalize_job_owned_by_another_worker(scanner):
+    _, token = scanner
+    upload(Client(), token, text_pdf(INVOICE_LINES))
+    stale = queue.claim("first-worker")
+    assert stale is not None
+    Job.objects.filter(pk=stale.pk).update(locked_by="replacement-worker")
+
+    assert queue.retry_or_fail(stale, "late failure") is None
+    assert not queue.complete(stale)
+    job = Job.objects.get(pk=stale.pk)
+    assert job.state == Job.State.RUNNING
+    assert job.locked_by == "replacement-worker"
 
 
 def test_retry_resumes_and_is_idempotent(scanner, monkeypatch):

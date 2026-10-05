@@ -15,6 +15,10 @@ class Source(models.TextChoices):
 
 
 class Document(models.Model):
+    class OcrBackend(models.TextChoices):
+        OCRMYPDF = "ocrmypdf", "OCRmyPDF / Tesseract"
+        DOCLING = "docling", "Docling"
+
     class Status(models.TextChoices):
         NEW = "new"
         TODO = "todo"
@@ -75,6 +79,7 @@ class Document(models.Model):
         max_length=20, choices=State.choices, default=State.PENDING, db_index=True
     )
     processing_error = models.CharField(max_length=500, blank=True)
+    ocr_backend = models.CharField(max_length=20, choices=OcrBackend.choices, blank=True)
     intake_path = models.CharField(max_length=300, blank=True)
     storage_original = models.JSONField(null=True, blank=True)
     storage_archive = models.JSONField(null=True, blank=True)
@@ -117,6 +122,8 @@ class DocumentContent(models.Model):
         Document, on_delete=models.CASCADE, related_name="content", primary_key=True
     )
     text_enc = models.BinaryField()
+    structured_enc = models.BinaryField(null=True)
+    format = models.CharField(max_length=20, default="text")
     language = models.CharField(max_length=10, blank=True)
     length = models.PositiveIntegerField(default=0)
 

@@ -8,7 +8,9 @@ import select
 import shutil
 import signal
 import socket
+import threading
 import time
+from contextlib import contextmanager
 from datetime import timedelta
 
 import psycopg
@@ -81,35 +83,75 @@ class Worker:
     def execute(self, job: Job) -> None:
         logger.info("job started", extra={"job": job.pk, "kind": job.kind, "attempt": job.attempts})
         try:
-            if job.kind == Job.Kind.PROCESS_DOCUMENT:
-                pipeline.run(job.document_id)  # type: ignore[arg-type]
-            elif job.kind == Job.Kind.DELETE_STORAGE:
-                self.delete_storage(job)
-            elif job.kind == Job.Kind.TRAIN_CLASSIFIER:
-                classifier.train_all()
-            elif job.kind == Job.Kind.REINDEX_DOCUMENT:
-                pipeline.reindex(Document.objects.get(pk=job.document_id or 0))
-            else:
-                raise pipeline.PermanentError(f"unknown job kind {job.kind}")
+            with self.maintain_lease(job):
+                if job.kind == Job.Kind.PROCESS_DOCUMENT:
+                    pipeline.run(job.document_id)  # type: ignore[arg-type]
+                elif job.kind == Job.Kind.DELETE_STORAGE:
+                    self.delete_storage(job)
+                elif job.kind == Job.Kind.TRAIN_CLASSIFIER:
+                    classifier.train_all()
+                elif job.kind == Job.Kind.REINDEX_DOCUMENT:
+                    pipeline.reindex(Document.objects.get(pk=job.document_id or 0))
+                else:
+                    raise pipeline.PermanentError(f"unknown job kind {job.kind}")
         except pipeline.StorageUnavailable as exc:
-            queue.defer(job, 600, str(exc))
+            if not queue.defer(job, 600, str(exc)):
+                logger.error("job ownership lost before deferral", extra={"job": job.pk})
+                return
             self._mark_document(job, Document.State.PENDING, "Waiting for storage: " + str(exc))
             logger.warning("storage unavailable, job deferred", extra={"job": job.pk})
             return
         except pipeline.PermanentError as exc:
-            queue.retry_or_fail(job, str(exc), retryable=False)
+            if queue.retry_or_fail(job, str(exc), retryable=False) is None:
+                logger.error("job ownership lost before failure", extra={"job": job.pk})
+                return
             self._mark_document(job, Document.State.FAILED, str(exc))
             logger.warning("job failed permanently", extra={"job": job.pk, "error": str(exc)[:200]})
             return
         except Exception as exc:
             message = f"{type(exc).__name__}: {exc}"
             failed = queue.retry_or_fail(job, message)
+            if failed is None:
+                logger.error("job ownership lost before retry", extra={"job": job.pk})
+                return
             state = Document.State.FAILED if failed else Document.State.PENDING
             self._mark_document(job, state, message if failed else f"Retrying: {message}")
             logger.exception("job error", extra={"job": job.pk, "final": failed})
             return
-        queue.complete(job)
+        if not queue.complete(job):
+            logger.error("job ownership lost before completion", extra={"job": job.pk})
+            return
         logger.info("job done", extra={"job": job.pk})
+
+    @contextmanager
+    def maintain_lease(self, job: Job):
+        """Renew the queue lease and worker heartbeat during long model inference."""
+        stopped = threading.Event()
+        interval = max(1.0, min(30.0, settings.JOB_LEASE_SECONDS / 3))
+
+        def heartbeat() -> None:
+            while not stopped.wait(interval):
+                try:
+                    close_old_connections()
+                    if not queue.renew(job):
+                        logger.error("job lease was lost", extra={"job": job.pk})
+                        return
+                    WorkerHeartbeat.objects.update_or_create(
+                        worker_id=self.worker_id,
+                        defaults={"last_seen_at": timezone.now()},
+                    )
+                except Exception:
+                    logger.exception("could not renew job lease", extra={"job": job.pk})
+                finally:
+                    close_old_connections()
+
+        thread = threading.Thread(target=heartbeat, name=f"lease-{job.pk}", daemon=True)
+        thread.start()
+        try:
+            yield
+        finally:
+            stopped.set()
+            thread.join(timeout=interval + 1)
 
     def _mark_document(self, job: Job, state: str, message: str) -> None:
         if job.kind == Job.Kind.PROCESS_DOCUMENT and job.document_id:

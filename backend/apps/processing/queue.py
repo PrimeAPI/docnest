@@ -66,18 +66,32 @@ def claim(worker_id: str) -> Job | None:
         return job
 
 
-def complete(job: Job) -> None:
-    Job.objects.filter(pk=job.pk).update(
+def complete(job: Job) -> bool:
+    updated = Job.objects.filter(pk=job.pk, state=Job.State.RUNNING, locked_by=job.locked_by).update(
         state=Job.State.DONE, locked_by="", locked_until=None, last_error="", updated_at=timezone.now()
     )
+    return updated == 1
 
 
-def retry_or_fail(job: Job, error: str, *, retryable: bool = True, delay: int | None = None) -> bool:
-    """Schedule a retry with exponential backoff; returns True if the job failed for good."""
+def renew(job: Job) -> bool:
+    """Extend a running job's lease, provided this worker still owns it."""
+    updated = Job.objects.filter(
+        pk=job.pk,
+        state=Job.State.RUNNING,
+        locked_by=job.locked_by,
+    ).update(
+        locked_until=timezone.now() + timedelta(seconds=settings.JOB_LEASE_SECONDS),
+        updated_at=timezone.now(),
+    )
+    return updated == 1
+
+
+def retry_or_fail(job: Job, error: str, *, retryable: bool = True, delay: int | None = None) -> bool | None:
+    """Schedule a retry; return final-failure, or None if this worker lost ownership."""
     error = error[:500]
     if retryable and job.attempts < job.max_attempts:
         backoff = delay if delay is not None else min(3600, 30 * 2 ** (job.attempts - 1))
-        Job.objects.filter(pk=job.pk).update(
+        updated = Job.objects.filter(pk=job.pk, state=Job.State.RUNNING, locked_by=job.locked_by).update(
             state=Job.State.QUEUED,
             run_after=timezone.now() + timedelta(seconds=backoff),
             locked_by="",
@@ -85,16 +99,16 @@ def retry_or_fail(job: Job, error: str, *, retryable: bool = True, delay: int | 
             last_error=error,
             updated_at=timezone.now(),
         )
-        return False
-    Job.objects.filter(pk=job.pk).update(
+        return False if updated == 1 else None
+    updated = Job.objects.filter(pk=job.pk, state=Job.State.RUNNING, locked_by=job.locked_by).update(
         state=Job.State.FAILED, locked_by="", locked_until=None, last_error=error, updated_at=timezone.now()
     )
-    return True
+    return True if updated == 1 else None
 
 
-def defer(job: Job, seconds: int, reason: str) -> None:
+def defer(job: Job, seconds: int, reason: str) -> bool:
     """Re-queue without consuming an attempt (e.g. storage temporarily needs re-auth)."""
-    Job.objects.filter(pk=job.pk).update(
+    updated = Job.objects.filter(pk=job.pk, state=Job.State.RUNNING, locked_by=job.locked_by).update(
         state=Job.State.QUEUED,
         attempts=max(0, job.attempts - 1),
         run_after=timezone.now() + timedelta(seconds=seconds),
@@ -103,3 +117,4 @@ def defer(job: Job, seconds: int, reason: str) -> None:
         last_error=reason[:500],
         updated_at=timezone.now(),
     )
+    return updated == 1

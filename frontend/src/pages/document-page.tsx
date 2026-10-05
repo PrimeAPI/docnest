@@ -133,10 +133,13 @@ function Header({ doc }: { doc: DocumentDetail }) {
   const navigate = useNavigate();
   const [confirmDelete, setConfirmDelete] = useState(false);
 
-  const reprocess = async (stage: "ocr" | "analyze") => {
+  const reprocess = async (stage: "ocr" | "analyze", backend?: "ocrmypdf" | "docling") => {
     try {
       await call(() =>
-        client.POST("/api/v1/documents/{doc_id}/reprocess", { params: { path: { doc_id: doc.id } }, body: { stage } }),
+        client.POST("/api/v1/documents/{doc_id}/reprocess", {
+          params: { path: { doc_id: doc.id } },
+          body: { stage, backend },
+        }),
       );
       toast.success("Reprocessing started");
       invalidate();
@@ -227,8 +230,11 @@ function Header({ doc }: { doc: DocumentDetail }) {
             <DropdownMenuItem onSelect={() => reprocess("analyze")}>
               <RefreshCw /> Re-run analysis
             </DropdownMenuItem>
-            <DropdownMenuItem onSelect={() => reprocess("ocr")}>
-              <RefreshCw /> Reprocess (OCR + analysis)
+            <DropdownMenuItem onSelect={() => reprocess("ocr", "ocrmypdf")}>
+              <RefreshCw /> Reprocess with OCRmyPDF
+            </DropdownMenuItem>
+            <DropdownMenuItem onSelect={() => reprocess("ocr", "docling")}>
+              <RefreshCw /> Reprocess with Docling
             </DropdownMenuItem>
             <DropdownMenuSeparator />
             <DropdownMenuItem className="text-destructive" onSelect={() => setConfirmDelete(true)}>
@@ -556,7 +562,8 @@ function HistoryTab({ doc }: { doc: DocumentDetail }) {
   return (
     <div className="flex flex-col gap-2 text-sm">
       <p className="text-xs text-muted-foreground">
-        Processing stage: <span className="font-medium text-foreground">{doc.processing_stage}</span>
+        Processing stage: <span className="font-medium text-foreground">{doc.processing_stage}</span> · OCR backend:{" "}
+        <span className="font-medium text-foreground">{doc.ocr_backend}</span>
       </p>
       {doc.events.length === 0 && <p className="text-muted-foreground">No processing events yet.</p>}
       {doc.events.map((e, i) => (

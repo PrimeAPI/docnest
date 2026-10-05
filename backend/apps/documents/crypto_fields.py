@@ -58,11 +58,35 @@ def get_content(document: Document) -> str:
     return decrypt_bytes(bytes(row.text_enc), aad=_aad(document, "content")).decode()
 
 
-def set_content(document: Document, text: str, language: str = "") -> None:
+def get_structure(document: Document) -> dict:
+    row = DocumentContent.objects.filter(document=document).first()
+    if row is None or not row.structured_enc:
+        return {}
+    raw = decrypt_bytes(bytes(row.structured_enc), aad=_aad(document, "structure"))
+    return json.loads(raw)
+
+
+def set_content(
+    document: Document,
+    text: str,
+    language: str = "",
+    *,
+    structured: dict | None = None,
+    content_format: str = "text",
+) -> None:
     DocumentContent.objects.update_or_create(
         document=document,
         defaults={
             "text_enc": encrypt_bytes(text.encode(), aad=_aad(document, "content")),
+            "structured_enc": (
+                encrypt_bytes(
+                    json.dumps(structured, ensure_ascii=False, separators=(",", ":")).encode(),
+                    aad=_aad(document, "structure"),
+                )
+                if structured is not None
+                else None
+            ),
+            "format": content_format,
             "language": language,
             "length": len(text),
         },

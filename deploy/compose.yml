@@ -13,6 +13,7 @@ services:
   app:
     image: ghcr.io/primeapi/docnest:${DOCNEST_VERSION:-latest}
     restart: unless-stopped
+    stop_grace_period: ${DOCNEST_WORKER_STOP_GRACE_PERIOD:-24h}
     depends_on:
       db:
         condition: service_healthy
@@ -22,6 +23,8 @@ services:
       DOCNEST_PROTON_ROOT: ${DOCNEST_PROTON_ROOT:-/my-files/DocNest}
       DOCNEST_TIME_ZONE: ${DOCNEST_TIME_ZONE:-Europe/Berlin}
       DOCNEST_OCR_LANGUAGES: ${DOCNEST_OCR_LANGUAGES:-deu+eng}
+      DOCNEST_OCR_BACKEND: ${DOCNEST_OCR_BACKEND:-ocrmypdf}
+      DOCNEST_DOCLING_THREADS: ${DOCNEST_DOCLING_THREADS:-2}
       DOCNEST_VIEW_CACHE_MB: ${DOCNEST_VIEW_CACHE_MB:-0}
       DOCNEST_MAX_UPLOAD_MB: ${DOCNEST_MAX_UPLOAD_MB:-100}
       DOCNEST_DB_HOST: db

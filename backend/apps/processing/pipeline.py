@@ -24,7 +24,7 @@ from apps.crypto.aead import decrypt_file, encrypt_file
 from apps.documents import crypto_fields
 from apps.documents.intake import archive_aad, archive_intake_path_for, intake_aad, intake_path_for
 from apps.documents.models import Document, ProcessingEvent
-from apps.processing import pdf
+from apps.processing import docling_backend, pdf
 from apps.processing.models import SystemState
 from apps.search.index import IndexInput, index_document
 from apps.storage.backends import StorageAuthError, StoredObject, get_backend
@@ -149,6 +149,28 @@ def stage_ocr(document: Document, work: Path) -> None:
     src = _original_local(document, work)
     archive = work / "archive.pdf"
     archive.unlink(missing_ok=True)
+    backend = document.ocr_backend or settings.OCR_BACKEND
+    if backend == Document.OcrBackend.DOCLING:
+        result = docling_backend.convert(src)
+        # Docling produces a structured document rather than a searchable PDF.
+        # Keep the sanitized original as the archive and expose its richer output separately.
+        shutil.copyfile(src, archive)
+        crypto_fields.set_content(
+            document,
+            result.markdown,
+            structured=result.structured,
+            content_format="markdown",
+        )
+        document.ocr_backend = backend
+        document.save(update_fields=["ocr_backend"])
+        thumb = pdf.thumbnail(archive)
+        if thumb:
+            crypto_fields.set_thumbnail(document, thumb)
+        encrypt_file(archive, archive_intake_path(document), aad=_archive_aad(document))
+        return
+    if backend != Document.OcrBackend.OCRMYPDF:
+        raise PermanentError(f"Unknown OCR backend: {backend}")
+
     message = ""
     try:
         pdf.ocr(src, archive)
@@ -158,7 +180,9 @@ def stage_ocr(document: Document, work: Path) -> None:
         shutil.copyfile(src, archive)
         message = str(exc)
     text = pdf.extract_text(archive)
-    crypto_fields.set_content(document, text)
+    crypto_fields.set_content(document, text, content_format="text")
+    document.ocr_backend = backend
+    document.save(update_fields=["ocr_backend"])
     thumb = pdf.thumbnail(archive)
     if thumb:
         crypto_fields.set_thumbnail(document, thumb)

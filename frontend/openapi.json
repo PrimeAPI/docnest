@@ -1397,6 +1397,44 @@
     ]
    }
   },
+  "/api/v1/documents/{doc_id}/structure": {
+   "get": {
+    "operationId": "apps_documents_api_document_structure",
+    "summary": "Document Structure",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "doc_id",
+      "schema": {
+       "format": "uuid",
+       "title": "Doc Id",
+       "type": "string"
+      },
+      "required": true
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "OK",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/StructureOut"
+        }
+       }
+      }
+     }
+    },
+    "tags": [
+     "documents"
+    ],
+    "security": [
+     {
+      "MfaSessionAuth": []
+     }
+    ]
+   }
+  },
   "/api/v1/documents/{doc_id}/reprocess": {
    "post": {
     "operationId": "apps_documents_api_reprocess",
@@ -3859,6 +3897,10 @@
       "title": "Processing Stage",
       "type": "string"
      },
+     "ocr_backend": {
+      "title": "Ocr Backend",
+      "type": "string"
+     },
      "stored": {
       "title": "Stored",
       "type": "boolean"
@@ -3897,6 +3939,7 @@
      "received_from",
      "size",
      "processing_stage",
+     "ocr_backend",
      "stored",
      "events"
     ],
@@ -4106,12 +4149,41 @@
      "text": {
       "title": "Text",
       "type": "string"
+     },
+     "format": {
+      "title": "Format",
+      "type": "string"
+     },
+     "backend": {
+      "title": "Backend",
+      "type": "string"
      }
     },
     "required": [
-     "text"
+     "text",
+     "format",
+     "backend"
     ],
     "title": "TextOut",
+    "type": "object"
+   },
+   "StructureOut": {
+    "properties": {
+     "backend": {
+      "title": "Backend",
+      "type": "string"
+     },
+     "data": {
+      "additionalProperties": true,
+      "title": "Data",
+      "type": "object"
+     }
+    },
+    "required": [
+     "backend",
+     "data"
+    ],
+    "title": "StructureOut",
     "type": "object"
    },
    "ReprocessIn": {
@@ -4124,6 +4196,21 @@
       ],
       "title": "Stage",
       "type": "string"
+     },
+     "backend": {
+      "anyOf": [
+       {
+        "enum": [
+         "ocrmypdf",
+         "docling"
+        ],
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Backend"
      }
     },
     "title": "ReprocessIn",

@@ -559,6 +559,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/documents/{doc_id}/structure": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Document Structure */
+        get: operations["apps_documents_api_document_structure"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/documents/{doc_id}/reprocess": {
         parameters: {
             query?: never;
@@ -1368,6 +1385,8 @@ export interface components {
             size: number;
             /** Processing Stage */
             processing_stage: string;
+            /** Ocr Backend */
+            ocr_backend: string;
             /** Stored */
             stored: boolean;
             /** Events */
@@ -1443,6 +1462,19 @@ export interface components {
         TextOut: {
             /** Text */
             text: string;
+            /** Format */
+            format: string;
+            /** Backend */
+            backend: string;
+        };
+        /** StructureOut */
+        StructureOut: {
+            /** Backend */
+            backend: string;
+            /** Data */
+            data: {
+                [key: string]: unknown;
+            };
         };
         /** ReprocessIn */
         ReprocessIn: {
@@ -1452,6 +1484,8 @@ export interface components {
              * @enum {string}
              */
             stage: "ocr" | "analyze";
+            /** Backend */
+            backend?: ("ocrmypdf" | "docling") | null;
         };
         /** BucketOut */
         BucketOut: {
@@ -2479,6 +2513,28 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["TextOut"];
+                };
+            };
+        };
+    };
+    apps_documents_api_document_structure: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                doc_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["StructureOut"];
                 };
             };
         };
