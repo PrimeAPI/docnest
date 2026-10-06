@@ -13,6 +13,8 @@ from typing import Any
 
 from django.conf import settings
 
+from apps.processing.docling_models import ModelDownloadFailed, ensure_models
+
 
 class DoclingFailed(Exception):
     pass
@@ -125,7 +127,10 @@ def convert(src: Path) -> DoclingResult:
     except ImportError as exc:  # pragma: no cover - indicates a broken production image
         raise DoclingFailed("Docling is not installed") from exc
 
-    artifacts = Path(settings.DOCLING_ARTIFACTS_PATH)
+    try:
+        artifacts = ensure_models()
+    except ModelDownloadFailed as exc:
+        raise DoclingFailed(str(exc)) from exc
     options = PdfPipelineOptions(
         do_ocr=True,
         do_table_structure=True,
@@ -165,14 +170,16 @@ def extract_fields(src: Path) -> DoclingFieldResult:
     No document timeout is set. The caller intentionally treats failures as a
     signal to use deterministic layout detection instead.
     """
-    artifacts = Path(settings.DOCLING_ARTIFACTS_PATH)
     try:
+        artifacts = ensure_models(include_vlm=True)
         extractor, template = _field_extractor(
-            str(artifacts) if artifacts.exists() else "",
+            str(artifacts),
             max(1, settings.DOCLING_THREADS),
             settings.DOCLING_DEVICE,
         )
         result = extractor.extract(src, template=template, raises_on_error=False, page_range=(1, 1))
+    except ModelDownloadFailed as exc:
+        raise DoclingFailed(str(exc)) from exc
     except DoclingFailed:
         raise
     except Exception as exc:

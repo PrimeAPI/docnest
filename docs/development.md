@@ -22,6 +22,8 @@ docker compose -f deploy/compose.dev.yml run --rm dev python manage.py createuse
 
 If your host user is not UID/GID 1000, export `DOCNEST_UID` / `DOCNEST_GID`.
 
+Docling models are downloaded on first use into `backend/.data/models`, which is ignored by Git and reused by later development containers. To prefetch them, run `docker compose -f deploy/compose.dev.yml run --rm dev python manage.py download_docling_models`.
+
 Dependencies are managed with uv (`backend/pyproject.toml`, `backend/uv.lock`). To update the lock file:
 
 ```bash

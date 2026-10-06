@@ -55,6 +55,7 @@ torchvision = [{ index = "pytorch-cpu" }]
 [tool.ruff]
 line-length = 110
 target-version = "py313"
+extend-exclude = [".data"]
 
 [tool.ruff.lint]
 select = ["E", "F", "W", "I", "B", "UP", "S", "DJ", "SIM", "RUF"]

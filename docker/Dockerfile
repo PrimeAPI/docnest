@@ -82,7 +82,6 @@ WORKDIR /app/backend
 FROM base AS dev
 COPY backend/pyproject.toml backend/uv.lock ./
 RUN uv sync --frozen --no-install-project
-RUN docling-tools models download --output-dir /opt/docling-models layout tableformer
 ENV DOCNEST_DEV=true
 CMD ["bash"]
 
@@ -90,16 +89,10 @@ CMD ["bash"]
 FROM base AS runtime-deps
 COPY backend/pyproject.toml backend/uv.lock ./
 RUN uv sync --frozen --no-dev --no-install-project
-# Runtime conversion and extraction are offline. Pin the extraction model to
-# the revision used by this Docling release and use the directory layout its
-# local-model resolver expects.
-RUN docling-tools models download --output-dir /opt/docling-models layout tableformer \
- && python -c "from pathlib import Path; from docling.models.extraction.transformers_extraction_model import TransformersExtractionModel; TransformersExtractionModel.download_models(repo_id='numind/NuExtract-2.0-2B', revision='fe5b2f0b63b81150721435a3ca1129a75c59c74e', local_dir=Path('/opt/docling-models/numind--NuExtract-2.0-2B'))"
 
 # ---------------------------------------------------------------------------
 FROM base AS runtime
 COPY --from=runtime-deps /opt/venv /opt/venv
-COPY --from=runtime-deps /opt/docling-models /opt/docling-models
 RUN pip uninstall -y uv
 COPY backend/ /app/backend/
 COPY --from=frontend /src/frontend/dist /app/frontend/dist
@@ -107,7 +100,8 @@ COPY --chmod=0755 docker/entrypoint.sh /usr/local/bin/docnest
 COPY docker/supervisord.conf /etc/docnest/supervisord.conf
 
 RUN python -m compileall -q /app/backend \
- && install -d -o docnest -g docnest -m 0700 /var/lib/docnest/data /var/lib/docnest/proton
+ && install -d -o docnest -g docnest -m 0700 \
+      /var/lib/docnest/data /var/lib/docnest/proton /var/lib/docnest/models
 
 ENV DOCNEST_DATA_DIR=/var/lib/docnest/data \
     DOCNEST_FRONTEND_DIR=/app/frontend/dist \
@@ -115,6 +109,9 @@ ENV DOCNEST_DATA_DIR=/var/lib/docnest/data \
     DOCNEST_SECRET_KEY_FILE=/run/secrets/django_secret_key \
     DOCNEST_DB_PASSWORD_FILE=/run/secrets/db_password \
     DOCNEST_WORK_DIR=/tmp/docnest-work \
+    DOCNEST_DOCLING_ARTIFACTS_PATH=/var/lib/docnest/models \
+    HF_HOME=/var/lib/docnest/models/.cache/huggingface \
+    HF_HUB_DISABLE_TELEMETRY=1 \
     HOME=/var/lib/docnest
 
 ARG VERSION=dev

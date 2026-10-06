@@ -38,6 +38,7 @@ services:
     volumes:
       - data:/var/lib/docnest/data        # encrypted intake (documents not yet in Proton Drive)
       - proton:/var/lib/docnest/proton    # Proton CLI state; the session in it is encrypted
+      - models:/var/lib/docnest/models    # persistent Docling model cache (downloaded on demand)
     tmpfs:
       - /tmp:size=${DOCNEST_TMP_SIZE:-2g},mode=1777   # plaintext working files never touch disk
     read_only: true
@@ -78,6 +79,7 @@ networks:
 volumes:
   data:
   proton:
+  models:
   db:
 
 configs:

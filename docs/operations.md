@@ -5,7 +5,8 @@
 - Linux host (x86-64) with Docker Engine and **Docker Compose ≥ 2.23** (for inline `configs`)
 - A reverse proxy that terminates HTTPS (Caddy, Traefik, nginx, …)
 - A Proton account with Proton Drive
-- ~2 GB RAM (OCR of large scans needs more; see `DOCNEST_TMP_SIZE`)
+- ~2 GB RAM (OCR of large scans needs more; see `DOCNEST_TMP_SIZE`; VLM extraction needs several GB more)
+- Internet access for the first use of each Docling mode; downloaded models are retained in the `models` volume
 
 ## Install
 
@@ -44,9 +45,17 @@ Check **Settings → System**: storage should show *Connected* and the worker *R
 | `DOCNEST_TMP_SIZE` | `2g` | RAM-backed work area for OCR and downloads. |
 | `DOCNEST_MAX_UPLOAD_MB` | `100` | Maximum upload size. |
 
-Advanced variables (set under `environment:` in `compose.yml` if needed): `DOCNEST_SESSION_IDLE_TIMEOUT_MINUTES` (30), `DOCNEST_SESSION_ABSOLUTE_TIMEOUT_MINUTES` (720), `DOCNEST_LOGIN_MAX_FAILURES` (5), `DOCNEST_LOGIN_LOCKOUT_SECONDS` (900), `DOCNEST_OCR_JOBS` (2), `DOCNEST_OCR_TIMEOUT_SECONDS` (900; OCRmyPDF only—Docling has no wall-clock timeout), `DOCNEST_DOCLING_DEVICE` (`cpu`), `DOCNEST_DOCLING_ARTIFACTS_PATH` (`/opt/docling-models`), `DOCNEST_JOB_LEASE_SECONDS` (1800; renewed automatically while a job runs), `DOCNEST_WORKER_STOP_GRACE_PERIOD` (`24h`), `DOCNEST_MAX_PAGES` (500), `DOCNEST_WEB_WORKERS` (2), `DOCNEST_LOG_LEVEL` (INFO), `DOCNEST_AUDIT_RETENTION_DAYS` (365).
+Advanced variables (set under `environment:` in `compose.yml` if needed): `DOCNEST_SESSION_IDLE_TIMEOUT_MINUTES` (30), `DOCNEST_SESSION_ABSOLUTE_TIMEOUT_MINUTES` (720), `DOCNEST_LOGIN_MAX_FAILURES` (5), `DOCNEST_LOGIN_LOCKOUT_SECONDS` (900), `DOCNEST_OCR_JOBS` (2), `DOCNEST_OCR_TIMEOUT_SECONDS` (900; OCRmyPDF only—Docling has no wall-clock timeout), `DOCNEST_DOCLING_DEVICE` (`cpu`), `DOCNEST_DOCLING_ARTIFACTS_PATH` (`/var/lib/docnest/models`), `DOCNEST_JOB_LEASE_SECONDS` (1800; renewed automatically while a job runs), `DOCNEST_WORKER_STOP_GRACE_PERIOD` (`24h`), `DOCNEST_MAX_PAGES` (500), `DOCNEST_WEB_WORKERS` (2), `DOCNEST_LOG_LEVEL` (INFO), `DOCNEST_AUDIT_RETENTION_DAYS` (365).
 
-Docling extracts reading order, headings, tables, Markdown, and its lossless JSON document model. Both outputs and the line geometry used for field detection are encrypted in PostgreSQL; the JSON is available from the authenticated document structure API. Layout detection is fast and deterministic. VLM detection always runs the bundled local NuExtract model on page one, while hybrid detection invokes it only when layout confidence is low. The model needs several GB of free memory. VLM work has no wall-clock timeout and falls back to layout detection if it fails. Docling does not generate a searchable PDF/A, so its archive file is the sanitized original. OCRmyPDF remains the choice when a searchable PDF/A is required.
+Docling extracts reading order, headings, tables, Markdown, and its lossless JSON document model. Both outputs and the line geometry used for field detection are encrypted in PostgreSQL; the JSON is available from the authenticated document structure API. Layout detection is fast and deterministic. VLM detection always runs the local NuExtract model on page one, while hybrid detection invokes it only when layout confidence is low. The model needs several GB of free memory. VLM work has no wall-clock timeout and falls back to layout detection if it fails. Docling does not generate a searchable PDF/A, so its archive file is the sanitized original. OCRmyPDF remains the choice when a searchable PDF/A is required.
+
+Models are not part of the application image. The worker downloads the layout/table models compatible with the installed Docling version on the first Docling document and the revision-pinned VLM model only when VLM or hybrid fallback needs it. A filesystem lock prevents duplicate downloads, interrupted downloads resume, and the named `models` volume keeps the cache across container upgrades. To prefetch everything before enabling Docling, run:
+
+```bash
+docker compose exec app docnest models
+```
+
+Use `docnest models --layout-only` to fetch only the standard models or `docnest models --force` to repair/refresh the pinned cache. The cache can be deleted and recreated; it contains no documents and does not need to be backed up.
 
 ## Reverse proxy
 

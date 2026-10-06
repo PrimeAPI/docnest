@@ -52,7 +52,7 @@ Each stage is idempotent; `processing_stage` records where to resume. Failures r
 
 - **Blind index instead of plaintext full-text search** — see [security.md](security.md).
 - **In-house job queue** on PostgreSQL (`SELECT … FOR UPDATE SKIP LOCKED`, leases, `LISTEN/NOTIFY`) — no extra broker.
-- **Local-only optional VLM** — deterministic analysis remains the default for small hardware; the bundled Docling extraction model is opt-in and never sends documents anywhere.
+- **Local-only optional VLM** — deterministic analysis remains the default for small hardware; the version-pinned Docling extraction model is downloaded into a persistent cache on demand and never receives document data over the network.
 - **Naive Bayes over hashed features** (instead of scikit-learn) — small, dependency-free, and the model contains no plaintext.
 - **Hard delete** — deleting a document removes its database rows (text, index, thumbnail) and its Proton Drive folder.
 - **One container** with web and worker under supervisord, as requested in the vision; the image can also run `web` or `worker` alone.

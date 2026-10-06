@@ -194,7 +194,7 @@ OCR_TIMEOUT_SECONDS = env_int("DOCNEST_OCR_TIMEOUT_SECONDS", 900)
 OCR_JOBS = env_int("DOCNEST_OCR_JOBS", 2)
 DOCLING_THREADS = env_int("DOCNEST_DOCLING_THREADS", 2)
 DOCLING_DEVICE = env("DOCNEST_DOCLING_DEVICE", "cpu").lower()
-DOCLING_ARTIFACTS_PATH = Path(env("DOCNEST_DOCLING_ARTIFACTS_PATH", "/opt/docling-models"))
+DOCLING_ARTIFACTS_PATH = Path(env("DOCNEST_DOCLING_ARTIFACTS_PATH", "/var/lib/docnest/models"))
 DOCLING_FIELD_DETECTION = env("DOCNEST_DOCLING_FIELD_DETECTION", "layout").lower()
 if DOCLING_FIELD_DETECTION not in {"layout", "vlm", "hybrid"}:
     raise ConfigError("DOCNEST_DOCLING_FIELD_DETECTION must be 'layout', 'vlm', or 'hybrid'")
