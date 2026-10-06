@@ -117,16 +117,19 @@ def test_default_processor_can_be_selected(api, scanner, settings):
     from apps.audit.models import AuditLog
 
     settings.OCR_BACKEND = "ocrmypdf"
+    settings.DOCLING_FIELD_DETECTION = "layout"
     assert api.get("/api/v1/system").json()["default_ocr_backend"] == "ocrmypdf"
+    assert api.get("/api/v1/system").json()["docling_field_detection"] == "layout"
 
     r = api.put(
         "/api/v1/settings/processing",
-        {"default_ocr_backend": "docling"},
+        {"default_ocr_backend": "docling", "docling_field_detection": "hybrid"},
         content_type=J,
     )
     assert r.status_code == 200, r.content
-    assert r.json() == {"default_ocr_backend": "docling"}
+    assert r.json() == {"default_ocr_backend": "docling", "docling_field_detection": "hybrid"}
     assert api.get("/api/v1/system").json()["default_ocr_backend"] == "docling"
+    assert api.get("/api/v1/system").json()["docling_field_detection"] == "hybrid"
     assert AuditLog.objects.filter(action="settings.processing_updated").exists()
 
     _, token = scanner
@@ -136,7 +139,14 @@ def test_default_processor_can_be_selected(api, scanner, settings):
 
     invalid = api.put(
         "/api/v1/settings/processing",
-        {"default_ocr_backend": "unknown"},
+        {"default_ocr_backend": "unknown", "docling_field_detection": "layout"},
+        content_type=J,
+    )
+    assert invalid.status_code == 422
+
+    invalid = api.put(
+        "/api/v1/settings/processing",
+        {"default_ocr_backend": "docling", "docling_field_detection": "unknown"},
         content_type=J,
     )
     assert invalid.status_code == 422

@@ -3,7 +3,7 @@ from datetime import date
 import pytest
 from django.test import Client
 
-from apps.analysis import extraction
+from apps.analysis import docling_fields, extraction
 from apps.documents import crypto_fields
 from apps.documents.models import Document
 from apps.processing.worker import Worker
@@ -159,3 +159,60 @@ def test_reference_numbers_do_not_swallow_following_words():
     refs = extraction.find_references("Personalnummer 004711   Steuerklasse 1\nKundennummer: KD 778899")
     assert refs["personalnummer"] == "004711"
     assert refs["kundennummer"] == "KD 778899"
+
+
+def test_docling_layout_detects_sender_and_title_not_recipient():
+    structure = {
+        "texts": [
+            {
+                "label": "page_header",
+                "text": "Stadtwerke Musterstadt GmbH - Energieweg 1 - 12345 Musterstadt",
+            },
+            {"label": "text", "text": "Max Mustermann"},
+            {
+                "label": "text",
+                "text": "Rechnung Nr. RE-2026-0042 Stromlieferung für Ihre Verbrauchsstelle",
+            },
+        ]
+    }
+    layout = {
+        "pages": [
+            {
+                "height": 842,
+                "lines": [
+                    {
+                        "text": "Stadtwerke Musterstadt GmbH - Energieweg 1 - 12345 Musterstadt",
+                        "y1": 808,
+                    },
+                    {"text": "Max Mustermann", "y1": 720},
+                    {"text": "Beispielstrasse 12", "y1": 700},
+                    {"text": "Rechnung Nr. RE-2026-0042", "y1": 560},
+                    {"text": "Stromlieferung für Ihre Verbrauchsstelle", "y1": 520},
+                ],
+            }
+        ]
+    }
+
+    detected = docling_fields.detect(structure, layout)
+
+    assert detected.sender == "Stadtwerke Musterstadt GmbH"
+    assert detected.title == "Stromlieferung für Ihre Verbrauchsstelle"
+    assert detected.sender_confidence >= 0.72
+    assert detected.title_confidence >= 0.55
+
+
+def test_docling_vlm_fields_need_document_evidence():
+    layout = docling_fields.DetectedFields(
+        sender="Existing GmbH",
+        title="Existing invoice",
+        sender_confidence=0.8,
+        title_confidence=0.8,
+    )
+    merged = docling_fields.merge_vlm(
+        layout,
+        sender="Hallucinated AG",
+        title="Completely unrelated subject",
+        evidence="Existing GmbH\nExisting invoice for March",
+    )
+    assert merged.sender == "Existing GmbH"
+    assert merged.title == "Existing invoice"

@@ -19,6 +19,7 @@ from django.conf import settings
 from django.db import transaction
 from django.utils import timezone
 
+from apps.analysis import docling_fields
 from apps.analysis.analyze import analyze
 from apps.crypto.aead import decrypt_file, encrypt_file
 from apps.documents import crypto_fields
@@ -26,7 +27,7 @@ from apps.documents.intake import archive_aad, archive_intake_path_for, intake_a
 from apps.documents.models import Document, ProcessingEvent
 from apps.processing import docling_backend, pdf
 from apps.processing.models import SystemState
-from apps.processing.preferences import get_default_ocr_backend
+from apps.processing.preferences import get_default_ocr_backend, get_docling_field_detection
 from apps.search.index import IndexInput, index_document
 from apps.storage.backends import StorageAuthError, StoredObject, get_backend
 
@@ -160,6 +161,7 @@ def stage_ocr(document: Document, work: Path) -> None:
             document,
             result.markdown,
             structured=result.structured,
+            layout=result.layout,
             content_format="markdown",
         )
         document.ocr_backend = backend
@@ -193,7 +195,39 @@ def stage_ocr(document: Document, work: Path) -> None:
 
 
 def stage_analyze(document: Document, work: Path) -> None:
-    analyze(document, crypto_fields.get_content(document))
+    text = crypto_fields.get_content(document)
+    if document.ocr_backend != Document.OcrBackend.DOCLING:
+        analyze(document, text)
+        return
+
+    structure = crypto_fields.get_structure(document)
+    layout = crypto_fields.get_layout(document)
+    detected = docling_fields.detect(structure, layout)
+    evidence_lines = [
+        line.get("text", "")
+        for page in layout.get("pages", [])
+        if isinstance(page, dict)
+        for line in page.get("lines", [])
+        if isinstance(line, dict) and isinstance(line.get("text"), str)
+    ]
+    evidence = "\n".join([*evidence_lines, text])
+    mode = get_docling_field_detection()
+    if mode == "vlm" or (mode == "hybrid" and detected.low_confidence):
+        try:
+            vlm = docling_backend.extract_fields(_original_local(document, work))
+            detected = docling_fields.merge_vlm(detected, vlm.sender, vlm.title, evidence)
+        except docling_backend.DoclingFailed:
+            logger.warning(
+                "Docling VLM field extraction failed; using layout detection",
+                extra={"document": str(document.uuid)},
+            )
+            ProcessingEvent.objects.create(
+                document=document,
+                stage=Stage.ANALYZE,
+                outcome="warning",
+                message="VLM field extraction failed; layout detection was used",
+            )
+    analyze(document, text, detected_fields=detected, context_text=evidence)
 
 
 def stage_store(document: Document, work: Path) -> None:

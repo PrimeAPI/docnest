@@ -17,6 +17,7 @@ from django.db import transaction
 from rapidfuzz import fuzz
 
 from apps.analysis import classifier, extraction, series, titles
+from apps.analysis.docling_fields import DetectedFields
 from apps.analysis.keywords import MIN_KEYWORD_HITS, TAG_KEYWORDS, TYPE_KEYWORDS
 from apps.documents import crypto_fields
 from apps.documents.models import Document, DocumentTag, Source
@@ -98,11 +99,23 @@ def _correspondent_from_sender(sender: str) -> Correspondent:
 # --- Main ---------------------------------------------------------------------
 
 
-def analyze(document: Document, text: str) -> AnalysisResult:
+def analyze(
+    document: Document,
+    text: str,
+    *,
+    detected_fields: DetectedFields | None = None,
+    context_text: str | None = None,
+) -> AnalysisResult:
     extracted = extraction.extract(text)
-    signature = compute_signature(text)
-    counts = _word_counts(text)
-    folded = _folded_text(text)
+    if detected_fields:
+        if detected_fields.sender and detected_fields.sender_confidence >= 0.72:
+            extracted.sender = detected_fields.sender
+        if detected_fields.title:
+            extracted.subject = detected_fields.title
+    analysis_text = context_text or text
+    signature = compute_signature(analysis_text)
+    counts = _word_counts(analysis_text)
+    folded = _folded_text(analysis_text)
     result = AnalysisResult(extracted=extracted, signature=signature)
 
     with transaction.atomic():
@@ -125,7 +138,7 @@ def analyze(document: Document, text: str) -> AnalysisResult:
 
         # Correspondent: known name in text > classifier > extracted sender
         if _can_set(document, "correspondent") and document.correspondent_id is None:
-            corr = _match_known_correspondent(text)
+            corr = _match_known_correspondent(analysis_text)
             if corr is None:
                 pred = classifier.predict("correspondent", signature, min_probability=0.8)
                 if pred:
@@ -141,7 +154,7 @@ def analyze(document: Document, text: str) -> AnalysisResult:
             if pred:
                 doc_type = DocumentType.objects.filter(pk=int(pred.label)).first()
             if doc_type is None:
-                header_counts = _word_counts("\n".join(text.splitlines()[:40]))
+                header_counts = _word_counts("\n".join(analysis_text.splitlines()[:40]))
                 scored = sorted(
                     (
                         (_keyword_hits(header_counts, kws) * 2 + _keyword_hits(counts, kws), slug)

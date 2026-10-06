@@ -82,8 +82,6 @@ WORKDIR /app/backend
 FROM base AS dev
 COPY backend/pyproject.toml backend/uv.lock ./
 RUN uv sync --frozen --no-install-project
-# Runtime conversion is offline: bake only the layout/table models used by
-# DocNest's standard Docling PDF pipeline into the image.
 RUN docling-tools models download --output-dir /opt/docling-models layout tableformer
 ENV DOCNEST_DEV=true
 CMD ["bash"]
@@ -92,7 +90,11 @@ CMD ["bash"]
 FROM base AS runtime-deps
 COPY backend/pyproject.toml backend/uv.lock ./
 RUN uv sync --frozen --no-dev --no-install-project
-RUN docling-tools models download --output-dir /opt/docling-models layout tableformer
+# Runtime conversion and extraction are offline. Pin the extraction model to
+# the revision used by this Docling release and use the directory layout its
+# local-model resolver expects.
+RUN docling-tools models download --output-dir /opt/docling-models layout tableformer \
+ && python -c "from pathlib import Path; from docling.models.extraction.transformers_extraction_model import TransformersExtractionModel; TransformersExtractionModel.download_models(repo_id='numind/NuExtract-2.0-2B', revision='fe5b2f0b63b81150721435a3ca1129a75c59c74e', local_dir=Path('/opt/docling-models/numind--NuExtract-2.0-2B'))"
 
 # ---------------------------------------------------------------------------
 FROM base AS runtime

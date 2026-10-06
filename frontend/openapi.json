@@ -2742,6 +2742,15 @@
       "title": "Default Ocr Backend",
       "type": "string"
      },
+     "docling_field_detection": {
+      "enum": [
+       "layout",
+       "vlm",
+       "hybrid"
+      ],
+      "title": "Docling Field Detection",
+      "type": "string"
+     },
      "storage": {
       "$ref": "#/components/schemas/StorageStatus"
      },
@@ -2773,6 +2782,7 @@
     "required": [
      "version",
      "default_ocr_backend",
+     "docling_field_detection",
      "storage",
      "worker_online",
      "worker_last_seen",
@@ -2791,10 +2801,20 @@
       ],
       "title": "Default Ocr Backend",
       "type": "string"
+     },
+     "docling_field_detection": {
+      "enum": [
+       "layout",
+       "vlm",
+       "hybrid"
+      ],
+      "title": "Docling Field Detection",
+      "type": "string"
      }
     },
     "required": [
-     "default_ocr_backend"
+     "default_ocr_backend",
+     "docling_field_detection"
     ],
     "title": "ProcessingSettingsOut",
     "type": "object"
@@ -2802,17 +2822,37 @@
    "ProcessingSettingsIn": {
     "properties": {
      "default_ocr_backend": {
-      "enum": [
-       "ocrmypdf",
-       "docling"
+      "anyOf": [
+       {
+        "enum": [
+         "ocrmypdf",
+         "docling"
+        ],
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
       ],
-      "title": "Default Ocr Backend",
-      "type": "string"
+      "title": "Default Ocr Backend"
+     },
+     "docling_field_detection": {
+      "anyOf": [
+       {
+        "enum": [
+         "layout",
+         "vlm",
+         "hybrid"
+        ],
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Docling Field Detection"
      }
     },
-    "required": [
-     "default_ocr_backend"
-    ],
     "title": "ProcessingSettingsIn",
     "type": "object"
    },

@@ -9,7 +9,7 @@ from django.utils import timezone
 from apps.documents import crypto_fields
 from apps.documents.models import Document
 from apps.processing import queue
-from apps.processing.docling_backend import DoclingResult
+from apps.processing.docling_backend import DoclingFailed, DoclingFieldResult, DoclingResult
 from apps.processing.models import Job
 from apps.processing.worker import Worker
 from apps.storage import backends
@@ -75,6 +75,8 @@ def test_scanned_document_can_be_processed_with_docling(scanner, settings):
     assert doc.processing_state == "done", doc.processing_error
     assert doc.ocr_backend == "docling"
     assert "Stromlieferung" in crypto_fields.get_content(doc)
+    assert doc.correspondent and doc.correspondent.name == "Stadtwerke Musterstadt GmbH"
+    assert "Stromlieferung" in crypto_fields.get_title(doc)
     structure = crypto_fields.get_structure(doc)
     assert structure.get("schema_name") == "DoclingDocument"
     assert structure.get("texts")
@@ -118,9 +120,29 @@ def test_docling_stores_markdown_and_structure_encrypted(scanner, api, monkeypat
         "texts": [{"label": "section_header", "text": "Electricity bill"}],
         "tables": [{"cells": [{"text": "EUR 42.00"}]}],
     }
+    layout = {
+        "pages": [
+            {
+                "page_no": 1,
+                "width": 595.0,
+                "height": 842.0,
+                "lines": [
+                    {
+                        "text": "Electricity bill",
+                        "x0": 50.0,
+                        "y0": 600.0,
+                        "x1": 200.0,
+                        "y1": 620.0,
+                        "confidence": 1.0,
+                        "from_ocr": False,
+                    }
+                ],
+            }
+        ]
+    }
 
     def fake_convert(_src):
-        return DoclingResult(markdown=markdown, structured=structure)
+        return DoclingResult(markdown=markdown, structured=structure, layout=layout)
 
     monkeypatch.setattr("apps.processing.docling_backend.convert", fake_convert)
     doc_id = upload(Client(), token, text_pdf(INVOICE_LINES)).json()["id"]
@@ -131,6 +153,7 @@ def test_docling_stores_markdown_and_structure_encrypted(scanner, api, monkeypat
     assert doc.ocr_backend == "docling"
     assert crypto_fields.get_content(doc) == markdown
     assert crypto_fields.get_structure(doc) == structure
+    assert crypto_fields.get_layout(doc) == layout
     assert doc.content.format == "markdown"
 
     response = api.get(f"/api/v1/documents/{doc_id}/structure")
@@ -138,10 +161,130 @@ def test_docling_stores_markdown_and_structure_encrypted(scanner, api, monkeypat
     assert response.json() == {"backend": "docling", "data": structure}
 
     with connection.cursor() as cursor:
-        cursor.execute("SELECT text_enc, structured_enc FROM documents_documentcontent")
+        cursor.execute("SELECT text_enc, structured_enc, layout_enc FROM documents_documentcontent")
         stored = b"".join(bytes(value) for value in cursor.fetchone())
     assert b"Electricity bill" not in stored
     assert b"EUR 42.00" not in stored
+
+
+def test_docling_vlm_mode_supplies_sender_and_title(scanner, monkeypatch, settings):
+    _, token = scanner
+    settings.OCR_BACKEND = "docling"
+    settings.DOCLING_FIELD_DETECTION = "vlm"
+    markdown = "Max Mustermann\nAcme Energy GmbH\nAnnual energy statement"
+    layout = {
+        "pages": [
+            {
+                "height": 842,
+                "lines": [
+                    {"text": "Max Mustermann", "y1": 720},
+                    {"text": "Acme Energy GmbH", "y1": 600},
+                    {"text": "Annual energy statement", "y1": 500},
+                ],
+            }
+        ]
+    }
+    monkeypatch.setattr(
+        "apps.processing.docling_backend.convert",
+        lambda _src: DoclingResult(markdown=markdown, structured={"texts": []}, layout=layout),
+    )
+    calls = []
+
+    def fake_extract(src):
+        calls.append(src)
+        return DoclingFieldResult(sender="Acme Energy GmbH", title="Annual energy statement")
+
+    monkeypatch.setattr("apps.processing.docling_backend.extract_fields", fake_extract)
+    doc_id = upload(Client(), token, text_pdf(INVOICE_LINES)).json()["id"]
+    process_all()
+
+    doc = Document.objects.get(uuid=doc_id)
+    assert doc.processing_state == "done", doc.processing_error
+    assert len(calls) == 1
+    assert doc.correspondent and doc.correspondent.name == "Acme Energy GmbH"
+    assert crypto_fields.get_title(doc).startswith("Annual energy statement")
+
+
+def test_docling_hybrid_skips_vlm_for_confident_layout(scanner, monkeypatch, settings):
+    _, token = scanner
+    settings.OCR_BACKEND = "docling"
+    settings.DOCLING_FIELD_DETECTION = "hybrid"
+    sender = "Acme Energy GmbH - Energieweg 1 - 12345 Berlin"
+    title = "Annual energy statement"
+    structure = {
+        "texts": [
+            {"label": "page_header", "text": sender},
+            {"label": "section_header", "text": title},
+        ]
+    }
+    layout = {
+        "pages": [
+            {
+                "height": 842,
+                "lines": [
+                    {"text": sender, "y1": 810},
+                    {"text": title, "y1": 500},
+                ],
+            }
+        ]
+    }
+    monkeypatch.setattr(
+        "apps.processing.docling_backend.convert",
+        lambda _src: DoclingResult(markdown=title, structured=structure, layout=layout),
+    )
+
+    def unexpected_vlm(_src):
+        raise AssertionError("confident hybrid detection must not invoke the VLM")
+
+    monkeypatch.setattr("apps.processing.docling_backend.extract_fields", unexpected_vlm)
+    doc_id = upload(Client(), token, text_pdf(INVOICE_LINES)).json()["id"]
+    process_all()
+
+    doc = Document.objects.get(uuid=doc_id)
+    assert doc.processing_state == "done", doc.processing_error
+    assert doc.correspondent and doc.correspondent.name == "Acme Energy GmbH"
+    assert crypto_fields.get_title(doc).startswith(title)
+
+
+def test_docling_vlm_failure_falls_back_without_failing_document(scanner, monkeypatch, settings):
+    _, token = scanner
+    settings.OCR_BACKEND = "docling"
+    settings.DOCLING_FIELD_DETECTION = "vlm"
+    sender = "Fallback Energy GmbH - Weg 1 - 12345 Berlin"
+    title = "Fallback annual statement"
+    structure = {
+        "texts": [
+            {"label": "page_header", "text": sender},
+            {"label": "section_header", "text": title},
+        ]
+    }
+    layout = {
+        "pages": [
+            {
+                "height": 842,
+                "lines": [
+                    {"text": sender, "y1": 810},
+                    {"text": title, "y1": 500},
+                ],
+            }
+        ]
+    }
+    monkeypatch.setattr(
+        "apps.processing.docling_backend.convert",
+        lambda _src: DoclingResult(markdown=title, structured=structure, layout=layout),
+    )
+
+    def failed_vlm(_src):
+        raise DoclingFailed("model unavailable")
+
+    monkeypatch.setattr("apps.processing.docling_backend.extract_fields", failed_vlm)
+    doc_id = upload(Client(), token, text_pdf(INVOICE_LINES)).json()["id"]
+    process_all()
+
+    doc = Document.objects.get(uuid=doc_id)
+    assert doc.processing_state == "done", doc.processing_error
+    assert doc.correspondent and doc.correspondent.name == "Fallback Energy GmbH"
+    assert doc.events.filter(stage="analyze", outcome="warning").exists()
 
 
 def test_javascript_is_stripped(scanner, isolated_dirs):

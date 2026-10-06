@@ -573,21 +573,31 @@ function ProcessingCard() {
   const system = useSystem();
   const qc = useQueryClient();
   const update = useMutation({
-    mutationFn: (backend: "ocrmypdf" | "docling") =>
+    mutationFn: (settings: {
+      default_ocr_backend: "ocrmypdf" | "docling";
+      docling_field_detection: "layout" | "vlm" | "hybrid";
+    }) =>
       call(() =>
         client.PUT("/api/v1/settings/processing", {
-          body: { default_ocr_backend: backend },
+          body: settings,
         }),
       ),
     onSuccess: (data) => {
       qc.setQueryData(keys.system, (current: Schemas["SystemStatus"] | undefined) =>
-        current ? { ...current, default_ocr_backend: data.default_ocr_backend } : current,
+        current
+          ? {
+              ...current,
+              default_ocr_backend: data.default_ocr_backend,
+              docling_field_detection: data.docling_field_detection,
+            }
+          : current,
       );
-      toast.success("Default processor updated");
+      toast.success("Processing settings updated");
     },
     onError: (e) => toast.error(e.message),
   });
   const value = system.data?.default_ocr_backend;
+  const detection = system.data?.docling_field_detection;
 
   return (
     <Card>
@@ -596,22 +606,52 @@ function ProcessingCard() {
         <CardDescription>Choose the processor used automatically for newly uploaded documents.</CardDescription>
       </CardHeader>
       <CardContent className="max-w-xl">
-        {value ? (
-          <div className="flex flex-col gap-1.5">
-            <Label htmlFor="default-processor">Default processor</Label>
-            <Select
-              id="default-processor"
-              value={value}
-              disabled={update.isPending}
-              onChange={(e) => update.mutate(e.target.value as "ocrmypdf" | "docling")}
-            >
-              <option value="ocrmypdf">OCRmyPDF / Tesseract</option>
-              <option value="docling">Docling</option>
-            </Select>
-            <p className="text-xs text-muted-foreground">
-              Existing documents keep their processor. You can still choose a different one when reprocessing a
-              document.
-            </p>
+        {value && detection ? (
+          <div className="flex flex-col gap-5">
+            <div className="flex flex-col gap-1.5">
+              <Label htmlFor="default-processor">Default processor</Label>
+              <Select
+                id="default-processor"
+                value={value}
+                disabled={update.isPending}
+                onChange={(e) =>
+                  update.mutate({
+                    default_ocr_backend: e.target.value as "ocrmypdf" | "docling",
+                    docling_field_detection: detection,
+                  })
+                }
+              >
+                <option value="ocrmypdf">OCRmyPDF / Tesseract</option>
+                <option value="docling">Docling</option>
+              </Select>
+              <p className="text-xs text-muted-foreground">
+                Existing documents keep their processor. You can still choose a different one when reprocessing a
+                document.
+              </p>
+            </div>
+            <div className="flex flex-col gap-1.5">
+              <Label htmlFor="docling-field-detection">Docling field detection</Label>
+              <Select
+                id="docling-field-detection"
+                value={detection}
+                disabled={update.isPending}
+                onChange={(e) =>
+                  update.mutate({
+                    default_ocr_backend: value,
+                    docling_field_detection: e.target.value as "layout" | "vlm" | "hybrid",
+                  })
+                }
+              >
+                <option value="layout">Layout-aware rules (fast)</option>
+                <option value="vlm">VLM extraction (slow, detailed)</option>
+                <option value="hybrid">Hybrid fallback (recommended)</option>
+              </Select>
+              <p className="text-xs text-muted-foreground">
+                Layout uses reading order and page geometry. VLM always runs a local vision model. Hybrid uses that
+                model only when layout confidence is low. The VLM needs several GB of free memory; slow servers may
+                take a long time, but extraction has no wall-clock timeout.
+              </p>
+            </div>
           </div>
         ) : system.error ? (
           <ErrorNote error={system.error} />

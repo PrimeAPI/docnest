@@ -978,6 +978,11 @@ export interface components {
              * @enum {string}
              */
             default_ocr_backend: "ocrmypdf" | "docling";
+            /**
+             * Docling Field Detection
+             * @enum {string}
+             */
+            docling_field_detection: "layout" | "vlm" | "hybrid";
             storage: components["schemas"]["StorageStatus"];
             /** Worker Online */
             worker_online: boolean;
@@ -995,14 +1000,18 @@ export interface components {
              * @enum {string}
              */
             default_ocr_backend: "ocrmypdf" | "docling";
+            /**
+             * Docling Field Detection
+             * @enum {string}
+             */
+            docling_field_detection: "layout" | "vlm" | "hybrid";
         };
         /** ProcessingSettingsIn */
         ProcessingSettingsIn: {
-            /**
-             * Default Ocr Backend
-             * @enum {string}
-             */
-            default_ocr_backend: "ocrmypdf" | "docling";
+            /** Default Ocr Backend */
+            default_ocr_backend?: ("ocrmypdf" | "docling") | null;
+            /** Docling Field Detection */
+            docling_field_detection?: ("layout" | "vlm" | "hybrid") | null;
         };
         /** AuditOut */
         AuditOut: {

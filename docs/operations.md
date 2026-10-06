@@ -38,6 +38,7 @@ Check **Settings → System**: storage should show *Connected* and the worker *R
 | `DOCNEST_OCR_BACKEND` | `ocrmypdf` | Initial default processor for new documents: `ocrmypdf` or `docling`. It can be changed under Settings → System; either backend can also be selected when reprocessing one document. |
 | `DOCNEST_OCR_LANGUAGES` | `deu+eng` | Tesseract languages used by OCRmyPDF and Docling (the image contains `deu` and `eng`). |
 | `DOCNEST_DOCLING_THREADS` | `2` | CPU threads used by Docling. Set to `1` on a very small server. |
+| `DOCNEST_DOCLING_FIELD_DETECTION` | `layout` | Initial sender/title detector: `layout`, `vlm`, or `hybrid`. It can be changed under Settings → System. |
 | `DOCNEST_TIME_ZONE` | `Europe/Berlin` | |
 | `DOCNEST_VIEW_CACHE_MB` | `0` | Encrypted cache of recently viewed PDFs (faster viewing; 0 = off). |
 | `DOCNEST_TMP_SIZE` | `2g` | RAM-backed work area for OCR and downloads. |
@@ -45,7 +46,7 @@ Check **Settings → System**: storage should show *Connected* and the worker *R
 
 Advanced variables (set under `environment:` in `compose.yml` if needed): `DOCNEST_SESSION_IDLE_TIMEOUT_MINUTES` (30), `DOCNEST_SESSION_ABSOLUTE_TIMEOUT_MINUTES` (720), `DOCNEST_LOGIN_MAX_FAILURES` (5), `DOCNEST_LOGIN_LOCKOUT_SECONDS` (900), `DOCNEST_OCR_JOBS` (2), `DOCNEST_OCR_TIMEOUT_SECONDS` (900; OCRmyPDF only—Docling has no wall-clock timeout), `DOCNEST_DOCLING_DEVICE` (`cpu`), `DOCNEST_DOCLING_ARTIFACTS_PATH` (`/opt/docling-models`), `DOCNEST_JOB_LEASE_SECONDS` (1800; renewed automatically while a job runs), `DOCNEST_WORKER_STOP_GRACE_PERIOD` (`24h`), `DOCNEST_MAX_PAGES` (500), `DOCNEST_WEB_WORKERS` (2), `DOCNEST_LOG_LEVEL` (INFO), `DOCNEST_AUDIT_RETENTION_DAYS` (365).
 
-Docling extracts reading order, headings, tables, Markdown, and its lossless JSON document model. Both outputs are encrypted in PostgreSQL; the JSON is available from the authenticated document structure API. Docling does not generate a searchable PDF/A, so its archive file is the sanitized original. OCRmyPDF remains the choice when a searchable PDF/A is required.
+Docling extracts reading order, headings, tables, Markdown, and its lossless JSON document model. Both outputs and the line geometry used for field detection are encrypted in PostgreSQL; the JSON is available from the authenticated document structure API. Layout detection is fast and deterministic. VLM detection always runs the bundled local NuExtract model on page one, while hybrid detection invokes it only when layout confidence is low. The model needs several GB of free memory. VLM work has no wall-clock timeout and falls back to layout detection if it fails. Docling does not generate a searchable PDF/A, so its archive file is the sanitized original. OCRmyPDF remains the choice when a searchable PDF/A is required.
 
 ## Reverse proxy
 

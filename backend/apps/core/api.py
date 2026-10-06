@@ -15,7 +15,14 @@ from apps.audit.models import AuditLog
 from apps.audit.service import audit
 from apps.documents.models import Document
 from apps.processing.models import Job, SystemState, WorkerHeartbeat
-from apps.processing.preferences import OcrBackend, get_default_ocr_backend, set_default_ocr_backend
+from apps.processing.preferences import (
+    DoclingFieldDetection,
+    OcrBackend,
+    get_default_ocr_backend,
+    get_docling_field_detection,
+    set_default_ocr_backend,
+    set_docling_field_detection,
+)
 
 router = Router(tags=["system"])
 
@@ -44,6 +51,7 @@ class StorageStatus(Schema):
 class SystemStatus(Schema):
     version: str
     default_ocr_backend: OcrBackend
+    docling_field_detection: DoclingFieldDetection
     storage: StorageStatus
     worker_online: bool
     worker_last_seen: datetime | None
@@ -63,11 +71,13 @@ class AuditOut(Schema):
 
 
 class ProcessingSettingsIn(Schema):
-    default_ocr_backend: OcrBackend
+    default_ocr_backend: OcrBackend | None = None
+    docling_field_detection: DoclingFieldDetection | None = None
 
 
 class ProcessingSettingsOut(Schema):
     default_ocr_backend: OcrBackend
+    docling_field_detection: DoclingFieldDetection
 
 
 @router.get("/health", auth=None, include_in_schema=False)
@@ -128,6 +138,7 @@ def system_status(request: HttpRequest) -> SystemStatus:
     return SystemStatus(
         version=os.environ.get("DOCNEST_VERSION", "dev"),
         default_ocr_backend=get_default_ocr_backend(),
+        docling_field_detection=get_docling_field_detection(),
         storage=StorageStatus(
             backend=str(settings.STORAGE_BACKEND),
             ok=value.get("ok"),
@@ -144,9 +155,23 @@ def system_status(request: HttpRequest) -> SystemStatus:
 
 @router.put("/settings/processing", response=ProcessingSettingsOut)
 def update_processing_settings(request: HttpRequest, data: ProcessingSettingsIn) -> ProcessingSettingsOut:
-    backend = set_default_ocr_backend(data.default_ocr_backend)
-    audit("settings.processing_updated", request=request, default_ocr_backend=backend)
-    return ProcessingSettingsOut(default_ocr_backend=backend)
+    backend = (
+        set_default_ocr_backend(data.default_ocr_backend)
+        if data.default_ocr_backend is not None
+        else get_default_ocr_backend()
+    )
+    detection = (
+        set_docling_field_detection(data.docling_field_detection)
+        if data.docling_field_detection is not None
+        else get_docling_field_detection()
+    )
+    audit(
+        "settings.processing_updated",
+        request=request,
+        default_ocr_backend=backend,
+        docling_field_detection=detection,
+    )
+    return ProcessingSettingsOut(default_ocr_backend=backend, docling_field_detection=detection)
 
 
 @router.get("/audit", response=list[AuditOut])

@@ -123,6 +123,7 @@ class DocumentContent(models.Model):
     )
     text_enc = models.BinaryField()
     structured_enc = models.BinaryField(null=True)
+    layout_enc = models.BinaryField(null=True)
     format = models.CharField(max_length=20, default="text")
     language = models.CharField(max_length=10, blank=True)
     length = models.PositiveIntegerField(default=0)

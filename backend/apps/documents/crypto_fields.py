@@ -66,12 +66,21 @@ def get_structure(document: Document) -> dict:
     return json.loads(raw)
 
 
+def get_layout(document: Document) -> dict:
+    row = DocumentContent.objects.filter(document=document).first()
+    if row is None or not row.layout_enc:
+        return {}
+    raw = decrypt_bytes(bytes(row.layout_enc), aad=_aad(document, "layout"))
+    return json.loads(raw)
+
+
 def set_content(
     document: Document,
     text: str,
     language: str = "",
     *,
     structured: dict | None = None,
+    layout: dict | None = None,
     content_format: str = "text",
 ) -> None:
     DocumentContent.objects.update_or_create(
@@ -84,6 +93,14 @@ def set_content(
                     aad=_aad(document, "structure"),
                 )
                 if structured is not None
+                else None
+            ),
+            "layout_enc": (
+                encrypt_bytes(
+                    json.dumps(layout, ensure_ascii=False, separators=(",", ":")).encode(),
+                    aad=_aad(document, "layout"),
+                )
+                if layout is not None
                 else None
             ),
             "format": content_format,
