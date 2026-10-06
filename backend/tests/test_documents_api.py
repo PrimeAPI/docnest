@@ -2,6 +2,8 @@ import pytest
 from django.test import Client
 
 from apps.documents.models import Document
+from apps.processing import queue
+from apps.processing.models import Job
 from apps.processing.worker import Worker
 from apps.taxonomy.models import Bucket, DocumentType
 from tests.conftest import upload
@@ -118,18 +120,28 @@ def test_default_processor_can_be_selected(api, scanner, settings):
 
     settings.OCR_BACKEND = "ocrmypdf"
     settings.DOCLING_FIELD_DETECTION = "layout"
+    settings.PROCESSING_CONCURRENCY = 1
     assert api.get("/api/v1/system").json()["default_ocr_backend"] == "ocrmypdf"
     assert api.get("/api/v1/system").json()["docling_field_detection"] == "layout"
 
     r = api.put(
         "/api/v1/settings/processing",
-        {"default_ocr_backend": "docling", "docling_field_detection": "hybrid"},
+        {
+            "default_ocr_backend": "docling",
+            "docling_field_detection": "hybrid",
+            "processing_concurrency": 3,
+        },
         content_type=J,
     )
     assert r.status_code == 200, r.content
-    assert r.json() == {"default_ocr_backend": "docling", "docling_field_detection": "hybrid"}
+    assert r.json() == {
+        "default_ocr_backend": "docling",
+        "docling_field_detection": "hybrid",
+        "processing_concurrency": 3,
+    }
     assert api.get("/api/v1/system").json()["default_ocr_backend"] == "docling"
     assert api.get("/api/v1/system").json()["docling_field_detection"] == "hybrid"
+    assert api.get("/api/v1/system").json()["processing_concurrency"] == 3
     assert AuditLog.objects.filter(action="settings.processing_updated").exists()
 
     _, token = scanner
@@ -150,6 +162,39 @@ def test_default_processor_can_be_selected(api, scanner, settings):
         content_type=J,
     )
     assert invalid.status_code == 422
+
+    invalid = api.put(
+        "/api/v1/settings/processing",
+        {"processing_concurrency": 9},
+        content_type=J,
+    )
+    assert invalid.status_code == 422
+
+
+def test_processing_queue_shows_live_state_and_recent_duration(api, scanner):
+    _, token = scanner
+    uploaded = upload(Client(), token, text_pdf(["Queue test"]), bucket="private")
+    document_id = uploaded.json()["id"]
+
+    listing = api.get("/api/v1/processing/queue")
+    assert listing.status_code == 200, listing.content
+    body = listing.json()
+    assert body["running"] == [] and body["history"] == []
+    assert body["queued"][0]["document_id"] == document_id
+    assert body["queued"][0]["title"] == "scan.pdf"
+    assert body["queued"][0]["duration_seconds"] is None
+
+    job = queue.claim("queue-test")
+    assert job is not None
+    running = api.get("/api/v1/processing/queue").json()
+    assert running["queued"] == []
+    assert running["running"][0]["duration_seconds"] >= 0
+
+    assert queue.complete(job)
+    history = api.get("/api/v1/processing/queue").json()
+    assert history["running"] == []
+    assert history["history"][0]["state"] == Job.State.DONE
+    assert history["history"][0]["duration_seconds"] >= 0
 
 
 def test_web_upload_goes_through_the_pipeline(api, isolated_dirs):

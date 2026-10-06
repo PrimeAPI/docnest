@@ -1,11 +1,24 @@
 import { describe, expect, it } from "vitest";
-import { colorClass, formatBytes, formatDate, formatDateInput, formatDateTime, parseDateInput } from "./utils";
+import {
+  colorClass,
+  formatBytes,
+  formatDate,
+  formatDateInput,
+  formatDateTime,
+  formatDuration,
+  parseDateInput,
+} from "./utils";
 
 describe("utils", () => {
   it("formats sizes", () => {
     expect(formatBytes(512)).toBe("512 B");
     expect(formatBytes(2048)).toBe("2 KB");
     expect(formatBytes(5 * 1024 * 1024)).toBe("5.0 MB");
+  });
+  it("formats durations", () => {
+    expect(formatDuration(12.4)).toBe("12s");
+    expect(formatDuration(125)).toBe("2m 5s");
+    expect(formatDuration(7_380)).toBe("2h 3m");
   });
   it("formats dates consistently as DD/MM/YYYY", () => {
     expect(formatDate(null)).toBe("—");

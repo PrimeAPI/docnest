@@ -31,6 +31,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { Kbd } from "@/components/ui/misc";
 import { UploadProvider, useUpload } from "@/features/upload/upload-provider";
+import { ProcessingQueueWidget } from "@/features/processing/processing-queue";
 import { getTheme, setTheme, type Theme } from "@/lib/theme";
 import { cn } from "@/lib/utils";
 
@@ -71,6 +72,7 @@ export function AppLayout() {
           </div>
         </main>
       </div>
+      <ProcessingQueueWidget />
     </div>
     </UploadProvider>
   );
@@ -116,7 +118,7 @@ function Sidebar() {
         })}
       </nav>
       {o && (
-        <div className="border-t px-5 py-4 text-xs text-muted-foreground">
+        <div className="border-t px-5 pb-16 pt-4 text-xs text-muted-foreground">
           {o.total} documents
           {o.processing > 0 && <span className="block">{o.processing} processing…</span>}
         </div>

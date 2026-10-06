@@ -9,6 +9,7 @@ immediately.
 from __future__ import annotations
 
 import logging
+from collections.abc import Sequence
 from datetime import timedelta
 
 from django.conf import settings
@@ -44,31 +45,47 @@ def _notify() -> None:
         cursor.execute(f"NOTIFY {CHANNEL}")
 
 
-def claim(worker_id: str) -> Job | None:
+def claim(worker_id: str, *, kinds: Sequence[str] | None = None) -> Job | None:
     now = timezone.now()
     with transaction.atomic():
-        job = (
-            Job.objects.select_for_update(skip_locked=True)
-            .filter(
-                Q(state=Job.State.QUEUED, run_after__lte=now)
-                | Q(state=Job.State.RUNNING, locked_until__lt=now)  # expired lease: worker died
-            )
-            .order_by("run_after", "id")
-            .first()
+        jobs = Job.objects.select_for_update(skip_locked=True).filter(
+            Q(state=Job.State.QUEUED, run_after__lte=now)
+            | Q(state=Job.State.RUNNING, locked_until__lt=now)  # expired lease: worker died
         )
+        if kinds is not None:
+            jobs = jobs.filter(kind__in=kinds)
+        job = jobs.order_by("run_after", "id").first()
         if job is None:
             return None
         job.state = Job.State.RUNNING
         job.attempts += 1
+        job.started_at = now
+        job.finished_at = None
         job.locked_by = worker_id
         job.locked_until = now + timedelta(seconds=settings.JOB_LEASE_SECONDS)
-        job.save(update_fields=["state", "attempts", "locked_by", "locked_until", "updated_at"])
+        job.save(
+            update_fields=[
+                "state",
+                "attempts",
+                "started_at",
+                "finished_at",
+                "locked_by",
+                "locked_until",
+                "updated_at",
+            ]
+        )
         return job
 
 
 def complete(job: Job) -> bool:
+    now = timezone.now()
     updated = Job.objects.filter(pk=job.pk, state=Job.State.RUNNING, locked_by=job.locked_by).update(
-        state=Job.State.DONE, locked_by="", locked_until=None, last_error="", updated_at=timezone.now()
+        state=Job.State.DONE,
+        locked_by="",
+        locked_until=None,
+        last_error="",
+        finished_at=now,
+        updated_at=now,
     )
     return updated == 1
 
@@ -96,12 +113,20 @@ def retry_or_fail(job: Job, error: str, *, retryable: bool = True, delay: int | 
             run_after=timezone.now() + timedelta(seconds=backoff),
             locked_by="",
             locked_until=None,
+            started_at=None,
+            finished_at=None,
             last_error=error,
             updated_at=timezone.now(),
         )
         return False if updated == 1 else None
+    now = timezone.now()
     updated = Job.objects.filter(pk=job.pk, state=Job.State.RUNNING, locked_by=job.locked_by).update(
-        state=Job.State.FAILED, locked_by="", locked_until=None, last_error=error, updated_at=timezone.now()
+        state=Job.State.FAILED,
+        locked_by="",
+        locked_until=None,
+        last_error=error,
+        finished_at=now,
+        updated_at=now,
     )
     return True if updated == 1 else None
 
@@ -114,6 +139,8 @@ def defer(job: Job, seconds: int, reason: str) -> bool:
         run_after=timezone.now() + timedelta(seconds=seconds),
         locked_by="",
         locked_until=None,
+        started_at=None,
+        finished_at=None,
         last_error=reason[:500],
         updated_at=timezone.now(),
     )

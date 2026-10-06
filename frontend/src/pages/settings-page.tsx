@@ -576,6 +576,7 @@ function ProcessingCard() {
     mutationFn: (settings: {
       default_ocr_backend: "ocrmypdf" | "docling";
       docling_field_detection: "layout" | "vlm" | "hybrid";
+      processing_concurrency: number;
     }) =>
       call(() =>
         client.PUT("/api/v1/settings/processing", {
@@ -589,15 +590,18 @@ function ProcessingCard() {
               ...current,
               default_ocr_backend: data.default_ocr_backend,
               docling_field_detection: data.docling_field_detection,
+              processing_concurrency: data.processing_concurrency,
             }
           : current,
       );
+      qc.invalidateQueries({ queryKey: keys.processingQueue });
       toast.success("Processing settings updated");
     },
     onError: (e) => toast.error(e.message),
   });
   const value = system.data?.default_ocr_backend;
   const detection = system.data?.docling_field_detection;
+  const concurrency = system.data?.processing_concurrency;
 
   return (
     <Card>
@@ -606,7 +610,7 @@ function ProcessingCard() {
         <CardDescription>Choose the processor used automatically for newly uploaded documents.</CardDescription>
       </CardHeader>
       <CardContent className="max-w-xl">
-        {value && detection ? (
+        {value && detection && concurrency ? (
           <div className="flex flex-col gap-5">
             <div className="flex flex-col gap-1.5">
               <Label htmlFor="default-processor">Default processor</Label>
@@ -618,6 +622,7 @@ function ProcessingCard() {
                   update.mutate({
                     default_ocr_backend: e.target.value as "ocrmypdf" | "docling",
                     docling_field_detection: detection,
+                    processing_concurrency: concurrency,
                   })
                 }
               >
@@ -639,6 +644,7 @@ function ProcessingCard() {
                   update.mutate({
                     default_ocr_backend: value,
                     docling_field_detection: e.target.value as "layout" | "vlm" | "hybrid",
+                    processing_concurrency: concurrency,
                   })
                 }
               >
@@ -650,6 +656,31 @@ function ProcessingCard() {
                 Layout uses reading order and page geometry. VLM always runs a local vision model. Hybrid uses that
                 model only when layout confidence is low. The VLM needs several GB of free memory; slow servers may
                 take a long time, but extraction has no wall-clock timeout.
+              </p>
+            </div>
+            <div className="flex flex-col gap-1.5">
+              <Label htmlFor="processing-concurrency">Documents processed simultaneously</Label>
+              <Select
+                id="processing-concurrency"
+                value={concurrency}
+                disabled={update.isPending}
+                onChange={(e) =>
+                  update.mutate({
+                    default_ocr_backend: value,
+                    docling_field_detection: detection,
+                    processing_concurrency: Number(e.target.value),
+                  })
+                }
+              >
+                {Array.from({ length: 8 }, (_, index) => index + 1).map((count) => (
+                  <option key={count} value={count}>
+                    {count}
+                  </option>
+                ))}
+              </Select>
+              <p className="text-xs text-muted-foreground">
+                The worker applies this limit immediately. More parallel Docling jobs need considerably more memory
+                and CPU; one is safest on a small server.
               </p>
             </div>
           </div>
@@ -706,7 +737,7 @@ function SystemCard() {
         <div className="rounded-md border p-3">
           <div className="text-sm font-medium">Jobs</div>
           <div className="mt-2 text-sm">
-            {s.queued_jobs} queued · {s.failed_jobs} failed
+            {s.running_jobs} running · {s.queued_jobs} queued · {s.failed_jobs} failed
           </div>
         </div>
       </CardContent>

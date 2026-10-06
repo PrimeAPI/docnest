@@ -6,8 +6,8 @@ model import/startup cost unless this backend is selected.
 
 from __future__ import annotations
 
+import threading
 from dataclasses import dataclass, field
-from functools import lru_cache
 from pathlib import Path
 from typing import Any
 
@@ -31,6 +31,9 @@ class DoclingResult:
 class DoclingFieldResult:
     sender: str | None = None
     title: str | None = None
+
+
+_field_extractors = threading.local()
 
 
 def _languages() -> list[str]:
@@ -194,9 +197,22 @@ def extract_fields(src: Path) -> DoclingFieldResult:
     raise DoclingFailed("Docling VLM extraction returned no fields")
 
 
-@lru_cache(maxsize=4)
 def _field_extractor(artifacts_path: str, threads: int, device: str) -> tuple[Any, type[Any]]:
-    """Build the heavyweight extractor once per worker/configuration."""
+    """Build one heavyweight extractor per job thread/configuration.
+
+    Docling extractor instances are stateful, so concurrent jobs must not share
+    one. Executor threads are long-lived, which still lets each thread reuse its
+    initialized model on later documents.
+    """
+    key = (artifacts_path, threads, device)
+    cache: dict[tuple[str, int, str], tuple[Any, type[Any]]] = getattr(_field_extractors, "cache", {})
+    if key not in cache:
+        cache[key] = _build_field_extractor(artifacts_path, threads, device)
+        _field_extractors.cache = cache
+    return cache[key]
+
+
+def _build_field_extractor(artifacts_path: str, threads: int, device: str) -> tuple[Any, type[Any]]:
     try:
         from docling.backend.docling_parse_v4_backend import ThreadedDoclingParseDocumentBackend
         from docling.datamodel.accelerator_options import AcceleratorDevice, AcceleratorOptions

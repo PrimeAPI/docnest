@@ -113,6 +113,33 @@
     ]
    }
   },
+  "/api/v1/processing/queue": {
+   "get": {
+    "operationId": "apps_core_api_processing_queue",
+    "summary": "Processing Queue",
+    "parameters": [],
+    "responses": {
+     "200": {
+      "description": "OK",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/ProcessingQueueOut"
+        }
+       }
+      }
+     }
+    },
+    "tags": [
+     "system"
+    ],
+    "security": [
+     {
+      "MfaSessionAuth": []
+     }
+    ]
+   }
+  },
   "/api/v1/audit": {
    "get": {
     "operationId": "apps_core_api_audit_log",
@@ -2770,8 +2797,16 @@
       ],
       "title": "Worker Last Seen"
      },
+     "processing_concurrency": {
+      "title": "Processing Concurrency",
+      "type": "integer"
+     },
      "queued_jobs": {
       "title": "Queued Jobs",
+      "type": "integer"
+     },
+     "running_jobs": {
+      "title": "Running Jobs",
       "type": "integer"
      },
      "failed_jobs": {
@@ -2786,7 +2821,9 @@
      "storage",
      "worker_online",
      "worker_last_seen",
+     "processing_concurrency",
      "queued_jobs",
+     "running_jobs",
      "failed_jobs"
     ],
     "title": "SystemStatus",
@@ -2810,11 +2847,16 @@
       ],
       "title": "Docling Field Detection",
       "type": "string"
+     },
+     "processing_concurrency": {
+      "title": "Processing Concurrency",
+      "type": "integer"
      }
     },
     "required": [
      "default_ocr_backend",
-     "docling_field_detection"
+     "docling_field_detection",
+     "processing_concurrency"
     ],
     "title": "ProcessingSettingsOut",
     "type": "object"
@@ -2851,9 +2893,152 @@
        }
       ],
       "title": "Docling Field Detection"
+     },
+     "processing_concurrency": {
+      "anyOf": [
+       {
+        "maximum": 8,
+        "minimum": 1,
+        "type": "integer"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Processing Concurrency"
      }
     },
     "title": "ProcessingSettingsIn",
+    "type": "object"
+   },
+   "ProcessingQueueItem": {
+    "properties": {
+     "id": {
+      "title": "Id",
+      "type": "integer"
+     },
+     "document_id": {
+      "format": "uuid",
+      "title": "Document Id",
+      "type": "string"
+     },
+     "title": {
+      "title": "Title",
+      "type": "string"
+     },
+     "state": {
+      "title": "State",
+      "type": "string"
+     },
+     "stage": {
+      "title": "Stage",
+      "type": "string"
+     },
+     "backend": {
+      "title": "Backend",
+      "type": "string"
+     },
+     "attempts": {
+      "title": "Attempts",
+      "type": "integer"
+     },
+     "error": {
+      "title": "Error",
+      "type": "string"
+     },
+     "created_at": {
+      "format": "date-time",
+      "title": "Created At",
+      "type": "string"
+     },
+     "started_at": {
+      "anyOf": [
+       {
+        "format": "date-time",
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Started At"
+     },
+     "finished_at": {
+      "anyOf": [
+       {
+        "format": "date-time",
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Finished At"
+     },
+     "duration_seconds": {
+      "anyOf": [
+       {
+        "type": "number"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Duration Seconds"
+     }
+    },
+    "required": [
+     "id",
+     "document_id",
+     "title",
+     "state",
+     "stage",
+     "backend",
+     "attempts",
+     "error",
+     "created_at",
+     "started_at",
+     "finished_at",
+     "duration_seconds"
+    ],
+    "title": "ProcessingQueueItem",
+    "type": "object"
+   },
+   "ProcessingQueueOut": {
+    "properties": {
+     "concurrency": {
+      "title": "Concurrency",
+      "type": "integer"
+     },
+     "queued": {
+      "items": {
+       "$ref": "#/components/schemas/ProcessingQueueItem"
+      },
+      "title": "Queued",
+      "type": "array"
+     },
+     "running": {
+      "items": {
+       "$ref": "#/components/schemas/ProcessingQueueItem"
+      },
+      "title": "Running",
+      "type": "array"
+     },
+     "history": {
+      "items": {
+       "$ref": "#/components/schemas/ProcessingQueueItem"
+      },
+      "title": "History",
+      "type": "array"
+     }
+    },
+    "required": [
+     "concurrency",
+     "queued",
+     "running",
+     "history"
+    ],
+    "title": "ProcessingQueueOut",
     "type": "object"
    },
    "AuditOut": {

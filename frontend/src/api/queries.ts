@@ -12,6 +12,7 @@ export const keys = {
   session: ["session"] as const,
   overview: ["overview"] as const,
   system: ["system"] as const,
+  processingQueue: ["processing-queue"] as const,
   documents: (params: object) => ["documents", params] as const,
   document: (id: string) => ["document", id] as const,
   tags: ["tags"] as const,
@@ -48,6 +49,17 @@ export function useSystem() {
     queryKey: keys.system,
     queryFn: () => call(() => client.GET("/api/v1/system")),
     refetchInterval: 30_000,
+  });
+}
+
+export function useProcessingQueue() {
+  return useQuery({
+    queryKey: keys.processingQueue,
+    queryFn: () => call(() => client.GET("/api/v1/processing/queue")),
+    refetchInterval: (query) => {
+      const data = query.state.data;
+      return data && (data.running.length > 0 || data.queued.length > 0) ? 2_000 : 15_000;
+    },
   });
 }
 
@@ -96,6 +108,7 @@ export function useInvalidateDocuments() {
   return () => {
     qc.invalidateQueries({ queryKey: ["documents"] });
     qc.invalidateQueries({ queryKey: keys.overview });
+    qc.invalidateQueries({ queryKey: keys.processingQueue });
     qc.invalidateQueries({ queryKey: ["series"] });
     qc.invalidateQueries({ queryKey: keys.tags });
   };

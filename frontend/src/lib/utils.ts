@@ -56,6 +56,17 @@ export function formatBytes(n: number): string {
   return `${(n / 1024 / 1024).toFixed(1)} MB`;
 }
 
+export function formatDuration(seconds?: number | null): string {
+  if (seconds === null || seconds === undefined || !Number.isFinite(seconds)) return "—";
+  const total = Math.max(0, Math.round(seconds));
+  if (total < 60) return `${total}s`;
+  const minutes = Math.floor(total / 60);
+  const remaining = total % 60;
+  if (minutes < 60) return `${minutes}m ${remaining}s`;
+  const hours = Math.floor(minutes / 60);
+  return `${hours}h ${minutes % 60}m`;
+}
+
 export const TAG_COLORS = [
   "slate", "red", "orange", "amber", "lime", "emerald", "teal", "sky", "indigo", "violet", "pink",
 ] as const;

@@ -10,12 +10,14 @@ import signal
 import socket
 import threading
 import time
+from concurrent.futures import FIRST_COMPLETED, Future, ThreadPoolExecutor, wait
 from contextlib import contextmanager
 from datetime import timedelta
 
 import psycopg
 from django.conf import settings
 from django.db import close_old_connections, connection
+from django.db.models import Q
 from django.utils import timezone
 
 from apps.analysis import classifier
@@ -23,14 +25,16 @@ from apps.documents.intake import ensure_dirs
 from apps.documents.models import Document
 from apps.processing import pipeline, queue
 from apps.processing.models import Job, SystemState, WorkerHeartbeat
+from apps.processing.preferences import MAX_PROCESSING_CONCURRENCY, get_processing_concurrency
 from apps.storage.backends import get_backend
 
 logger = logging.getLogger("docnest.worker")
 
 HEALTHCHECK_INTERVAL = 600
 TRAIN_INTERVAL = 120
-CLEANUP_INTERVAL = 24 * 3600
+CLEANUP_INTERVAL = 3600
 HEARTBEAT_INTERVAL = 30
+CONCURRENT_JOB_KINDS = [Job.Kind.PROCESS_DOCUMENT, Job.Kind.REINDEX_DOCUMENT]
 
 
 class Worker:
@@ -55,14 +59,69 @@ class Worker:
         ensure_dirs()
         self.sweep_workspace()
         logger.info("worker started", extra={"worker": self.worker_id})
-        while not self.stopping:
+        active: set[Future[None]] = set()
+        executor = ThreadPoolExecutor(
+            max_workers=MAX_PROCESSING_CONCURRENCY,
+            thread_name_prefix="docnest-job",
+        )
+        try:
+            while not self.stopping:
+                close_old_connections()
+                self.periodic()
+                active = self._reap(active)
+                concurrency = get_processing_concurrency()
+                claimed = False
+
+                # Start the oldest job first whenever no document work is active.
+                # Maintenance jobs remain exclusive because classifier/storage
+                # operations were designed for serial execution.
+                if not active:
+                    job = queue.claim(self.worker_id)
+                    if job is not None:
+                        if job.kind in CONCURRENT_JOB_KINDS:
+                            active.add(executor.submit(self._execute_in_thread, job))
+                        else:
+                            self.execute(job)
+                        claimed = True
+
+                while not self.stopping and len(active) < concurrency:
+                    job = queue.claim(self.worker_id, kinds=CONCURRENT_JOB_KINDS)
+                    if job is None:
+                        break
+                    active.add(executor.submit(self._execute_in_thread, job))
+                    claimed = True
+                if self.stopping or claimed:
+                    continue
+                if active:
+                    # Re-read the live concurrency setting promptly and fill slots as jobs finish.
+                    wait(active, timeout=1, return_when=FIRST_COMPLETED)
+                else:
+                    self.wait_for_jobs(settings.WORKER_POLL_SECONDS)
+        finally:
+            # Deployments may wait a long time here intentionally: active Docling jobs are not aborted.
+            executor.shutdown(wait=True, cancel_futures=False)
+            if self._listen_conn:
+                self._listen_conn.close()
+
+    def _execute_in_thread(self, job: Job) -> None:
+        close_old_connections()
+        try:
+            self.execute(job)
+        finally:
             close_old_connections()
-            self.periodic()
-            if self.run_once():
+
+    def _reap(self, active: set[Future[None]]) -> set[Future[None]]:
+        remaining: set[Future[None]] = set()
+        for future in active:
+            if not future.done():
+                remaining.add(future)
                 continue
-            self.wait_for_jobs(settings.WORKER_POLL_SECONDS)
-        if self._listen_conn:
-            self._listen_conn.close()
+            try:
+                future.result()
+            except Exception:
+                # execute() handles job failures; this catches worker implementation failures.
+                logger.exception("job thread crashed")
+        return remaining
 
     def run_once(self) -> bool:
         job = queue.claim(self.worker_id)
@@ -195,7 +254,12 @@ class Worker:
         now = timezone.now()
         AuditLog.objects.filter(created_at__lt=now - timedelta(days=settings.AUDIT_RETENTION_DAYS)).delete()
         LoginThrottle.objects.filter(window_started_at__lt=now - timedelta(days=1)).delete()
-        Job.objects.filter(state=Job.State.DONE, updated_at__lt=now - timedelta(days=30)).delete()
+        history_cutoff = now - timedelta(hours=settings.JOB_HISTORY_HOURS)
+        Job.objects.filter(
+            state__in=[Job.State.DONE, Job.State.FAILED],
+        ).filter(
+            Q(finished_at__lt=history_cutoff) | Q(finished_at__isnull=True, updated_at__lt=history_cutoff)
+        ).delete()
 
     def check_storage(self) -> None:
         """Also keeps the Proton session fresh (token refresh on use)."""

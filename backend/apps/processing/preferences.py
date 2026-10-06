@@ -8,10 +8,13 @@ from apps.processing.models import SystemState
 
 DEFAULT_OCR_BACKEND_KEY = "default_ocr_backend"
 DOCLING_FIELD_DETECTION_KEY = "docling_field_detection"
+PROCESSING_CONCURRENCY_KEY = "processing_concurrency"
 OCR_BACKENDS = {"ocrmypdf", "docling"}
 DOCLING_FIELD_DETECTION_MODES = {"layout", "vlm", "hybrid"}
 OcrBackend = Literal["ocrmypdf", "docling"]
 DoclingFieldDetection = Literal["layout", "vlm", "hybrid"]
+MIN_PROCESSING_CONCURRENCY = 1
+MAX_PROCESSING_CONCURRENCY = 8
 
 
 def get_default_ocr_backend() -> OcrBackend:
@@ -53,3 +56,31 @@ def set_docling_field_detection(mode: DoclingFieldDetection) -> DoclingFieldDete
         defaults={"value": {"mode": mode}},
     )
     return mode
+
+
+def get_processing_concurrency() -> int:
+    value = (
+        SystemState.objects.filter(key=PROCESSING_CONCURRENCY_KEY).values_list("value", flat=True).first()
+        or {}
+    )
+    concurrency = value.get("concurrency") if isinstance(value, dict) else None
+    if (
+        isinstance(concurrency, int)
+        and MIN_PROCESSING_CONCURRENCY <= concurrency <= MAX_PROCESSING_CONCURRENCY
+    ):
+        return concurrency
+    return max(
+        MIN_PROCESSING_CONCURRENCY,
+        min(MAX_PROCESSING_CONCURRENCY, settings.PROCESSING_CONCURRENCY),
+    )
+
+
+def set_processing_concurrency(concurrency: int) -> int:
+    if not MIN_PROCESSING_CONCURRENCY <= concurrency <= MAX_PROCESSING_CONCURRENCY:
+        message = f"Processing concurrency must be between {MIN_PROCESSING_CONCURRENCY} and "
+        raise ValueError(message + str(MAX_PROCESSING_CONCURRENCY))
+    SystemState.objects.update_or_create(
+        key=PROCESSING_CONCURRENCY_KEY,
+        defaults={"value": {"concurrency": concurrency}},
+    )
+    return concurrency

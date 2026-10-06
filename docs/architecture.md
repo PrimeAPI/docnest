@@ -46,7 +46,7 @@ DocNest is a modular monolith: a Django backend and a React frontend in one repo
 5. **store**: upload original + archive to `<root>/<bucket>/<year>/<uuid>/`, verify size and SHA-1, then delete the intake copies.
 6. **index**: blind-index title, content and metadata.
 
-Each stage is idempotent; `processing_stage` records where to resume. Failures retry with exponential backoff; permanent failures (invalid PDF) are shown in the UI. If Proton Drive needs a new login, storage jobs are deferred without consuming retries. A background heartbeat renews the active job lease throughout long OCR/model inference, so slow Docling work is not mistaken for a crashed worker.
+Each stage is idempotent; `processing_stage` records where to resume. Failures retry with exponential backoff; permanent failures (invalid PDF) are shown in the UI. If Proton Drive needs a new login, storage jobs are deferred without consuming retries. A background heartbeat renews every active job lease throughout long OCR/model inference, so slow Docling work is not mistaken for a crashed worker. The worker runs up to the live concurrency limit from Settings; the bottom-left queue popup shows waiting, active and recent jobs with elapsed time. Finished queue history is operational data and expires after 24 hours by default.
 
 ## Design decisions
 

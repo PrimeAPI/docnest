@@ -75,6 +75,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/processing/queue": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Processing Queue */
+        get: operations["apps_core_api_processing_queue"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/audit": {
         parameters: {
             query?: never;
@@ -988,8 +1005,12 @@ export interface components {
             worker_online: boolean;
             /** Worker Last Seen */
             worker_last_seen: string | null;
+            /** Processing Concurrency */
+            processing_concurrency: number;
             /** Queued Jobs */
             queued_jobs: number;
+            /** Running Jobs */
+            running_jobs: number;
             /** Failed Jobs */
             failed_jobs: number;
         };
@@ -1005,6 +1026,8 @@ export interface components {
              * @enum {string}
              */
             docling_field_detection: "layout" | "vlm" | "hybrid";
+            /** Processing Concurrency */
+            processing_concurrency: number;
         };
         /** ProcessingSettingsIn */
         ProcessingSettingsIn: {
@@ -1012,6 +1035,52 @@ export interface components {
             default_ocr_backend?: ("ocrmypdf" | "docling") | null;
             /** Docling Field Detection */
             docling_field_detection?: ("layout" | "vlm" | "hybrid") | null;
+            /** Processing Concurrency */
+            processing_concurrency?: number | null;
+        };
+        /** ProcessingQueueItem */
+        ProcessingQueueItem: {
+            /** Id */
+            id: number;
+            /**
+             * Document Id
+             * Format: uuid
+             */
+            document_id: string;
+            /** Title */
+            title: string;
+            /** State */
+            state: string;
+            /** Stage */
+            stage: string;
+            /** Backend */
+            backend: string;
+            /** Attempts */
+            attempts: number;
+            /** Error */
+            error: string;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /** Started At */
+            started_at: string | null;
+            /** Finished At */
+            finished_at: string | null;
+            /** Duration Seconds */
+            duration_seconds: number | null;
+        };
+        /** ProcessingQueueOut */
+        ProcessingQueueOut: {
+            /** Concurrency */
+            concurrency: number;
+            /** Queued */
+            queued: components["schemas"]["ProcessingQueueItem"][];
+            /** Running */
+            running: components["schemas"]["ProcessingQueueItem"][];
+            /** History */
+            history: components["schemas"]["ProcessingQueueItem"][];
         };
         /** AuditOut */
         AuditOut: {
@@ -1863,6 +1932,26 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ProcessingSettingsOut"];
+                };
+            };
+        };
+    };
+    apps_core_api_processing_queue: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProcessingQueueOut"];
                 };
             };
         };
