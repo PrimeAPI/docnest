@@ -12,8 +12,10 @@ from django.utils import timezone
 from ninja import Router, Schema
 
 from apps.audit.models import AuditLog
+from apps.audit.service import audit
 from apps.documents.models import Document
 from apps.processing.models import Job, SystemState, WorkerHeartbeat
+from apps.processing.preferences import OcrBackend, get_default_ocr_backend, set_default_ocr_backend
 
 router = Router(tags=["system"])
 
@@ -41,6 +43,7 @@ class StorageStatus(Schema):
 
 class SystemStatus(Schema):
     version: str
+    default_ocr_backend: OcrBackend
     storage: StorageStatus
     worker_online: bool
     worker_last_seen: datetime | None
@@ -57,6 +60,14 @@ class AuditOut(Schema):
     target: str
     ip: str | None
     details: dict
+
+
+class ProcessingSettingsIn(Schema):
+    default_ocr_backend: OcrBackend
+
+
+class ProcessingSettingsOut(Schema):
+    default_ocr_backend: OcrBackend
 
 
 @router.get("/health", auth=None, include_in_schema=False)
@@ -116,6 +127,7 @@ def system_status(request: HttpRequest) -> SystemStatus:
     last_seen = heartbeat.last_seen_at if heartbeat else None
     return SystemStatus(
         version=os.environ.get("DOCNEST_VERSION", "dev"),
+        default_ocr_backend=get_default_ocr_backend(),
         storage=StorageStatus(
             backend=str(settings.STORAGE_BACKEND),
             ok=value.get("ok"),
@@ -128,6 +140,13 @@ def system_status(request: HttpRequest) -> SystemStatus:
         queued_jobs=Job.objects.filter(state=Job.State.QUEUED).count(),
         failed_jobs=Job.objects.filter(state=Job.State.FAILED).count(),
     )
+
+
+@router.put("/settings/processing", response=ProcessingSettingsOut)
+def update_processing_settings(request: HttpRequest, data: ProcessingSettingsIn) -> ProcessingSettingsOut:
+    backend = set_default_ocr_backend(data.default_ocr_backend)
+    audit("settings.processing_updated", request=request, default_ocr_backend=backend)
+    return ProcessingSettingsOut(default_ocr_backend=backend)
 
 
 @router.get("/audit", response=list[AuditOut])

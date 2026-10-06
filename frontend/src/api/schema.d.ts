@@ -58,6 +58,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/settings/processing": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /** Update Processing Settings */
+        put: operations["apps_core_api_update_processing_settings"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/audit": {
         parameters: {
             query?: never;
@@ -956,6 +973,11 @@ export interface components {
         SystemStatus: {
             /** Version */
             version: string;
+            /**
+             * Default Ocr Backend
+             * @enum {string}
+             */
+            default_ocr_backend: "ocrmypdf" | "docling";
             storage: components["schemas"]["StorageStatus"];
             /** Worker Online */
             worker_online: boolean;
@@ -965,6 +987,22 @@ export interface components {
             queued_jobs: number;
             /** Failed Jobs */
             failed_jobs: number;
+        };
+        /** ProcessingSettingsOut */
+        ProcessingSettingsOut: {
+            /**
+             * Default Ocr Backend
+             * @enum {string}
+             */
+            default_ocr_backend: "ocrmypdf" | "docling";
+        };
+        /** ProcessingSettingsIn */
+        ProcessingSettingsIn: {
+            /**
+             * Default Ocr Backend
+             * @enum {string}
+             */
+            default_ocr_backend: "ocrmypdf" | "docling";
         };
         /** AuditOut */
         AuditOut: {
@@ -1792,6 +1830,30 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["SystemStatus"];
+                };
+            };
+        };
+    };
+    apps_core_api_update_processing_settings: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ProcessingSettingsIn"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProcessingSettingsOut"];
                 };
             };
         };

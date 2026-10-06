@@ -28,7 +28,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { Input, Label } from "@/components/ui/input";
+import { Input, Label, Select } from "@/components/ui/input";
 import { EmptyState, ErrorNote, PageHeader, Spinner } from "@/components/ui/misc";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { KeyEnroll, RecoveryCodes, TotpEnroll } from "@/features/auth/enroll";
@@ -62,6 +62,7 @@ export function SettingsPage() {
           <Scanners />
         </TabsContent>
         <TabsContent value="system" className="flex flex-col gap-6">
+          <ProcessingCard />
           <SystemCard />
           <AuditLog />
         </TabsContent>
@@ -567,6 +568,60 @@ function TokenDialog({ token, onClose }: { token: string | null; onClose: () => 
 }
 
 // --- System -----------------------------------------------------------------------
+
+function ProcessingCard() {
+  const system = useSystem();
+  const qc = useQueryClient();
+  const update = useMutation({
+    mutationFn: (backend: "ocrmypdf" | "docling") =>
+      call(() =>
+        client.PUT("/api/v1/settings/processing", {
+          body: { default_ocr_backend: backend },
+        }),
+      ),
+    onSuccess: (data) => {
+      qc.setQueryData(keys.system, (current: Schemas["SystemStatus"] | undefined) =>
+        current ? { ...current, default_ocr_backend: data.default_ocr_backend } : current,
+      );
+      toast.success("Default processor updated");
+    },
+    onError: (e) => toast.error(e.message),
+  });
+  const value = system.data?.default_ocr_backend;
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>Document processing</CardTitle>
+        <CardDescription>Choose the processor used automatically for newly uploaded documents.</CardDescription>
+      </CardHeader>
+      <CardContent className="max-w-xl">
+        {value ? (
+          <div className="flex flex-col gap-1.5">
+            <Label htmlFor="default-processor">Default processor</Label>
+            <Select
+              id="default-processor"
+              value={value}
+              disabled={update.isPending}
+              onChange={(e) => update.mutate(e.target.value as "ocrmypdf" | "docling")}
+            >
+              <option value="ocrmypdf">OCRmyPDF / Tesseract</option>
+              <option value="docling">Docling</option>
+            </Select>
+            <p className="text-xs text-muted-foreground">
+              Existing documents keep their processor. You can still choose a different one when reprocessing a
+              document.
+            </p>
+          </div>
+        ) : system.error ? (
+          <ErrorNote error={system.error} />
+        ) : (
+          <Spinner />
+        )}
+      </CardContent>
+    </Card>
+  );
+}
 
 function SystemCard() {
   const system = useSystem();

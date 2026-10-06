@@ -76,6 +76,43 @@
     ]
    }
   },
+  "/api/v1/settings/processing": {
+   "put": {
+    "operationId": "apps_core_api_update_processing_settings",
+    "summary": "Update Processing Settings",
+    "parameters": [],
+    "responses": {
+     "200": {
+      "description": "OK",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/ProcessingSettingsOut"
+        }
+       }
+      }
+     }
+    },
+    "tags": [
+     "system"
+    ],
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/ProcessingSettingsIn"
+       }
+      }
+     },
+     "required": true
+    },
+    "security": [
+     {
+      "MfaSessionAuth": []
+     }
+    ]
+   }
+  },
   "/api/v1/audit": {
    "get": {
     "operationId": "apps_core_api_audit_log",
@@ -2697,6 +2734,14 @@
       "title": "Version",
       "type": "string"
      },
+     "default_ocr_backend": {
+      "enum": [
+       "ocrmypdf",
+       "docling"
+      ],
+      "title": "Default Ocr Backend",
+      "type": "string"
+     },
      "storage": {
       "$ref": "#/components/schemas/StorageStatus"
      },
@@ -2727,6 +2772,7 @@
     },
     "required": [
      "version",
+     "default_ocr_backend",
      "storage",
      "worker_online",
      "worker_last_seen",
@@ -2734,6 +2780,40 @@
      "failed_jobs"
     ],
     "title": "SystemStatus",
+    "type": "object"
+   },
+   "ProcessingSettingsOut": {
+    "properties": {
+     "default_ocr_backend": {
+      "enum": [
+       "ocrmypdf",
+       "docling"
+      ],
+      "title": "Default Ocr Backend",
+      "type": "string"
+     }
+    },
+    "required": [
+     "default_ocr_backend"
+    ],
+    "title": "ProcessingSettingsOut",
+    "type": "object"
+   },
+   "ProcessingSettingsIn": {
+    "properties": {
+     "default_ocr_backend": {
+      "enum": [
+       "ocrmypdf",
+       "docling"
+      ],
+      "title": "Default Ocr Backend",
+      "type": "string"
+     }
+    },
+    "required": [
+     "default_ocr_backend"
+    ],
+    "title": "ProcessingSettingsIn",
     "type": "object"
    },
    "AuditOut": {

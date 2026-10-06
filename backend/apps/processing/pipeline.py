@@ -26,6 +26,7 @@ from apps.documents.intake import archive_aad, archive_intake_path_for, intake_a
 from apps.documents.models import Document, ProcessingEvent
 from apps.processing import docling_backend, pdf
 from apps.processing.models import SystemState
+from apps.processing.preferences import get_default_ocr_backend
 from apps.search.index import IndexInput, index_document
 from apps.storage.backends import StorageAuthError, StoredObject, get_backend
 
@@ -149,7 +150,7 @@ def stage_ocr(document: Document, work: Path) -> None:
     src = _original_local(document, work)
     archive = work / "archive.pdf"
     archive.unlink(missing_ok=True)
-    backend = document.ocr_backend or settings.OCR_BACKEND
+    backend = document.ocr_backend or get_default_ocr_backend()
     if backend == Document.OcrBackend.DOCLING:
         result = docling_backend.convert(src)
         # Docling produces a structured document rather than a searchable PDF.

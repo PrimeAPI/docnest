@@ -35,7 +35,7 @@ Check **Settings → System**: storage should show *Connected* and the worker *R
 | `DOCNEST_BIND` / `DOCNEST_PORT` | `127.0.0.1` / `8000` | Where the container port is published. |
 | `DOCNEST_STORAGE_BACKEND` | `proton` | `proton`, or `local` (files stay in the `data` volume — testing only). |
 | `DOCNEST_PROTON_ROOT` | `/my-files/DocNest` | Folder in Proton Drive. |
-| `DOCNEST_OCR_BACKEND` | `ocrmypdf` | Default processor for new documents: `ocrmypdf` or `docling`. Either backend can also be selected when reprocessing one document. |
+| `DOCNEST_OCR_BACKEND` | `ocrmypdf` | Initial default processor for new documents: `ocrmypdf` or `docling`. It can be changed under Settings → System; either backend can also be selected when reprocessing one document. |
 | `DOCNEST_OCR_LANGUAGES` | `deu+eng` | Tesseract languages used by OCRmyPDF and Docling (the image contains `deu` and `eng`). |
 | `DOCNEST_DOCLING_THREADS` | `2` | CPU threads used by Docling. Set to `1` on a very small server. |
 | `DOCNEST_TIME_ZONE` | `Europe/Berlin` | |

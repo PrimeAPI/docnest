@@ -55,6 +55,7 @@ const ACTIONS: Record<string, string> = {
   "scanner.token_rotated": "Rotated scanner token",
   "scanner.revoked": "Revoked scanner",
   "scanner.deleted": "Deleted scanner",
+  "settings.processing_updated": "Changed default processor",
   "tag.merged": "Merged tags",
   "tag.deleted": "Deleted tag",
   "bucket.created": "Created bucket",

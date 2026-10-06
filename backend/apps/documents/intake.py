@@ -25,6 +25,7 @@ from apps.crypto.aead import encrypt_bytes, encrypt_file, encrypt_text
 from apps.crypto.keys import Purpose, derive
 from apps.documents.models import Document, DocumentTag, Source
 from apps.processing.models import Job
+from apps.processing.preferences import get_default_ocr_backend
 from apps.processing.queue import enqueue
 from apps.taxonomy.models import Bucket, DocumentType
 from apps.taxonomy.services import resolve_or_create_tag
@@ -146,6 +147,7 @@ def receive(upload_path: Path, req: IntakeRequest, *, scanner: object = None) ->
         size=size,
         status=Document.Status.TODO if req.todo else Document.Status.NEW,
         is_important=req.important,
+        ocr_backend=get_default_ocr_backend(),
         received_from=scanner,  # type: ignore[misc]
         scanner_metadata_enc=encrypt_bytes(metadata_json.encode()) if req.metadata else None,
         original_filename_enc=encrypt_text(req.filename[:200]) if req.filename else None,

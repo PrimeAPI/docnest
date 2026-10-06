@@ -113,6 +113,35 @@ def test_spa_fallback_and_health(db, settings, tmp_path):
     assert Document.objects.count() == 0
 
 
+def test_default_processor_can_be_selected(api, scanner, settings):
+    from apps.audit.models import AuditLog
+
+    settings.OCR_BACKEND = "ocrmypdf"
+    assert api.get("/api/v1/system").json()["default_ocr_backend"] == "ocrmypdf"
+
+    r = api.put(
+        "/api/v1/settings/processing",
+        {"default_ocr_backend": "docling"},
+        content_type=J,
+    )
+    assert r.status_code == 200, r.content
+    assert r.json() == {"default_ocr_backend": "docling"}
+    assert api.get("/api/v1/system").json()["default_ocr_backend"] == "docling"
+    assert AuditLog.objects.filter(action="settings.processing_updated").exists()
+
+    _, token = scanner
+    uploaded = upload(Client(), token, text_pdf(["Docling default"]), bucket="private")
+    assert uploaded.status_code == 202, uploaded.content
+    assert Document.objects.get(uuid=uploaded.json()["id"]).ocr_backend == "docling"
+
+    invalid = api.put(
+        "/api/v1/settings/processing",
+        {"default_ocr_backend": "unknown"},
+        content_type=J,
+    )
+    assert invalid.status_code == 422
+
+
 def test_web_upload_goes_through_the_pipeline(api, isolated_dirs):
     from django.core.files.uploadedfile import SimpleUploadedFile
 

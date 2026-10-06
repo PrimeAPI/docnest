@@ -20,6 +20,7 @@ from apps.documents.intake import IntakeError, IntakeRequest, archive_intake_pat
 from apps.documents.models import Document, DocumentTag, ProcessingEvent, Source
 from apps.processing import pipeline, queue
 from apps.processing.models import Job, SystemState
+from apps.processing.preferences import get_default_ocr_backend
 from apps.search import index as search_index
 from apps.search.snippets import make_snippet
 from apps.storage.backends import StorageAuthError, StorageError
@@ -234,7 +235,7 @@ def to_detail(document: Document) -> DocumentDetail:
         received_from=document.received_from.name if document.received_from else "Web upload",
         size=document.size,
         processing_stage=document.processing_stage,
-        ocr_backend=document.ocr_backend or str(settings.OCR_BACKEND),
+        ocr_backend=document.ocr_backend or get_default_ocr_backend(),
         stored=bool(document.storage_original),
         events=[
             EventOut(
@@ -585,7 +586,7 @@ def document_text(request: HttpRequest, doc_id: UUID) -> dict[str, str]:
     return {
         "text": crypto_fields.get_content(document),
         "format": content.format if content else "text",
-        "backend": document.ocr_backend or str(settings.OCR_BACKEND),
+        "backend": document.ocr_backend or get_default_ocr_backend(),
     }
 
 
@@ -593,7 +594,7 @@ def document_text(request: HttpRequest, doc_id: UUID) -> dict[str, str]:
 def document_structure(request: HttpRequest, doc_id: UUID) -> dict[str, object]:
     document = get_document(doc_id)
     return {
-        "backend": document.ocr_backend or str(settings.OCR_BACKEND),
+        "backend": document.ocr_backend or get_default_ocr_backend(),
         "data": crypto_fields.get_structure(document),
     }
 
