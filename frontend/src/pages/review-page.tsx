@@ -32,6 +32,7 @@ import {
   useTypes,
 } from "@/api/queries";
 import { Button } from "@/components/ui/button";
+import { DateInput } from "@/components/ui/date-input";
 import { Input, Label, Select } from "@/components/ui/input";
 import { EmptyState, ErrorNote, Kbd, Spinner } from "@/components/ui/misc";
 import { TagChip } from "@/features/documents/document-row";
@@ -634,7 +635,7 @@ function ReviewForm({
       </FormField>
       <div className="grid grid-cols-2 gap-3">
         <FormField label="Document date" htmlFor="review-date">
-          <Input id="review-date" type="date" value={draft.documentDate} onChange={(e) => set("documentDate", e.target.value)} />
+          <DateInput id="review-date" value={draft.documentDate} onValueChange={(value) => set("documentDate", value)} />
         </FormField>
         <FormField label="Type" htmlFor="review-type">
           <Select
@@ -721,17 +722,21 @@ function ReviewForm({
         />
         <Star className={cn("size-4", draft.important && "fill-amber-400 text-amber-400")} /> Important
       </label>
-      {(extracted.total_amount || Object.keys((extracted.references ?? {}) as object).length > 0) && (
-        <div className="rounded-md border bg-muted/40 p-3 text-xs">
-          <div className="mb-1 font-semibold uppercase tracking-wide text-muted-foreground">Detected</div>
-          {extracted.total_amount ? <div>Amount: {String(extracted.total_amount)}</div> : null}
-          {Object.entries((extracted.references ?? {}) as Record<string, string>).map(([k, v]) => (
-            <div key={k} className="truncate">
-              {k}: <span className="font-mono">{v}</span>
-            </div>
-          ))}
-        </div>
-      )}
+      <div className="rounded-md border bg-muted/40 p-3 text-xs">
+        <div className="mb-1 font-semibold uppercase tracking-wide text-muted-foreground">Detected data</div>
+        {extracted.total_amount || Object.keys((extracted.references ?? {}) as object).length > 0 ? (
+          <>
+            {extracted.total_amount ? <div>Amount: {String(extracted.total_amount)}</div> : null}
+            {Object.entries((extracted.references ?? {}) as Record<string, string>).map(([k, v]) => (
+              <div key={k} className="truncate">
+                {k}: <span className="font-mono">{v}</span>
+              </div>
+            ))}
+          </>
+        ) : (
+          <p className="text-muted-foreground">Recognized amounts and references will appear here.</p>
+        )}
+      </div>
       <Link to={`/documents/${doc.id}`} className="text-xs text-muted-foreground hover:underline">
         Open full document page (history, downloads, more actions)
       </Link>

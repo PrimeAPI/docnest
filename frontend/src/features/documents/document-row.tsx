@@ -20,7 +20,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown";
-import { cn, colorClass, formatDate, relativeTime } from "@/lib/utils";
+import { cn, colorClass, formatDate, formatDateTime } from "@/lib/utils";
 
 export function Thumbnail({ doc, className }: { doc: DocumentListItem; className?: string }) {
   const [failed, setFailed] = useState(false);
@@ -145,8 +145,8 @@ export function DocumentRow({
         )}
       </div>
       <div className="flex shrink-0 flex-col items-end gap-1">
-        <span className="text-xs text-muted-foreground" title={doc.uploaded_at}>
-          {relativeTime(doc.uploaded_at)}
+        <span className="text-xs text-muted-foreground" title={formatDateTime(doc.uploaded_at)}>
+          {formatDateTime(doc.uploaded_at)}
         </span>
         <div className="flex items-center gap-0.5 opacity-100 md:opacity-0 md:group-hover:opacity-100 md:focus-within:opacity-100">
           {doc.status !== "done" && (

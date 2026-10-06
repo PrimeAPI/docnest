@@ -40,6 +40,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import { DateInput } from "@/components/ui/date-input";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -338,6 +339,10 @@ function Details({ doc }: { doc: DocumentDetail }) {
 
   const extracted = doc.extracted as Record<string, unknown>;
   const references = (extracted.references ?? {}) as Record<string, string>;
+  const ibans = (extracted.ibans as string[]) ?? [];
+  const plates = (extracted.license_plates as string[]) ?? [];
+  const hasDetectedData =
+    extracted.total_amount != null || Object.keys(references).length > 0 || ibans.length > 0 || plates.length > 0;
 
   return (
     <div className="flex flex-col gap-4">
@@ -356,11 +361,10 @@ function Details({ doc }: { doc: DocumentDetail }) {
       </Field>
       <div className="grid grid-cols-2 gap-3">
         <Field label="Document date" doc={doc} field="document_date">
-          <Input
-            type="date"
+          <DateInput
             value={doc.document_date ?? ""}
-            onChange={(e) =>
-              update.mutate(e.target.value ? { document_date: e.target.value } : { clear_document_date: true })
+            onValueChange={(value) =>
+              update.mutate(value ? { document_date: value } : { clear_document_date: true })
             }
           />
         </Field>
@@ -407,23 +411,35 @@ function Details({ doc }: { doc: DocumentDetail }) {
       </Field>
 
       <Card className="p-3 text-sm">
-        <h4 className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Detected</h4>
+        <h4 className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Detected data</h4>
+        {hasDetectedData ? (
+          <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1">
+            {extracted.total_amount != null ? (
+              <>
+                <dt className="text-muted-foreground">Amount</dt>
+                <dd className="font-medium tabular-nums">{String(extracted.total_amount)}</dd>
+              </>
+            ) : null}
+            {Object.entries(references).map(([k, v]) => (
+              <ExtractedRow key={k} label={k} value={v} />
+            ))}
+            {ibans.map((iban) => (
+              <ExtractedRow key={iban} label="IBAN" value={iban} />
+            ))}
+            {plates.map((plate) => (
+              <ExtractedRow key={plate} label="Plate" value={plate} />
+            ))}
+          </dl>
+        ) : (
+          <p className="text-xs text-muted-foreground">
+            Recognized amounts, references, IBANs and licence plates will appear here.
+          </p>
+        )}
+      </Card>
+
+      <Card className="p-3 text-sm">
+        <h4 className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">File details</h4>
         <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1">
-          {extracted.total_amount ? (
-            <>
-              <dt className="text-muted-foreground">Amount</dt>
-              <dd className="font-medium tabular-nums">{String(extracted.total_amount)}</dd>
-            </>
-          ) : null}
-          {Object.entries(references).map(([k, v]) => (
-            <ExtractedRow key={k} label={k} value={v} />
-          ))}
-          {((extracted.ibans as string[]) ?? []).map((iban) => (
-            <ExtractedRow key={iban} label="IBAN" value={iban} />
-          ))}
-          {((extracted.license_plates as string[]) ?? []).map((p) => (
-            <ExtractedRow key={p} label="Plate" value={p} />
-          ))}
           <dt className="text-muted-foreground">Pages</dt>
           <dd>{doc.page_count || "—"}</dd>
           <dt className="text-muted-foreground">Size</dt>

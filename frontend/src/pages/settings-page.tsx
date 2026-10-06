@@ -34,7 +34,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { KeyEnroll, RecoveryCodes, TotpEnroll } from "@/features/auth/enroll";
 import { Link } from "react-router";
 import { describeAction, describeAgent, describeMethod } from "@/lib/agent";
-import { cn, formatDateTime, relativeTime } from "@/lib/utils";
+import { cn, formatDateTime } from "@/lib/utils";
 
 export function SettingsPage() {
   return (
@@ -131,7 +131,7 @@ function SignInActivity() {
                         <div className="text-xs text-muted-foreground">
                           {formatDateTime(a.at)}
                           {a.outcome === "success" && a.method && ` · ${describeMethod(a.method)}`}
-                          {a.last_activity_at && ` · last activity ${relativeTime(a.last_activity_at)}`}
+                          {a.last_activity_at && ` · last activity ${formatDateTime(a.last_activity_at)}`}
                           {expandable && ` · ${a.actions.length} action${a.actions.length === 1 ? "" : "s"}`}
                         </div>
                       </div>
@@ -223,8 +223,8 @@ function SecondFactors() {
                   <div className="font-medium">{d.name}</div>
                   <div className="text-xs text-muted-foreground">
                     {d.kind === "webauthn" ? "Security key / passkey" : "Authenticator app"} · added{" "}
-                    {relativeTime(d.created_at)}
-                    {d.last_used_at && ` · used ${relativeTime(d.last_used_at)}`}
+                    {formatDateTime(d.created_at)}
+                    {d.last_used_at && ` · used ${formatDateTime(d.last_used_at)}`}
                   </div>
                 </div>
                 <Button
@@ -304,8 +304,8 @@ function Sessions() {
                   {describeAgent(s.user_agent)}
                 </div>
                 <div className="text-xs text-muted-foreground">
-                  {s.ip ?? "unknown IP"} · signed in {relativeTime(s.created_at)} · active{" "}
-                  {relativeTime(s.last_seen_at)}
+                  {s.ip ?? "unknown IP"} · signed in {formatDateTime(s.created_at)} · active{" "}
+                  {formatDateTime(s.last_seen_at)}
                 </div>
               </div>
               {s.current ? (
@@ -429,7 +429,7 @@ function Scanners() {
                 </div>
                 <div className="text-xs text-muted-foreground">
                   <code>{s.token_prefix}</code> · {s.document_count} uploads · last used{" "}
-                  {s.last_used_at ? `${relativeTime(s.last_used_at)} from ${s.last_used_ip}` : "never"}
+                  {s.last_used_at ? `${formatDateTime(s.last_used_at)} from ${s.last_used_ip}` : "never"}
                   {s.allowed_ips.length > 0 && ` · only from ${s.allowed_ips.join(", ")}`}
                 </div>
               </div>
@@ -649,7 +649,7 @@ function SystemCard() {
           </div>
           {s.storage.message && <p className="mt-2 text-xs text-muted-foreground">{s.storage.message}</p>}
           {s.storage.checked_at && (
-            <p className="mt-1 text-xs text-muted-foreground">checked {relativeTime(s.storage.checked_at)}</p>
+            <p className="mt-1 text-xs text-muted-foreground">checked {formatDateTime(s.storage.checked_at)}</p>
           )}
         </div>
         <div className="rounded-md border p-3">
@@ -660,7 +660,7 @@ function SystemCard() {
             {s.worker_online ? <Badge variant="success">Running</Badge> : <Badge variant="danger">Offline</Badge>}
           </div>
           {s.worker_last_seen && (
-            <p className="mt-2 text-xs text-muted-foreground">last heartbeat {relativeTime(s.worker_last_seen)}</p>
+            <p className="mt-2 text-xs text-muted-foreground">last heartbeat {formatDateTime(s.worker_last_seen)}</p>
           )}
         </div>
         <div className="rounded-md border p-3">
