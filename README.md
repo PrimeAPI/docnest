@@ -3,11 +3,11 @@
 [![Build](https://github.com/PrimeAPI/docnest/actions/workflows/preview.yml/badge.svg)](https://github.com/PrimeAPI/docnest/actions/workflows/preview.yml)
 [![Security](https://github.com/PrimeAPI/docnest/actions/workflows/security.yml/badge.svg)](https://github.com/PrimeAPI/docnest/actions/workflows/security.yml)
 
-**A self-hosted, security-first document archive for scanned mail.** A scanner uploads PDFs; DocNest runs selectable OCRmyPDF or Docling processing, recognizes sender, date, type and tags, groups recurring documents into series, stores the files in **Proton Drive** and makes everything searchable — without ever keeping readable document text in its database.
+**A self-hosted, security-first document archive for scanned mail.** A scanner uploads PDFs or raw page images; DocNest runs selectable OCRmyPDF or Docling processing, recognizes sender, date, type and tags, groups recurring documents into series, stores the files in **Proton Drive** and makes everything searchable — without ever keeping readable document text in its database.
 
 - **Inbox workflow** — new, unread, todo and important documents at a glance; one click to mark done.
 - **Review mode** — go through the inbox one document at a time: PDF and OCR text side by side, select text to fill title, sender, date or tags, then “Save & next”.
-- **Upload from anywhere** — scanners use the upload API; in the browser just drag & drop PDFs onto DocNest.
+- **Upload from anywhere** — scanners use the upload API and may send raw page images (PNG, JPEG, TIFF, PNM, …) page by page; DocNest builds the PDF itself, so a Raspberry Pi next to a USB scanner needs no processing at all. In the browser just drag & drop PDFs onto DocNest.
 - **Full-text search over scans** — finds words that exist only as pixels in a scanned letter, with prefix and German compound-word matching (`versicherung` finds `Fahrzeugversicherung`).
 - **Automatic analysis, no AI service** — rules, heuristics and a small classifier that learns from your corrections. Nothing leaves your server.
 - **Series** — monthly payslips, phone bills or bank statements are grouped and labelled (“March 2026”), with gaps highlighted.
@@ -67,7 +67,15 @@ curl -X POST https://docs.your-domain.tld/api/upload/v1/documents \
   -F file=@scan.pdf -F bucket=private -F document_type=auto -F todo=true
 ```
 
-Full reference: [docs/scanner-api.md](docs/scanner-api.md).
+Raw scanner pages work too — DocNest turns them into the PDF:
+
+```bash
+curl -X POST https://docs.your-domain.tld/api/upload/v1/documents \
+  -H "Authorization: Bearer dn_scan_…" \
+  -F file=@page-1.png -F file=@page-2.png -F bucket=private -F dpi=300
+```
+
+For long feeder scans, upload page by page with a scan session. Full reference, including a Raspberry Pi scan station script: [docs/scanner-api.md](docs/scanner-api.md).
 
 ## Documentation
 

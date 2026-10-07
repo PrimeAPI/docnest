@@ -23,9 +23,19 @@ from apps.analysis import docling_fields
 from apps.analysis.analyze import analyze
 from apps.crypto.aead import decrypt_file, encrypt_file
 from apps.documents import crypto_fields
-from apps.documents.intake import archive_aad, archive_intake_path_for, intake_aad, intake_path_for
+from apps.documents.intake import (
+    archive_aad,
+    archive_intake_path_for,
+    intake_aad,
+    intake_path_for,
+    part_aad,
+    part_filename,
+    parts_dir_for,
+    read_manifest,
+    remove_parts,
+)
 from apps.documents.models import Document, ProcessingEvent
-from apps.processing import docling_backend, pdf
+from apps.processing import assemble, docling_backend, pdf
 from apps.processing.models import SystemState
 from apps.processing.preferences import get_default_ocr_backend, get_docling_field_detection
 from apps.search.index import IndexInput, index_document
@@ -36,6 +46,7 @@ logger = logging.getLogger(__name__)
 Stage = Document.Stage
 ORDER: list[str] = [
     Stage.RECEIVED,
+    Stage.ASSEMBLE,
     Stage.VALIDATE,
     Stage.OCR,
     Stage.ANALYZE,
@@ -130,6 +141,46 @@ def _download(document: Document, ref: StoredObject, target: Path) -> None:
 
 
 # --- Stages -------------------------------------------------------------------
+
+
+def stage_assemble(document: Document, work: Path) -> None:
+    """Build the original PDF from uploaded scanner parts (page images / several files)."""
+    doc_uuid = str(document.uuid)
+    directory = parts_dir_for(doc_uuid)
+    if not directory.exists():
+        return  # uploaded as a single PDF: nothing to assemble
+    manifest = read_manifest(directory)
+    batch = str(manifest["batch"])
+
+    def materializer(position: int) -> Callable[[], Path]:
+        def materialize() -> Path:
+            target = work / f"part-{position:05d}"
+            decrypt_file(directory / part_filename(position), target, aad=part_aad(batch, position))
+            return target
+
+        return materialize
+
+    parts = [(str(e["kind"]), materializer(int(e["position"]))) for e in manifest["parts"]]
+    original = work / "original.pdf"
+    try:
+        result = assemble.assemble(parts, original, assemble.AssemblyOptions.from_json(manifest["options"]))
+    except assemble.AssemblyFailed as exc:
+        raise PermanentError(str(exc)) from exc
+    finally:
+        for leftover in work.glob("part-*"):
+            leftover.unlink(missing_ok=True)
+    # The assembled PDF is the document's original from here on; the raw parts can go.
+    encrypt_file(original, intake_path_for(doc_uuid), aad=intake_aad(doc_uuid))
+    remove_parts(doc_uuid)
+    document.size = original.stat().st_size
+    document.save(update_fields=["size"])
+    if result.skipped_blank:
+        ProcessingEvent.objects.create(
+            document=document,
+            stage=Stage.ASSEMBLE,
+            outcome="info",
+            message=f"Removed {result.skipped_blank} blank page(s)",
+        )
 
 
 def stage_validate(document: Document, work: Path) -> None:
@@ -283,6 +334,7 @@ def reindex(document: Document) -> None:
 
 
 STAGES: dict[str, Callable[[Document, Path], None]] = {
+    Stage.ASSEMBLE: stage_assemble,
     Stage.VALIDATE: stage_validate,
     Stage.OCR: stage_ocr,
     Stage.ANALYZE: stage_analyze,
@@ -297,7 +349,7 @@ def run(document_id: int) -> None:
     if document.deleted_at is not None:
         return
     if document.processing_stage == Stage.RECEIVED:
-        _advance(document, Stage.VALIDATE)
+        _advance(document, Stage.ASSEMBLE)
     Document.objects.filter(pk=document.pk).update(
         processing_state=Document.State.RUNNING, processing_error=""
     )

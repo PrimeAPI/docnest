@@ -15,11 +15,12 @@ from ninja.files import UploadedFile
 from apps.audit.service import audit
 from apps.core.auth import require_recent_auth
 from apps.crypto.hashing import keyed_hash
-from apps.documents.intake import IntakeError, IntakeRequest, receive
+from apps.documents.intake import IntakeError, IntakeRequest, receive_files
 from apps.documents.models import Document
-from apps.scanners import tokens
+from apps.processing.assemble import COMPRESSIONS, MAX_DPI, MIN_DPI, AssemblyOptions
+from apps.scanners import sessions, tokens
 from apps.scanners.auth import require_scope
-from apps.scanners.models import IdempotencyKey, ScannerClient
+from apps.scanners.models import IdempotencyKey, ScannerClient, ScanPage, ScanSession
 
 upload_router = Router(tags=["upload"])
 manage_router = Router(tags=["scanners"])
@@ -54,53 +55,94 @@ def _parse_bool(value: str | None) -> bool:
     return (value or "").strip().lower() in {"1", "true", "yes", "on"}
 
 
-@upload_router.post("/documents", response={200: UploadAccepted, 202: UploadAccepted})
-def upload_document(
-    request: HttpRequest,
-    file: File[UploadedFile],
-    bucket: Form[str],
-    document_type: Form[str] = "auto",
-    important: Form[str] = "false",
-    todo: Form[str] = "false",
-    tags: Form[str] = "",
-    metadata: Form[str] = "",
-) -> Status:
-    """Upload a scanned PDF.
+def _assembly_options(dpi: str, skip_blank_pages: str, compression: str) -> AssemblyOptions:
+    resolution: int | None = None
+    if dpi.strip():
+        try:
+            resolution = int(dpi)
+        except ValueError as exc:
+            raise HttpError(400, "dpi must be an integer") from exc
+        if not MIN_DPI <= resolution <= MAX_DPI:
+            raise HttpError(400, f"dpi must be between {MIN_DPI} and {MAX_DPI}")
+    compression = (compression or "auto").strip().lower()
+    if compression not in COMPRESSIONS:
+        raise HttpError(400, f"compression must be one of: {', '.join(COMPRESSIONS)}")
+    return AssemblyOptions(
+        dpi=resolution, skip_blank_pages=_parse_bool(skip_blank_pages), compression=compression
+    )
 
-    `tags` is a comma-separated list; `metadata` an optional JSON object.
-    Send an `Idempotency-Key` header to make retries safe.
-    """
-    scanner = require_scope(request, ScannerClient.Scope.UPLOAD)
-    idem = request.headers.get("Idempotency-Key", "").strip()[:200]
-    if idem:
-        existing = IdempotencyKey.objects.filter(scanner=scanner, key_hash=keyed_hash(idem.encode())).first()
-        if existing:
-            return Status(200, _accepted(existing.document, duplicate=True))
 
+def _metadata(metadata: str) -> dict[str, Any]:
     try:
         meta: dict[str, Any] = json.loads(metadata) if metadata else {}
     except json.JSONDecodeError as exc:
         raise HttpError(400, "metadata must be a JSON object") from exc
     if not isinstance(meta, dict):
         raise HttpError(400, "metadata must be a JSON object")
+    return meta
 
-    path = _upload_path(file)
-    req = IntakeRequest(
+
+def _intake_request(
+    bucket: str, document_type: str, important: str, todo: str, tags: str, metadata: str, filename: str = ""
+) -> IntakeRequest:
+    return IntakeRequest(
         bucket=bucket,
         document_type=document_type,
         important=_parse_bool(important),
         todo=_parse_bool(todo),
         tags=[t for t in tags.split(",") if t.strip()],
-        metadata=meta,
-        filename=Path(file.name or "").name,
+        metadata=_metadata(metadata),
+        filename=filename,
     )
+
+
+def _idempotency_key(request: HttpRequest) -> str:
+    return request.headers.get("Idempotency-Key", "").strip()[:200]
+
+
+@upload_router.post("/documents", response={200: UploadAccepted, 202: UploadAccepted})
+def upload_document(
+    request: HttpRequest,
+    file: File[list[UploadedFile]],
+    bucket: Form[str],
+    document_type: Form[str] = "auto",
+    important: Form[str] = "false",
+    todo: Form[str] = "false",
+    tags: Form[str] = "",
+    metadata: Form[str] = "",
+    dpi: Form[str] = "",
+    skip_blank_pages: Form[str] = "false",
+    compression: Form[str] = "auto",
+) -> Status:
+    """Upload one scan: a PDF, page images, or several files (repeat `file`) in page order.
+
+    Images and multiple files are assembled into one PDF by DocNest.
+    `tags` is a comma-separated list; `metadata` an optional JSON object.
+    Send an `Idempotency-Key` header to make retries safe.
+    """
+    scanner = require_scope(request, ScannerClient.Scope.UPLOAD)
     try:
-        result = receive(path, req, scanner=scanner)
-    except IntakeError as exc:
-        audit("upload.rejected", request=request, scanner=scanner, reason=str(exc))
-        raise HttpError(exc.status, str(exc)) from exc
+        idem = _idempotency_key(request)
+        if idem:
+            existing = IdempotencyKey.objects.filter(
+                scanner=scanner, key_hash=keyed_hash(idem.encode())
+            ).first()
+            if existing:
+                return Status(200, _accepted(existing.document, duplicate=True))
+
+        req = _intake_request(
+            bucket, document_type, important, todo, tags, metadata, filename=Path(file[0].name or "").name
+        )
+        options = _assembly_options(dpi, skip_blank_pages, compression)
+        paths = [_upload_path(f) for f in file]
+        try:
+            result = receive_files(paths, req, scanner=scanner, options=options)
+        except IntakeError as exc:
+            audit("upload.rejected", request=request, scanner=scanner, reason=str(exc))
+            raise HttpError(exc.status, str(exc)) from exc
     finally:
-        file.close()
+        for f in file:
+            f.close()
 
     if idem:
         IdempotencyKey.objects.get_or_create(
@@ -151,6 +193,153 @@ def upload_status(request: HttpRequest, doc_id: UUID) -> UploadStatus:
 def ping(request: HttpRequest) -> dict[str, str]:
     scanner: ScannerClient = request.auth  # type: ignore[attr-defined]
     return {"status": "ok", "scanner": scanner.name}
+
+
+# --- Scan sessions: page-by-page upload of long scans -------------------------------
+
+
+class ScanSessionOut(Schema):
+    id: UUID
+    status: str  # open | completed
+    pages: list[int]
+    page_count: int
+    size: int
+    expires_at: datetime | None
+    document_id: UUID | None = None
+    duplicate: bool = False
+    status_url: str | None = None
+
+
+class ScanPageOut(Schema):
+    page: int
+    kind: str
+    size: int
+    page_count: int
+
+
+def _session_out(session: ScanSession) -> ScanSessionOut:
+    positions = list(session.pages.order_by("position").values_list("position", flat=True))
+    completed = session.state == ScanSession.State.COMPLETED
+    document = session.document
+    return ScanSessionOut(
+        id=session.uuid,
+        status=session.state,
+        pages=positions,
+        page_count=len(positions),
+        size=sessions.total_size(session),
+        expires_at=None if completed else session.expires_at,
+        document_id=document.uuid if document else None,
+        duplicate=session.duplicate,
+        status_url=f"/api/upload/v1/documents/{document.uuid}" if document else None,
+    )
+
+
+def _intake_error(request: HttpRequest, scanner: ScannerClient, exc: IntakeError) -> HttpError:
+    if exc.status in (400, 413, 415):
+        audit("upload.rejected", request=request, scanner=scanner, reason=str(exc))
+    return HttpError(exc.status, str(exc))
+
+
+@upload_router.post("/scans", response={200: ScanSessionOut, 201: ScanSessionOut})
+def create_scan(
+    request: HttpRequest,
+    bucket: Form[str],
+    document_type: Form[str] = "auto",
+    important: Form[str] = "false",
+    todo: Form[str] = "false",
+    tags: Form[str] = "",
+    metadata: Form[str] = "",
+    dpi: Form[str] = "",
+    skip_blank_pages: Form[str] = "false",
+    compression: Form[str] = "auto",
+) -> Status:
+    """Open a scan session to upload a document page by page.
+
+    Takes the same fields as `POST /documents` (without `file`). Send an
+    `Idempotency-Key` header to make retries safe.
+    """
+    scanner = require_scope(request, ScannerClient.Scope.UPLOAD)
+    req = _intake_request(bucket, document_type, important, todo, tags, metadata)
+    options = _assembly_options(dpi, skip_blank_pages, compression)
+    try:
+        session, created = sessions.create(scanner, req, options, idempotency_key=_idempotency_key(request))
+    except IntakeError as exc:
+        raise _intake_error(request, scanner, exc) from exc
+    if created:
+        audit("scan.opened", request=request, scanner=scanner, target=str(session.uuid))
+    return Status(201 if created else 200, _session_out(session))
+
+
+@upload_router.get("/scans/{scan_id}", response=ScanSessionOut)
+def get_scan(request: HttpRequest, scan_id: UUID) -> ScanSessionOut:
+    scanner = require_scope(request, ScannerClient.Scope.UPLOAD)
+    try:
+        return _session_out(sessions.get(scanner, scan_id))
+    except IntakeError as exc:
+        raise HttpError(exc.status, str(exc)) from exc
+
+
+@upload_router.post("/scans/{scan_id}/pages", response={201: ScanPageOut})
+def add_scan_page(
+    request: HttpRequest,
+    scan_id: UUID,
+    file: File[UploadedFile],
+    page: Form[int | None] = None,
+) -> Status:
+    """Upload one page file (image, multi-page TIFF or PDF).
+
+    `page` is the 1-based position; omit it to append. Re-sending a position
+    replaces that page, so retries are safe.
+    """
+    scanner = require_scope(request, ScannerClient.Scope.UPLOAD)
+    try:
+        stored = sessions.add_page(scanner, scan_id, _upload_path(file), page)
+    except IntakeError as exc:
+        raise _intake_error(request, scanner, exc) from exc
+    finally:
+        file.close()
+    count = ScanPage.objects.filter(session_id=stored.session_id).count()
+    return Status(
+        201, ScanPageOut(page=stored.position, kind=stored.kind, size=stored.size, page_count=count)
+    )
+
+
+@upload_router.post("/scans/{scan_id}/complete", response={200: UploadAccepted, 202: UploadAccepted})
+def complete_scan(request: HttpRequest, scan_id: UUID, expected_pages: Form[int | None] = None) -> Status:
+    """Finish the scan: DocNest assembles the pages into one PDF and processes it.
+
+    `expected_pages` (optional) makes completion fail with 409 unless exactly
+    that many pages were received. Calling this again returns the same document.
+    """
+    scanner = require_scope(request, ScannerClient.Scope.UPLOAD)
+    try:
+        already = ScanSession.objects.filter(
+            uuid=scan_id, scanner=scanner, state=ScanSession.State.COMPLETED
+        ).exists()
+        _, result = sessions.complete(scanner, scan_id, expected_pages=expected_pages)
+    except IntakeError as exc:
+        raise _intake_error(request, scanner, exc) from exc
+    if not already:
+        audit(
+            "upload.accepted" if result.created else "upload.duplicate",
+            request=request,
+            scanner=scanner,
+            target=str(result.document.uuid),
+        )
+    if result.created:
+        return Status(202, _accepted(result.document, duplicate=False))
+    return Status(200, _accepted(result.document, duplicate=True))
+
+
+@upload_router.delete("/scans/{scan_id}", response={204: None})
+def delete_scan(request: HttpRequest, scan_id: UUID) -> Status:
+    """Abandon an open scan session and delete its pages."""
+    scanner = require_scope(request, ScannerClient.Scope.UPLOAD)
+    try:
+        sessions.delete(scanner, scan_id)
+    except IntakeError as exc:
+        raise HttpError(exc.status, str(exc)) from exc
+    return Status(204, None)
 
 
 # --- Management (web users) ---------------------------------------------------------

@@ -11,6 +11,7 @@ type QueueItem = Schemas["ProcessingQueueItem"];
 
 const STAGES: Record<string, string> = {
   received: "Received",
+  assemble: "Building PDF",
   validate: "Validating",
   ocr: "Reading document",
   analyze: "Detecting fields",

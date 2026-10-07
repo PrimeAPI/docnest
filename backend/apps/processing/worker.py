@@ -247,9 +247,12 @@ class Worker:
                 queue.enqueue(Job.Kind.TRAIN_CLASSIFIER)
 
     def cleanup(self) -> None:
-        """Retention: old audit entries, expired login throttles, finished jobs."""
+        """Retention: old audit entries, expired login throttles, finished jobs, stale scan sessions."""
         from apps.accounts.models import LoginThrottle
         from apps.audit.models import AuditLog
+        from apps.scanners import sessions
+
+        sessions.cleanup()
 
         now = timezone.now()
         AuditLog.objects.filter(created_at__lt=now - timedelta(days=settings.AUDIT_RETENTION_DAYS)).delete()
