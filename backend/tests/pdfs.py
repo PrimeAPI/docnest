@@ -154,3 +154,19 @@ def payslip_lines(month_name: str, month: int, year: int = 2026, net: str = "2.3
         f"Nettoverdienst {net} EUR",
         "Auszahlungsbetrag wird ueberwiesen auf das Girokonto",
     ]
+
+
+def page_image(lines: list[str], *, fmt: str = "PNG", dpi: int | None = 150, mode: str = "L") -> bytes:
+    """One scanned page as a raw image file, like a scanner hands it over (no PDF)."""
+    with tempfile.TemporaryDirectory() as tmp:
+        src = Path(tmp) / "src.pdf"
+        src.write_bytes(text_pdf(lines))
+        subprocess.run(
+            ["pdftoppm", "-r", str(dpi or 150), "-png", "-singlefile", str(src), str(Path(tmp) / "page")],
+            check=True,
+        )
+        image = Image.open(Path(tmp) / "page.png").convert(mode)
+        out = io.BytesIO()
+        options: dict[str, object] = {"dpi": (dpi, dpi)} if dpi and fmt != "PPM" else {}
+        image.save(out, format=fmt, **options)
+        return out.getvalue()

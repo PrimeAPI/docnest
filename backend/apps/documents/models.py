@@ -26,6 +26,7 @@ class Document(models.Model):
 
     class Stage(models.TextChoices):
         RECEIVED = "received"
+        ASSEMBLE = "assemble"
         VALIDATE = "validate"
         OCR = "ocr"
         ANALYZE = "analyze"

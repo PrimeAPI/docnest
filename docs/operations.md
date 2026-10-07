@@ -44,9 +44,10 @@ Check **Settings → System**: storage should show *Connected* and the worker *R
 | `DOCNEST_TIME_ZONE` | `Europe/Berlin` | |
 | `DOCNEST_VIEW_CACHE_MB` | `0` | Encrypted cache of recently viewed PDFs (faster viewing; 0 = off). |
 | `DOCNEST_TMP_SIZE` | `2g` | RAM-backed work area for OCR and downloads. |
-| `DOCNEST_MAX_UPLOAD_MB` | `100` | Maximum upload size. |
+| `DOCNEST_MAX_UPLOAD_MB` | `100` | Maximum size of one uploaded file (a PDF or one page image). |
+| `DOCNEST_MAX_SCAN_MB` | `2000` | Maximum size of all files of one scanner upload together (several page images or a [scan session](scanner-api.md#upload-page-by-page--scan-sessions)). |
 
-Advanced variables (set under `environment:` in `compose.yml` if needed): `DOCNEST_SESSION_IDLE_TIMEOUT_MINUTES` (30), `DOCNEST_SESSION_ABSOLUTE_TIMEOUT_MINUTES` (720), `DOCNEST_LOGIN_MAX_FAILURES` (5), `DOCNEST_LOGIN_LOCKOUT_SECONDS` (900), `DOCNEST_OCR_JOBS` (2), `DOCNEST_OCR_TIMEOUT_SECONDS` (900; OCRmyPDF only—Docling has no wall-clock timeout), `DOCNEST_DOCLING_DEVICE` (`cpu`), `DOCNEST_DOCLING_ARTIFACTS_PATH` (`/var/lib/docnest/models`), `DOCNEST_JOB_LEASE_SECONDS` (1800; renewed automatically while a job runs), `DOCNEST_JOB_HISTORY_HOURS` (24; completed queue entries are transient), `DOCNEST_WORKER_STOP_GRACE_PERIOD` (`24h`), `DOCNEST_MAX_PAGES` (500), `DOCNEST_WEB_WORKERS` (2), `DOCNEST_LOG_LEVEL` (INFO), `DOCNEST_AUDIT_RETENTION_DAYS` (365).
+Advanced variables (set under `environment:` in `compose.yml` if needed): `DOCNEST_SESSION_IDLE_TIMEOUT_MINUTES` (30), `DOCNEST_SESSION_ABSOLUTE_TIMEOUT_MINUTES` (720), `DOCNEST_LOGIN_MAX_FAILURES` (5), `DOCNEST_LOGIN_LOCKOUT_SECONDS` (900), `DOCNEST_OCR_JOBS` (2), `DOCNEST_OCR_TIMEOUT_SECONDS` (900; OCRmyPDF only—Docling has no wall-clock timeout), `DOCNEST_DOCLING_DEVICE` (`cpu`), `DOCNEST_DOCLING_ARTIFACTS_PATH` (`/var/lib/docnest/models`), `DOCNEST_JOB_LEASE_SECONDS` (1800; renewed automatically while a job runs), `DOCNEST_JOB_HISTORY_HOURS` (24; completed queue entries are transient), `DOCNEST_WORKER_STOP_GRACE_PERIOD` (`24h`), `DOCNEST_MAX_PAGES` (500), `DOCNEST_SCAN_SESSION_HOURS` (24; scan sessions expire this long after their last page), `DOCNEST_MAX_OPEN_SCAN_SESSIONS` (10 per scanner token), `DOCNEST_WEB_WORKERS` (2), `DOCNEST_LOG_LEVEL` (INFO), `DOCNEST_AUDIT_RETENTION_DAYS` (365).
 
 Docling extracts reading order, headings, tables, Markdown, and its lossless JSON document model. Both outputs and the line geometry used for field detection are encrypted in PostgreSQL; the JSON is available from the authenticated document structure API. Layout detection is fast and deterministic. VLM detection always runs the local NuExtract model on page one, while hybrid detection invokes it only when layout confidence is low. The model needs several GB of free memory. VLM work has no wall-clock timeout and falls back to layout detection if it fails. Docling does not generate a searchable PDF/A, so its archive file is the sanitized original. OCRmyPDF remains the choice when a searchable PDF/A is required.
 
@@ -60,7 +61,7 @@ Use `docnest models --layout-only` to fetch only the standard models or `docnest
 
 ## Reverse proxy
 
-DocNest must be served over HTTPS on its own (sub)domain. Forward `X-Forwarded-Proto`, allow uploads up to `DOCNEST_MAX_UPLOAD_MB`, and allow long requests (OCR'd documents are fetched from Proton Drive when viewed).
+DocNest must be served over HTTPS on its own (sub)domain. Forward `X-Forwarded-Proto`, allow uploads up to `DOCNEST_MAX_UPLOAD_MB` (or more if scanners send many page images in one request — scan sessions only need one page per request), and allow long requests (OCR'd documents are fetched from Proton Drive when viewed).
 
 **Caddy**
 
