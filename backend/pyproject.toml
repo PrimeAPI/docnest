@@ -15,6 +15,10 @@ dependencies = [
     "pyotp>=2.9",
     "pikepdf>=9",
     "ocrmypdf>=16",
+    "docling-slim[cli,convert-core,format-pdf,models-local]>=2.81,<3",
+    "opencv-python-headless>=4.10,<6",
+    "torch>=2.2.2,<3",
+    "torchvision>=0,<1",
     "snowballstemmer>=2.2",
     "dateparser>=1.2",
     "rapidfuzz>=3.9",
@@ -39,9 +43,19 @@ dev = [
 [tool.uv]
 package = false
 
+[[tool.uv.index]]
+name = "pytorch-cpu"
+url = "https://download.pytorch.org/whl/cpu"
+explicit = true
+
+[tool.uv.sources]
+torch = [{ index = "pytorch-cpu" }]
+torchvision = [{ index = "pytorch-cpu" }]
+
 [tool.ruff]
 line-length = 110
 target-version = "py313"
+extend-exclude = [".data"]
 
 [tool.ruff.lint]
 select = ["E", "F", "W", "I", "B", "UP", "S", "DJ", "SIM", "RUF"]

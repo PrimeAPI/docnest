@@ -13,6 +13,7 @@ services:
   app:
     image: ghcr.io/primeapi/docnest:${DOCNEST_VERSION:-latest}
     restart: unless-stopped
+    stop_grace_period: ${DOCNEST_WORKER_STOP_GRACE_PERIOD:-24h}
     depends_on:
       db:
         condition: service_healthy
@@ -22,6 +23,10 @@ services:
       DOCNEST_PROTON_ROOT: ${DOCNEST_PROTON_ROOT:-/my-files/DocNest}
       DOCNEST_TIME_ZONE: ${DOCNEST_TIME_ZONE:-Europe/Berlin}
       DOCNEST_OCR_LANGUAGES: ${DOCNEST_OCR_LANGUAGES:-deu+eng}
+      DOCNEST_OCR_BACKEND: ${DOCNEST_OCR_BACKEND:-ocrmypdf}
+      DOCNEST_DOCLING_THREADS: ${DOCNEST_DOCLING_THREADS:-2}
+      DOCNEST_DOCLING_FIELD_DETECTION: ${DOCNEST_DOCLING_FIELD_DETECTION:-layout}
+      DOCNEST_PROCESSING_CONCURRENCY: ${DOCNEST_PROCESSING_CONCURRENCY:-1}
       DOCNEST_VIEW_CACHE_MB: ${DOCNEST_VIEW_CACHE_MB:-0}
       DOCNEST_MAX_UPLOAD_MB: ${DOCNEST_MAX_UPLOAD_MB:-100}
       DOCNEST_DB_HOST: db
@@ -34,6 +39,7 @@ services:
     volumes:
       - data:/var/lib/docnest/data        # encrypted intake (documents not yet in Proton Drive)
       - proton:/var/lib/docnest/proton    # Proton CLI state; the session in it is encrypted
+      - models:/var/lib/docnest/models    # persistent Docling model cache (downloaded on demand)
     tmpfs:
       - /tmp:size=${DOCNEST_TMP_SIZE:-2g},mode=1777   # plaintext working files never touch disk
     read_only: true
@@ -74,6 +80,7 @@ networks:
 volumes:
   data:
   proton:
+  models:
   db:
 
 configs:

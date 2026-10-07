@@ -9,11 +9,19 @@ from django.utils import timezone
 from apps.documents import crypto_fields
 from apps.documents.models import Document
 from apps.processing import queue
+from apps.processing.docling_backend import DoclingFailed, DoclingFieldResult, DoclingResult
 from apps.processing.models import Job
 from apps.processing.worker import Worker
 from apps.storage import backends
 from tests.conftest import upload
-from tests.pdfs import INSURANCE_LINES, INVOICE_LINES, javascript_pdf, scanned_pdf, text_pdf
+from tests.pdfs import (
+    INSURANCE_LINES,
+    INVOICE_LINES,
+    javascript_pdf,
+    scanned_letter_pdf,
+    scanned_pdf,
+    text_pdf,
+)
 
 pytestmark = pytest.mark.django_db(transaction=True)
 
@@ -63,6 +71,57 @@ def test_scanned_document_is_ocrd_stored_and_searchable(scanner, api, isolated_d
     assert not list((isolated_dirs / "work").glob("dl-*"))
 
 
+@pytest.mark.ocr
+def test_scanned_document_can_be_processed_with_docling(scanner, settings):
+    _, token = scanner
+    settings.OCR_BACKEND = "docling"
+    doc_id = upload(Client(), token, scanned_pdf(INVOICE_LINES)).json()["id"]
+    process_all()
+
+    doc = Document.objects.get(uuid=doc_id)
+    assert doc.processing_state == "done", doc.processing_error
+    assert doc.ocr_backend == "docling"
+    assert "Stromlieferung" in crypto_fields.get_content(doc)
+    assert doc.correspondent and doc.correspondent.name == "Stadtwerke Musterstadt GmbH"
+    assert "Stromlieferung" in crypto_fields.get_title(doc)
+    structure = crypto_fields.get_structure(doc)
+    assert structure.get("schema_name") == "DoclingDocument"
+    assert structure.get("texts")
+
+
+@pytest.mark.ocr
+def test_docling_reads_two_column_letter_with_banded_subject(scanner, settings):
+    _, token = scanner
+    settings.OCR_BACKEND = "docling"
+    doc_id = upload(Client(), token, scanned_letter_pdf()).json()["id"]
+    process_all()
+
+    doc = Document.objects.get(uuid=doc_id)
+    assert doc.processing_state == "done", doc.processing_error
+    extracted = crypto_fields.get_extracted(doc)
+    assert doc.correspondent and doc.correspondent.name == "Nordlicht Versicherung"
+    assert extracted["subject"] == "Hausratrechnung"
+    assert doc.document_date == date(2025, 11, 1)
+    assert extracted["amounts"] == ["120.00"]
+    assert doc.document_type and doc.document_type.slug == "invoice"
+
+
+@pytest.mark.ocr
+def test_docling_keeps_exact_text_of_born_digital_pdfs(scanner, settings):
+    _, token = scanner
+    settings.OCR_BACKEND = "docling"
+    doc_id = upload(Client(), token, text_pdf(INVOICE_LINES)).json()["id"]
+    process_all()
+
+    doc = Document.objects.get(uuid=doc_id)
+    assert doc.processing_state == "done", doc.processing_error
+    assert "DE89 3704 0044 0532 0130 00" in crypto_fields.get_content(doc)
+    lines = crypto_fields.get_layout(doc)["pages"][0]["lines"]
+    assert lines and not any(line["from_ocr"] for line in lines)
+    assert doc.correspondent and doc.correspondent.name == "Stadtwerke Musterstadt GmbH"
+    assert crypto_fields.get_extracted(doc)["ibans"] == ["DE89370400440532013000"]
+
+
 def test_database_contains_no_plaintext_content(scanner):
     _, token = scanner
     upload(Client(), token, text_pdf(INVOICE_LINES))
@@ -90,6 +149,182 @@ def test_database_contains_no_plaintext_content(scanner):
     blob = " ".join(dump)
     for secret_word in ("Stromlieferung", "Zaehlerstand", "RE-2026-0042", "DE89", "Beispielstrasse"):
         assert secret_word not in blob, secret_word
+
+
+def test_docling_stores_markdown_and_structure_encrypted(scanner, api, monkeypatch, settings):
+    _, token = scanner
+    settings.OCR_BACKEND = "docling"
+    markdown = "# Electricity bill\n\n| Total | EUR 42.00 |"
+    structure = {
+        "schema_name": "DoclingDocument",
+        "texts": [{"label": "section_header", "text": "Electricity bill"}],
+        "tables": [{"cells": [{"text": "EUR 42.00"}]}],
+    }
+    layout = {
+        "pages": [
+            {
+                "page_no": 1,
+                "width": 595.0,
+                "height": 842.0,
+                "lines": [
+                    {
+                        "text": "Electricity bill",
+                        "x0": 50.0,
+                        "y0": 600.0,
+                        "x1": 200.0,
+                        "y1": 620.0,
+                        "confidence": 1.0,
+                        "from_ocr": False,
+                    }
+                ],
+            }
+        ]
+    }
+
+    def fake_convert(_src):
+        return DoclingResult(markdown=markdown, structured=structure, layout=layout)
+
+    monkeypatch.setattr("apps.processing.docling_backend.convert", fake_convert)
+    doc_id = upload(Client(), token, text_pdf(INVOICE_LINES)).json()["id"]
+    process_all()
+
+    doc = Document.objects.get(uuid=doc_id)
+    assert doc.processing_state == "done", doc.processing_error
+    assert doc.ocr_backend == "docling"
+    assert crypto_fields.get_content(doc) == markdown
+    assert crypto_fields.get_structure(doc) == structure
+    assert crypto_fields.get_layout(doc) == layout
+    assert doc.content.format == "markdown"
+
+    response = api.get(f"/api/v1/documents/{doc_id}/structure")
+    assert response.status_code == 200
+    assert response.json() == {"backend": "docling", "data": structure}
+
+    with connection.cursor() as cursor:
+        cursor.execute("SELECT text_enc, structured_enc, layout_enc FROM documents_documentcontent")
+        stored = b"".join(bytes(value) for value in cursor.fetchone())
+    assert b"Electricity bill" not in stored
+    assert b"EUR 42.00" not in stored
+
+
+def test_docling_vlm_mode_supplies_sender_and_title(scanner, monkeypatch, settings):
+    _, token = scanner
+    settings.OCR_BACKEND = "docling"
+    settings.DOCLING_FIELD_DETECTION = "vlm"
+    markdown = "Max Mustermann\nAcme Energy GmbH\nAnnual energy statement"
+    layout = {
+        "pages": [
+            {
+                "height": 842,
+                "lines": [
+                    {"text": "Max Mustermann", "y1": 720},
+                    {"text": "Acme Energy GmbH", "y1": 600},
+                    {"text": "Annual energy statement", "y1": 500},
+                ],
+            }
+        ]
+    }
+    monkeypatch.setattr(
+        "apps.processing.docling_backend.convert",
+        lambda _src: DoclingResult(markdown=markdown, structured={"texts": []}, layout=layout),
+    )
+    calls = []
+
+    def fake_extract(src):
+        calls.append(src)
+        return DoclingFieldResult(sender="Acme Energy GmbH", title="Annual energy statement")
+
+    monkeypatch.setattr("apps.processing.docling_backend.extract_fields", fake_extract)
+    doc_id = upload(Client(), token, text_pdf(INVOICE_LINES)).json()["id"]
+    process_all()
+
+    doc = Document.objects.get(uuid=doc_id)
+    assert doc.processing_state == "done", doc.processing_error
+    assert len(calls) == 1
+    assert doc.correspondent and doc.correspondent.name == "Acme Energy GmbH"
+    assert crypto_fields.get_title(doc).startswith("Annual energy statement")
+
+
+def test_docling_hybrid_skips_vlm_for_confident_layout(scanner, monkeypatch, settings):
+    _, token = scanner
+    settings.OCR_BACKEND = "docling"
+    settings.DOCLING_FIELD_DETECTION = "hybrid"
+    sender = "Acme Energy GmbH - Energieweg 1 - 12345 Berlin"
+    title = "Annual energy statement"
+    structure = {
+        "texts": [
+            {"label": "page_header", "text": sender},
+            {"label": "section_header", "text": title},
+        ]
+    }
+    layout = {
+        "pages": [
+            {
+                "height": 842,
+                "lines": [
+                    {"text": sender, "y1": 810},
+                    {"text": title, "y1": 500},
+                ],
+            }
+        ]
+    }
+    monkeypatch.setattr(
+        "apps.processing.docling_backend.convert",
+        lambda _src: DoclingResult(markdown=title, structured=structure, layout=layout),
+    )
+
+    def unexpected_vlm(_src):
+        raise AssertionError("confident hybrid detection must not invoke the VLM")
+
+    monkeypatch.setattr("apps.processing.docling_backend.extract_fields", unexpected_vlm)
+    doc_id = upload(Client(), token, text_pdf(INVOICE_LINES)).json()["id"]
+    process_all()
+
+    doc = Document.objects.get(uuid=doc_id)
+    assert doc.processing_state == "done", doc.processing_error
+    assert doc.correspondent and doc.correspondent.name == "Acme Energy GmbH"
+    assert crypto_fields.get_title(doc).startswith(title)
+
+
+def test_docling_vlm_failure_falls_back_without_failing_document(scanner, monkeypatch, settings):
+    _, token = scanner
+    settings.OCR_BACKEND = "docling"
+    settings.DOCLING_FIELD_DETECTION = "vlm"
+    sender = "Fallback Energy GmbH - Weg 1 - 12345 Berlin"
+    title = "Fallback annual statement"
+    structure = {
+        "texts": [
+            {"label": "page_header", "text": sender},
+            {"label": "section_header", "text": title},
+        ]
+    }
+    layout = {
+        "pages": [
+            {
+                "height": 842,
+                "lines": [
+                    {"text": sender, "y1": 810},
+                    {"text": title, "y1": 500},
+                ],
+            }
+        ]
+    }
+    monkeypatch.setattr(
+        "apps.processing.docling_backend.convert",
+        lambda _src: DoclingResult(markdown=title, structured=structure, layout=layout),
+    )
+
+    def failed_vlm(_src):
+        raise DoclingFailed("model unavailable")
+
+    monkeypatch.setattr("apps.processing.docling_backend.extract_fields", failed_vlm)
+    doc_id = upload(Client(), token, text_pdf(INVOICE_LINES)).json()["id"]
+    process_all()
+
+    doc = Document.objects.get(uuid=doc_id)
+    assert doc.processing_state == "done", doc.processing_error
+    assert doc.correspondent and doc.correspondent.name == "Fallback Energy GmbH"
+    assert doc.events.filter(stage="analyze", outcome="warning").exists()
 
 
 def test_javascript_is_stripped(scanner, isolated_dirs):
@@ -152,6 +387,32 @@ def test_crashed_worker_job_is_reclaimed_without_duplicates(scanner):
     assert Document.objects.count() == 1
     assert Document.objects.get().processing_state == "done"
     assert Job.objects.get(pk=job.pk).state == "done"
+
+
+def test_running_job_lease_can_be_renewed(scanner, settings):
+    _, token = scanner
+    settings.JOB_LEASE_SECONDS = 60
+    upload(Client(), token, text_pdf(INVOICE_LINES))
+    job = queue.claim("slow-worker")
+    assert job is not None
+    previous = job.locked_until
+    assert queue.renew(job)
+    job.refresh_from_db()
+    assert job.locked_until and previous and job.locked_until > previous
+
+
+def test_stale_worker_cannot_finalize_job_owned_by_another_worker(scanner):
+    _, token = scanner
+    upload(Client(), token, text_pdf(INVOICE_LINES))
+    stale = queue.claim("first-worker")
+    assert stale is not None
+    Job.objects.filter(pk=stale.pk).update(locked_by="replacement-worker")
+
+    assert queue.retry_or_fail(stale, "late failure") is None
+    assert not queue.complete(stale)
+    job = Job.objects.get(pk=stale.pk)
+    assert job.state == Job.State.RUNNING
+    assert job.locked_by == "replacement-worker"
 
 
 def test_retry_resumes_and_is_idempotent(scanner, monkeypatch):

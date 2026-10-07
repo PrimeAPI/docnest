@@ -3,7 +3,7 @@ from datetime import date
 import pytest
 from django.test import Client
 
-from apps.analysis import extraction
+from apps.analysis import docling_fields, extraction
 from apps.documents import crypto_fields
 from apps.documents.models import Document
 from apps.processing.worker import Worker
@@ -159,3 +159,142 @@ def test_reference_numbers_do_not_swallow_following_words():
     refs = extraction.find_references("Personalnummer 004711   Steuerklasse 1\nKundennummer: KD 778899")
     assert refs["personalnummer"] == "004711"
     assert refs["kundennummer"] == "KD 778899"
+
+
+def test_docling_layout_detects_sender_and_title_not_recipient():
+    structure = {
+        "texts": [
+            {
+                "label": "page_header",
+                "text": "Stadtwerke Musterstadt GmbH - Energieweg 1 - 12345 Musterstadt",
+            },
+            {"label": "text", "text": "Max Mustermann"},
+            {
+                "label": "text",
+                "text": "Rechnung Nr. RE-2026-0042 Stromlieferung für Ihre Verbrauchsstelle",
+            },
+        ]
+    }
+    layout = {
+        "pages": [
+            {
+                "height": 842,
+                "lines": [
+                    {
+                        "text": "Stadtwerke Musterstadt GmbH - Energieweg 1 - 12345 Musterstadt",
+                        "y1": 808,
+                    },
+                    {"text": "Max Mustermann", "y1": 720},
+                    {"text": "Beispielstrasse 12", "y1": 700},
+                    {"text": "Rechnung Nr. RE-2026-0042", "y1": 560},
+                    {"text": "Stromlieferung für Ihre Verbrauchsstelle", "y1": 520},
+                ],
+            }
+        ]
+    }
+
+    detected = docling_fields.detect(structure, layout)
+
+    assert detected.sender == "Stadtwerke Musterstadt GmbH"
+    assert detected.title == "Stromlieferung für Ihre Verbrauchsstelle"
+    assert detected.sender_confidence >= 0.72
+    assert detected.title_confidence >= 0.55
+
+
+def test_docling_vlm_fields_need_document_evidence():
+    layout = docling_fields.DetectedFields(
+        sender="Existing GmbH",
+        title="Existing invoice",
+        sender_confidence=0.8,
+        title_confidence=0.8,
+    )
+    merged = docling_fields.merge_vlm(
+        layout,
+        sender="Hallucinated AG",
+        title="Completely unrelated subject",
+        evidence="Existing GmbH\nExisting invoice for March",
+    )
+    assert merged.sender == "Existing GmbH"
+    assert merged.title == "Existing invoice"
+
+
+def test_month_only_letter_date_and_dates_are_not_amounts():
+    text = (
+        "Hamburg, im November 2025\n"
+        "Ihr Jahresbeitrag ab 01.01.2026 inkl. Versicherungsteuer 19,16 € 120,00 €\n"
+        "Bitte überweisen Sie bis 15.01.2026 120,00 €"
+    )
+    extracted = extraction.extract(text)
+    assert extracted.document_date == date(2025, 11, 1)
+    assert extracted.amounts == ["19.16", "120.00"]
+    assert extracted.total_amount == "120.00"
+    # A full date still beats a month-only mention such as a billing period.
+    assert extraction.extract("Berlin, 03.03.2026\nAbrechnung Februar 2026").document_date == date(2026, 3, 3)
+
+
+def test_docling_layout_handles_authority_letters_and_ocr_umlauts():
+    layout = {
+        "pages": [
+            {
+                "height": 720,
+                "lines": [
+                    {"text": "Bundesamt für Musterwesen", "y0": 680, "y1": 690},
+                    {"text": "Musterstadt, den 12.03.2024", "y0": 680, "y1": 690},
+                    {"text": "Bundesamt fur Musterwesen, 12345 Musterstadt", "y0": 622, "y1": 628},
+                    {"text": "Dieser Gebührenbescheid besteht aus", "y0": 480, "y1": 488},
+                    {"text": "Vorläufiger Gebuhrenbescheid", "y0": 400, "y1": 412},
+                    {
+                        "text": "Bundesamt für Musterwesen, Musterallee 1, 12345 Musterstadt",
+                        "y0": 38,
+                        "y1": 46,
+                    },
+                ],
+            }
+        ]
+    }
+
+    detected = docling_fields.detect({"texts": []}, layout)
+
+    assert detected.sender == "Bundesamt für Musterwesen"
+    assert detected.title == "Vorläufiger Gebührenbescheid"
+    assert not detected.low_confidence
+
+
+def test_docling_layout_prefers_postal_sender_and_drops_possessive_title():
+    layout = {
+        "pages": [
+            {
+                "height": 842,
+                "lines": [
+                    {"text": "Norddeutsche Hausrat und Sachversicherung AG", "y0": 735, "y1": 748},
+                    {"text": "Postanschrift: NHS Sachversicherung, 20095 Hamburg", "y0": 724, "y1": 736},
+                    {"text": "NHS Sachversicherung, 20095 Hamburg", "y0": 715, "y1": 721},
+                    {"text": "Ihre telefonische", "y0": 636, "y1": 643},
+                    {"text": "Ihre Hausrat-Beitragsrechnung", "y0": 512, "y1": 525},
+                    {"text": "Einzelheiten zum Beitrag - bitte wenden", "y0": 290, "y1": 300},
+                ],
+            }
+        ]
+    }
+    structure = {
+        "texts": [
+            {"label": "section_header", "text": "Ihre telefonische"},
+            {"label": "section_header", "text": "Ihre Hausrat-Beitragsrechnung"},
+            {"label": "section_header", "text": "Einzelheiten zum Beitrag - bitte wenden"},
+        ]
+    }
+
+    detected = docling_fields.detect(structure, layout)
+
+    assert detected.sender == "NHS Sachversicherung"
+    assert detected.title == "Hausrat-Beitragsrechnung"
+
+
+def test_restore_diacritics_only_follows_the_documents_majority_spelling():
+    evidence = ["Bundesamt für Musterwesen", "für Sie", "Musik und Kunst", "Strasse"]
+    assert (
+        docling_fields.restore_diacritics("Bundesamt fur Musterwesen", evidence)
+        == "Bundesamt für Musterwesen"
+    )
+    assert docling_fields.restore_diacritics("FUR", evidence) == "FÜR"
+    assert docling_fields.restore_diacritics("Musik", evidence) == "Musik"

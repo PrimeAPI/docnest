@@ -28,13 +28,13 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { Input, Label } from "@/components/ui/input";
+import { Input, Label, Select } from "@/components/ui/input";
 import { EmptyState, ErrorNote, PageHeader, Spinner } from "@/components/ui/misc";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { KeyEnroll, RecoveryCodes, TotpEnroll } from "@/features/auth/enroll";
 import { Link } from "react-router";
 import { describeAction, describeAgent, describeMethod } from "@/lib/agent";
-import { cn, formatDateTime, relativeTime } from "@/lib/utils";
+import { cn, formatDateTime } from "@/lib/utils";
 
 export function SettingsPage() {
   return (
@@ -62,6 +62,7 @@ export function SettingsPage() {
           <Scanners />
         </TabsContent>
         <TabsContent value="system" className="flex flex-col gap-6">
+          <ProcessingCard />
           <SystemCard />
           <AuditLog />
         </TabsContent>
@@ -130,7 +131,7 @@ function SignInActivity() {
                         <div className="text-xs text-muted-foreground">
                           {formatDateTime(a.at)}
                           {a.outcome === "success" && a.method && ` · ${describeMethod(a.method)}`}
-                          {a.last_activity_at && ` · last activity ${relativeTime(a.last_activity_at)}`}
+                          {a.last_activity_at && ` · last activity ${formatDateTime(a.last_activity_at)}`}
                           {expandable && ` · ${a.actions.length} action${a.actions.length === 1 ? "" : "s"}`}
                         </div>
                       </div>
@@ -222,8 +223,8 @@ function SecondFactors() {
                   <div className="font-medium">{d.name}</div>
                   <div className="text-xs text-muted-foreground">
                     {d.kind === "webauthn" ? "Security key / passkey" : "Authenticator app"} · added{" "}
-                    {relativeTime(d.created_at)}
-                    {d.last_used_at && ` · used ${relativeTime(d.last_used_at)}`}
+                    {formatDateTime(d.created_at)}
+                    {d.last_used_at && ` · used ${formatDateTime(d.last_used_at)}`}
                   </div>
                 </div>
                 <Button
@@ -303,8 +304,8 @@ function Sessions() {
                   {describeAgent(s.user_agent)}
                 </div>
                 <div className="text-xs text-muted-foreground">
-                  {s.ip ?? "unknown IP"} · signed in {relativeTime(s.created_at)} · active{" "}
-                  {relativeTime(s.last_seen_at)}
+                  {s.ip ?? "unknown IP"} · signed in {formatDateTime(s.created_at)} · active{" "}
+                  {formatDateTime(s.last_seen_at)}
                 </div>
               </div>
               {s.current ? (
@@ -428,7 +429,7 @@ function Scanners() {
                 </div>
                 <div className="text-xs text-muted-foreground">
                   <code>{s.token_prefix}</code> · {s.document_count} uploads · last used{" "}
-                  {s.last_used_at ? `${relativeTime(s.last_used_at)} from ${s.last_used_ip}` : "never"}
+                  {s.last_used_at ? `${formatDateTime(s.last_used_at)} from ${s.last_used_ip}` : "never"}
                   {s.allowed_ips.length > 0 && ` · only from ${s.allowed_ips.join(", ")}`}
                 </div>
               </div>
@@ -568,6 +569,131 @@ function TokenDialog({ token, onClose }: { token: string | null; onClose: () => 
 
 // --- System -----------------------------------------------------------------------
 
+function ProcessingCard() {
+  const system = useSystem();
+  const qc = useQueryClient();
+  const update = useMutation({
+    mutationFn: (settings: {
+      default_ocr_backend: "ocrmypdf" | "docling";
+      docling_field_detection: "layout" | "vlm" | "hybrid";
+      processing_concurrency: number;
+    }) =>
+      call(() =>
+        client.PUT("/api/v1/settings/processing", {
+          body: settings,
+        }),
+      ),
+    onSuccess: (data) => {
+      qc.setQueryData(keys.system, (current: Schemas["SystemStatus"] | undefined) =>
+        current
+          ? {
+              ...current,
+              default_ocr_backend: data.default_ocr_backend,
+              docling_field_detection: data.docling_field_detection,
+              processing_concurrency: data.processing_concurrency,
+            }
+          : current,
+      );
+      qc.invalidateQueries({ queryKey: keys.processingQueue });
+      toast.success("Processing settings updated");
+    },
+    onError: (e) => toast.error(e.message),
+  });
+  const value = system.data?.default_ocr_backend;
+  const detection = system.data?.docling_field_detection;
+  const concurrency = system.data?.processing_concurrency;
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>Document processing</CardTitle>
+        <CardDescription>Choose the processor used automatically for newly uploaded documents.</CardDescription>
+      </CardHeader>
+      <CardContent className="max-w-xl">
+        {value && detection && concurrency ? (
+          <div className="flex flex-col gap-5">
+            <div className="flex flex-col gap-1.5">
+              <Label htmlFor="default-processor">Default processor</Label>
+              <Select
+                id="default-processor"
+                value={value}
+                disabled={update.isPending}
+                onChange={(e) =>
+                  update.mutate({
+                    default_ocr_backend: e.target.value as "ocrmypdf" | "docling",
+                    docling_field_detection: detection,
+                    processing_concurrency: concurrency,
+                  })
+                }
+              >
+                <option value="ocrmypdf">OCRmyPDF / Tesseract</option>
+                <option value="docling">Docling</option>
+              </Select>
+              <p className="text-xs text-muted-foreground">
+                Existing documents keep their processor. You can still choose a different one when reprocessing a
+                document.
+              </p>
+            </div>
+            <div className="flex flex-col gap-1.5">
+              <Label htmlFor="docling-field-detection">Docling field detection</Label>
+              <Select
+                id="docling-field-detection"
+                value={detection}
+                disabled={update.isPending}
+                onChange={(e) =>
+                  update.mutate({
+                    default_ocr_backend: value,
+                    docling_field_detection: e.target.value as "layout" | "vlm" | "hybrid",
+                    processing_concurrency: concurrency,
+                  })
+                }
+              >
+                <option value="layout">Layout-aware rules (fast)</option>
+                <option value="vlm">VLM extraction (slow, detailed)</option>
+                <option value="hybrid">Hybrid fallback (recommended)</option>
+              </Select>
+              <p className="text-xs text-muted-foreground">
+                Layout uses reading order and page geometry. VLM always runs a local vision model. Hybrid uses that
+                model only when layout confidence is low. The VLM needs several GB of free memory; slow servers may
+                take a long time, but extraction has no wall-clock timeout.
+              </p>
+            </div>
+            <div className="flex flex-col gap-1.5">
+              <Label htmlFor="processing-concurrency">Documents processed simultaneously</Label>
+              <Select
+                id="processing-concurrency"
+                value={concurrency}
+                disabled={update.isPending}
+                onChange={(e) =>
+                  update.mutate({
+                    default_ocr_backend: value,
+                    docling_field_detection: detection,
+                    processing_concurrency: Number(e.target.value),
+                  })
+                }
+              >
+                {Array.from({ length: 8 }, (_, index) => index + 1).map((count) => (
+                  <option key={count} value={count}>
+                    {count}
+                  </option>
+                ))}
+              </Select>
+              <p className="text-xs text-muted-foreground">
+                The worker applies this limit immediately. More parallel Docling jobs need considerably more memory
+                and CPU; one is safest on a small server.
+              </p>
+            </div>
+          </div>
+        ) : system.error ? (
+          <ErrorNote error={system.error} />
+        ) : (
+          <Spinner />
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
 function SystemCard() {
   const system = useSystem();
   const s = system.data;
@@ -594,7 +720,7 @@ function SystemCard() {
           </div>
           {s.storage.message && <p className="mt-2 text-xs text-muted-foreground">{s.storage.message}</p>}
           {s.storage.checked_at && (
-            <p className="mt-1 text-xs text-muted-foreground">checked {relativeTime(s.storage.checked_at)}</p>
+            <p className="mt-1 text-xs text-muted-foreground">checked {formatDateTime(s.storage.checked_at)}</p>
           )}
         </div>
         <div className="rounded-md border p-3">
@@ -605,13 +731,13 @@ function SystemCard() {
             {s.worker_online ? <Badge variant="success">Running</Badge> : <Badge variant="danger">Offline</Badge>}
           </div>
           {s.worker_last_seen && (
-            <p className="mt-2 text-xs text-muted-foreground">last heartbeat {relativeTime(s.worker_last_seen)}</p>
+            <p className="mt-2 text-xs text-muted-foreground">last heartbeat {formatDateTime(s.worker_last_seen)}</p>
           )}
         </div>
         <div className="rounded-md border p-3">
           <div className="text-sm font-medium">Jobs</div>
           <div className="mt-2 text-sm">
-            {s.queued_jobs} queued · {s.failed_jobs} failed
+            {s.running_jobs} running · {s.queued_jobs} queued · {s.failed_jobs} failed
           </div>
         </div>
       </CardContent>

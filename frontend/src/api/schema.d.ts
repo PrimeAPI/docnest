@@ -58,6 +58,40 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/settings/processing": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /** Update Processing Settings */
+        put: operations["apps_core_api_update_processing_settings"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/processing/queue": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Processing Queue */
+        get: operations["apps_core_api_processing_queue"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/audit": {
         parameters: {
             query?: never;
@@ -559,6 +593,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/documents/{doc_id}/structure": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Document Structure */
+        get: operations["apps_documents_api_document_structure"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/documents/{doc_id}/reprocess": {
         parameters: {
             query?: never;
@@ -939,15 +990,97 @@ export interface components {
         SystemStatus: {
             /** Version */
             version: string;
+            /**
+             * Default Ocr Backend
+             * @enum {string}
+             */
+            default_ocr_backend: "ocrmypdf" | "docling";
+            /**
+             * Docling Field Detection
+             * @enum {string}
+             */
+            docling_field_detection: "layout" | "vlm" | "hybrid";
             storage: components["schemas"]["StorageStatus"];
             /** Worker Online */
             worker_online: boolean;
             /** Worker Last Seen */
             worker_last_seen: string | null;
+            /** Processing Concurrency */
+            processing_concurrency: number;
             /** Queued Jobs */
             queued_jobs: number;
+            /** Running Jobs */
+            running_jobs: number;
             /** Failed Jobs */
             failed_jobs: number;
+        };
+        /** ProcessingSettingsOut */
+        ProcessingSettingsOut: {
+            /**
+             * Default Ocr Backend
+             * @enum {string}
+             */
+            default_ocr_backend: "ocrmypdf" | "docling";
+            /**
+             * Docling Field Detection
+             * @enum {string}
+             */
+            docling_field_detection: "layout" | "vlm" | "hybrid";
+            /** Processing Concurrency */
+            processing_concurrency: number;
+        };
+        /** ProcessingSettingsIn */
+        ProcessingSettingsIn: {
+            /** Default Ocr Backend */
+            default_ocr_backend?: ("ocrmypdf" | "docling") | null;
+            /** Docling Field Detection */
+            docling_field_detection?: ("layout" | "vlm" | "hybrid") | null;
+            /** Processing Concurrency */
+            processing_concurrency?: number | null;
+        };
+        /** ProcessingQueueItem */
+        ProcessingQueueItem: {
+            /** Id */
+            id: number;
+            /**
+             * Document Id
+             * Format: uuid
+             */
+            document_id: string;
+            /** Title */
+            title: string;
+            /** State */
+            state: string;
+            /** Stage */
+            stage: string;
+            /** Backend */
+            backend: string;
+            /** Attempts */
+            attempts: number;
+            /** Error */
+            error: string;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /** Started At */
+            started_at: string | null;
+            /** Finished At */
+            finished_at: string | null;
+            /** Duration Seconds */
+            duration_seconds: number | null;
+        };
+        /** ProcessingQueueOut */
+        ProcessingQueueOut: {
+            /** Concurrency */
+            concurrency: number;
+            /** Queued */
+            queued: components["schemas"]["ProcessingQueueItem"][];
+            /** Running */
+            running: components["schemas"]["ProcessingQueueItem"][];
+            /** History */
+            history: components["schemas"]["ProcessingQueueItem"][];
         };
         /** AuditOut */
         AuditOut: {
@@ -1368,6 +1501,8 @@ export interface components {
             size: number;
             /** Processing Stage */
             processing_stage: string;
+            /** Ocr Backend */
+            ocr_backend: string;
             /** Stored */
             stored: boolean;
             /** Events */
@@ -1443,6 +1578,19 @@ export interface components {
         TextOut: {
             /** Text */
             text: string;
+            /** Format */
+            format: string;
+            /** Backend */
+            backend: string;
+        };
+        /** StructureOut */
+        StructureOut: {
+            /** Backend */
+            backend: string;
+            /** Data */
+            data: {
+                [key: string]: unknown;
+            };
         };
         /** ReprocessIn */
         ReprocessIn: {
@@ -1452,6 +1600,8 @@ export interface components {
              * @enum {string}
              */
             stage: "ocr" | "analyze";
+            /** Backend */
+            backend?: ("ocrmypdf" | "docling") | null;
         };
         /** BucketOut */
         BucketOut: {
@@ -1758,6 +1908,50 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["SystemStatus"];
+                };
+            };
+        };
+    };
+    apps_core_api_update_processing_settings: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ProcessingSettingsIn"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProcessingSettingsOut"];
+                };
+            };
+        };
+    };
+    apps_core_api_processing_queue: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProcessingQueueOut"];
                 };
             };
         };
@@ -2479,6 +2673,28 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["TextOut"];
+                };
+            };
+        };
+    };
+    apps_documents_api_document_structure: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                doc_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["StructureOut"];
                 };
             };
         };

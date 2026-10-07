@@ -29,6 +29,8 @@ class Job(models.Model):
     locked_by = models.CharField(max_length=100, blank=True)
     locked_until = models.DateTimeField(null=True, blank=True)
     last_error = models.CharField(max_length=500, blank=True)
+    started_at = models.DateTimeField(null=True, blank=True)
+    finished_at = models.DateTimeField(null=True, blank=True)
     created_at = models.DateTimeField(default=timezone.now)
     updated_at = models.DateTimeField(auto_now=True)
 

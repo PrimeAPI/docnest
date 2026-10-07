@@ -100,7 +100,8 @@ COPY --chmod=0755 docker/entrypoint.sh /usr/local/bin/docnest
 COPY docker/supervisord.conf /etc/docnest/supervisord.conf
 
 RUN python -m compileall -q /app/backend \
- && install -d -o docnest -g docnest -m 0700 /var/lib/docnest/data /var/lib/docnest/proton
+ && install -d -o docnest -g docnest -m 0700 \
+      /var/lib/docnest/data /var/lib/docnest/proton /var/lib/docnest/models
 
 ENV DOCNEST_DATA_DIR=/var/lib/docnest/data \
     DOCNEST_FRONTEND_DIR=/app/frontend/dist \
@@ -108,6 +109,9 @@ ENV DOCNEST_DATA_DIR=/var/lib/docnest/data \
     DOCNEST_SECRET_KEY_FILE=/run/secrets/django_secret_key \
     DOCNEST_DB_PASSWORD_FILE=/run/secrets/db_password \
     DOCNEST_WORK_DIR=/tmp/docnest-work \
+    DOCNEST_DOCLING_ARTIFACTS_PATH=/var/lib/docnest/models \
+    HF_HOME=/var/lib/docnest/models/.cache/huggingface \
+    HF_HUB_DISABLE_TELEMETRY=1 \
     HOME=/var/lib/docnest
 
 ARG VERSION=dev

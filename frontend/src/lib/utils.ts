@@ -5,42 +5,66 @@ export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
 }
 
-const dateFmt = new Intl.DateTimeFormat(undefined, { year: "numeric", month: "short", day: "numeric" });
-const dateTimeFmt = new Intl.DateTimeFormat(undefined, {
-  year: "numeric",
-  month: "short",
-  day: "numeric",
-  hour: "2-digit",
-  minute: "2-digit",
-});
+function pad(value: number): string {
+  return String(value).padStart(2, "0");
+}
+
+function validDate(year: number, month: number, day: number): boolean {
+  const date = new Date(0);
+  date.setUTCFullYear(year, month - 1, day);
+  return date.getUTCFullYear() === year && date.getUTCMonth() === month - 1 && date.getUTCDate() === day;
+}
+
+export function parseDateInput(value: string): string | null {
+  const match = value.trim().match(/^(\d{1,2})[./-](\d{1,2})[./-](\d{4})$/);
+  if (!match) return null;
+  const [, day, month, year] = match.map(Number);
+  if (!validDate(year, month, day)) return null;
+  return `${year}-${pad(month)}-${pad(day)}`;
+}
+
+export function formatDateInput(value?: string | null): string {
+  if (!value) return "";
+  const match = value.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (!match) return value;
+  const [, year, month, day] = match;
+  return validDate(Number(year), Number(month), Number(day)) ? `${day}/${month}/${year}` : value;
+}
+
+function localDate(date: Date): string {
+  return `${pad(date.getDate())}/${pad(date.getMonth() + 1)}/${date.getFullYear()}`;
+}
 
 export function formatDate(value?: string | null): string {
   if (!value) return "—";
-  const d = new Date(value.length === 10 ? `${value}T00:00:00` : value);
-  return Number.isNaN(d.getTime()) ? value : dateFmt.format(d);
+  if (/^\d{4}-\d{2}-\d{2}$/.test(value)) return formatDateInput(value);
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? value : localDate(date);
 }
 
 export function formatDateTime(value?: string | null): string {
   if (!value) return "—";
-  const d = new Date(value);
-  return Number.isNaN(d.getTime()) ? value : dateTimeFmt.format(d);
-}
-
-export function relativeTime(value?: string | null): string {
-  if (!value) return "—";
-  const diff = (Date.now() - new Date(value).getTime()) / 1000;
-  const rtf = new Intl.RelativeTimeFormat(undefined, { numeric: "auto" });
-  if (diff < 60) return "just now";
-  if (diff < 3600) return rtf.format(-Math.round(diff / 60), "minute");
-  if (diff < 86400) return rtf.format(-Math.round(diff / 3600), "hour");
-  if (diff < 86400 * 30) return rtf.format(-Math.round(diff / 86400), "day");
-  return formatDate(value);
+  const date = new Date(value);
+  return Number.isNaN(date.getTime())
+    ? value
+    : `${localDate(date)}, ${pad(date.getHours())}:${pad(date.getMinutes())}`;
 }
 
 export function formatBytes(n: number): string {
   if (n < 1024) return `${n} B`;
   if (n < 1024 * 1024) return `${(n / 1024).toFixed(0)} KB`;
   return `${(n / 1024 / 1024).toFixed(1)} MB`;
+}
+
+export function formatDuration(seconds?: number | null): string {
+  if (seconds === null || seconds === undefined || !Number.isFinite(seconds)) return "—";
+  const total = Math.max(0, Math.round(seconds));
+  if (total < 60) return `${total}s`;
+  const minutes = Math.floor(total / 60);
+  const remaining = total % 60;
+  if (minutes < 60) return `${minutes}m ${remaining}s`;
+  const hours = Math.floor(minutes / 60);
+  return `${hours}h ${minutes % 60}m`;
 }
 
 export const TAG_COLORS = [

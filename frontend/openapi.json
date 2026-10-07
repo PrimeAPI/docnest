@@ -76,6 +76,70 @@
     ]
    }
   },
+  "/api/v1/settings/processing": {
+   "put": {
+    "operationId": "apps_core_api_update_processing_settings",
+    "summary": "Update Processing Settings",
+    "parameters": [],
+    "responses": {
+     "200": {
+      "description": "OK",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/ProcessingSettingsOut"
+        }
+       }
+      }
+     }
+    },
+    "tags": [
+     "system"
+    ],
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/ProcessingSettingsIn"
+       }
+      }
+     },
+     "required": true
+    },
+    "security": [
+     {
+      "MfaSessionAuth": []
+     }
+    ]
+   }
+  },
+  "/api/v1/processing/queue": {
+   "get": {
+    "operationId": "apps_core_api_processing_queue",
+    "summary": "Processing Queue",
+    "parameters": [],
+    "responses": {
+     "200": {
+      "description": "OK",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/ProcessingQueueOut"
+        }
+       }
+      }
+     }
+    },
+    "tags": [
+     "system"
+    ],
+    "security": [
+     {
+      "MfaSessionAuth": []
+     }
+    ]
+   }
+  },
   "/api/v1/audit": {
    "get": {
     "operationId": "apps_core_api_audit_log",
@@ -1397,6 +1461,44 @@
     ]
    }
   },
+  "/api/v1/documents/{doc_id}/structure": {
+   "get": {
+    "operationId": "apps_documents_api_document_structure",
+    "summary": "Document Structure",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "doc_id",
+      "schema": {
+       "format": "uuid",
+       "title": "Doc Id",
+       "type": "string"
+      },
+      "required": true
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "OK",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/StructureOut"
+        }
+       }
+      }
+     }
+    },
+    "tags": [
+     "documents"
+    ],
+    "security": [
+     {
+      "MfaSessionAuth": []
+     }
+    ]
+   }
+  },
   "/api/v1/documents/{doc_id}/reprocess": {
    "post": {
     "operationId": "apps_documents_api_reprocess",
@@ -2659,6 +2761,23 @@
       "title": "Version",
       "type": "string"
      },
+     "default_ocr_backend": {
+      "enum": [
+       "ocrmypdf",
+       "docling"
+      ],
+      "title": "Default Ocr Backend",
+      "type": "string"
+     },
+     "docling_field_detection": {
+      "enum": [
+       "layout",
+       "vlm",
+       "hybrid"
+      ],
+      "title": "Docling Field Detection",
+      "type": "string"
+     },
      "storage": {
       "$ref": "#/components/schemas/StorageStatus"
      },
@@ -2678,8 +2797,16 @@
       ],
       "title": "Worker Last Seen"
      },
+     "processing_concurrency": {
+      "title": "Processing Concurrency",
+      "type": "integer"
+     },
      "queued_jobs": {
       "title": "Queued Jobs",
+      "type": "integer"
+     },
+     "running_jobs": {
+      "title": "Running Jobs",
       "type": "integer"
      },
      "failed_jobs": {
@@ -2689,13 +2816,229 @@
     },
     "required": [
      "version",
+     "default_ocr_backend",
+     "docling_field_detection",
      "storage",
      "worker_online",
      "worker_last_seen",
+     "processing_concurrency",
      "queued_jobs",
+     "running_jobs",
      "failed_jobs"
     ],
     "title": "SystemStatus",
+    "type": "object"
+   },
+   "ProcessingSettingsOut": {
+    "properties": {
+     "default_ocr_backend": {
+      "enum": [
+       "ocrmypdf",
+       "docling"
+      ],
+      "title": "Default Ocr Backend",
+      "type": "string"
+     },
+     "docling_field_detection": {
+      "enum": [
+       "layout",
+       "vlm",
+       "hybrid"
+      ],
+      "title": "Docling Field Detection",
+      "type": "string"
+     },
+     "processing_concurrency": {
+      "title": "Processing Concurrency",
+      "type": "integer"
+     }
+    },
+    "required": [
+     "default_ocr_backend",
+     "docling_field_detection",
+     "processing_concurrency"
+    ],
+    "title": "ProcessingSettingsOut",
+    "type": "object"
+   },
+   "ProcessingSettingsIn": {
+    "properties": {
+     "default_ocr_backend": {
+      "anyOf": [
+       {
+        "enum": [
+         "ocrmypdf",
+         "docling"
+        ],
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Default Ocr Backend"
+     },
+     "docling_field_detection": {
+      "anyOf": [
+       {
+        "enum": [
+         "layout",
+         "vlm",
+         "hybrid"
+        ],
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Docling Field Detection"
+     },
+     "processing_concurrency": {
+      "anyOf": [
+       {
+        "maximum": 8,
+        "minimum": 1,
+        "type": "integer"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Processing Concurrency"
+     }
+    },
+    "title": "ProcessingSettingsIn",
+    "type": "object"
+   },
+   "ProcessingQueueItem": {
+    "properties": {
+     "id": {
+      "title": "Id",
+      "type": "integer"
+     },
+     "document_id": {
+      "format": "uuid",
+      "title": "Document Id",
+      "type": "string"
+     },
+     "title": {
+      "title": "Title",
+      "type": "string"
+     },
+     "state": {
+      "title": "State",
+      "type": "string"
+     },
+     "stage": {
+      "title": "Stage",
+      "type": "string"
+     },
+     "backend": {
+      "title": "Backend",
+      "type": "string"
+     },
+     "attempts": {
+      "title": "Attempts",
+      "type": "integer"
+     },
+     "error": {
+      "title": "Error",
+      "type": "string"
+     },
+     "created_at": {
+      "format": "date-time",
+      "title": "Created At",
+      "type": "string"
+     },
+     "started_at": {
+      "anyOf": [
+       {
+        "format": "date-time",
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Started At"
+     },
+     "finished_at": {
+      "anyOf": [
+       {
+        "format": "date-time",
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Finished At"
+     },
+     "duration_seconds": {
+      "anyOf": [
+       {
+        "type": "number"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Duration Seconds"
+     }
+    },
+    "required": [
+     "id",
+     "document_id",
+     "title",
+     "state",
+     "stage",
+     "backend",
+     "attempts",
+     "error",
+     "created_at",
+     "started_at",
+     "finished_at",
+     "duration_seconds"
+    ],
+    "title": "ProcessingQueueItem",
+    "type": "object"
+   },
+   "ProcessingQueueOut": {
+    "properties": {
+     "concurrency": {
+      "title": "Concurrency",
+      "type": "integer"
+     },
+     "queued": {
+      "items": {
+       "$ref": "#/components/schemas/ProcessingQueueItem"
+      },
+      "title": "Queued",
+      "type": "array"
+     },
+     "running": {
+      "items": {
+       "$ref": "#/components/schemas/ProcessingQueueItem"
+      },
+      "title": "Running",
+      "type": "array"
+     },
+     "history": {
+      "items": {
+       "$ref": "#/components/schemas/ProcessingQueueItem"
+      },
+      "title": "History",
+      "type": "array"
+     }
+    },
+    "required": [
+     "concurrency",
+     "queued",
+     "running",
+     "history"
+    ],
+    "title": "ProcessingQueueOut",
     "type": "object"
    },
    "AuditOut": {
@@ -3859,6 +4202,10 @@
       "title": "Processing Stage",
       "type": "string"
      },
+     "ocr_backend": {
+      "title": "Ocr Backend",
+      "type": "string"
+     },
      "stored": {
       "title": "Stored",
       "type": "boolean"
@@ -3897,6 +4244,7 @@
      "received_from",
      "size",
      "processing_stage",
+     "ocr_backend",
      "stored",
      "events"
     ],
@@ -4106,12 +4454,41 @@
      "text": {
       "title": "Text",
       "type": "string"
+     },
+     "format": {
+      "title": "Format",
+      "type": "string"
+     },
+     "backend": {
+      "title": "Backend",
+      "type": "string"
      }
     },
     "required": [
-     "text"
+     "text",
+     "format",
+     "backend"
     ],
     "title": "TextOut",
+    "type": "object"
+   },
+   "StructureOut": {
+    "properties": {
+     "backend": {
+      "title": "Backend",
+      "type": "string"
+     },
+     "data": {
+      "additionalProperties": true,
+      "title": "Data",
+      "type": "object"
+     }
+    },
+    "required": [
+     "backend",
+     "data"
+    ],
+    "title": "StructureOut",
     "type": "object"
    },
    "ReprocessIn": {
@@ -4124,6 +4501,21 @@
       ],
       "title": "Stage",
       "type": "string"
+     },
+     "backend": {
+      "anyOf": [
+       {
+        "enum": [
+         "ocrmypdf",
+         "docling"
+        ],
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Backend"
      }
     },
     "title": "ReprocessIn",

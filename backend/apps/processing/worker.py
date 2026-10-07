@@ -8,12 +8,16 @@ import select
 import shutil
 import signal
 import socket
+import threading
 import time
+from concurrent.futures import FIRST_COMPLETED, Future, ThreadPoolExecutor, wait
+from contextlib import contextmanager
 from datetime import timedelta
 
 import psycopg
 from django.conf import settings
 from django.db import close_old_connections, connection
+from django.db.models import Q
 from django.utils import timezone
 
 from apps.analysis import classifier
@@ -21,14 +25,16 @@ from apps.documents.intake import ensure_dirs
 from apps.documents.models import Document
 from apps.processing import pipeline, queue
 from apps.processing.models import Job, SystemState, WorkerHeartbeat
+from apps.processing.preferences import MAX_PROCESSING_CONCURRENCY, get_processing_concurrency
 from apps.storage.backends import get_backend
 
 logger = logging.getLogger("docnest.worker")
 
 HEALTHCHECK_INTERVAL = 600
 TRAIN_INTERVAL = 120
-CLEANUP_INTERVAL = 24 * 3600
+CLEANUP_INTERVAL = 3600
 HEARTBEAT_INTERVAL = 30
+CONCURRENT_JOB_KINDS = [Job.Kind.PROCESS_DOCUMENT, Job.Kind.REINDEX_DOCUMENT]
 
 
 class Worker:
@@ -53,14 +59,69 @@ class Worker:
         ensure_dirs()
         self.sweep_workspace()
         logger.info("worker started", extra={"worker": self.worker_id})
-        while not self.stopping:
+        active: set[Future[None]] = set()
+        executor = ThreadPoolExecutor(
+            max_workers=MAX_PROCESSING_CONCURRENCY,
+            thread_name_prefix="docnest-job",
+        )
+        try:
+            while not self.stopping:
+                close_old_connections()
+                self.periodic()
+                active = self._reap(active)
+                concurrency = get_processing_concurrency()
+                claimed = False
+
+                # Start the oldest job first whenever no document work is active.
+                # Maintenance jobs remain exclusive because classifier/storage
+                # operations were designed for serial execution.
+                if not active:
+                    job = queue.claim(self.worker_id)
+                    if job is not None:
+                        if job.kind in CONCURRENT_JOB_KINDS:
+                            active.add(executor.submit(self._execute_in_thread, job))
+                        else:
+                            self.execute(job)
+                        claimed = True
+
+                while not self.stopping and len(active) < concurrency:
+                    job = queue.claim(self.worker_id, kinds=CONCURRENT_JOB_KINDS)
+                    if job is None:
+                        break
+                    active.add(executor.submit(self._execute_in_thread, job))
+                    claimed = True
+                if self.stopping or claimed:
+                    continue
+                if active:
+                    # Re-read the live concurrency setting promptly and fill slots as jobs finish.
+                    wait(active, timeout=1, return_when=FIRST_COMPLETED)
+                else:
+                    self.wait_for_jobs(settings.WORKER_POLL_SECONDS)
+        finally:
+            # Deployments may wait a long time here intentionally: active Docling jobs are not aborted.
+            executor.shutdown(wait=True, cancel_futures=False)
+            if self._listen_conn:
+                self._listen_conn.close()
+
+    def _execute_in_thread(self, job: Job) -> None:
+        close_old_connections()
+        try:
+            self.execute(job)
+        finally:
             close_old_connections()
-            self.periodic()
-            if self.run_once():
+
+    def _reap(self, active: set[Future[None]]) -> set[Future[None]]:
+        remaining: set[Future[None]] = set()
+        for future in active:
+            if not future.done():
+                remaining.add(future)
                 continue
-            self.wait_for_jobs(settings.WORKER_POLL_SECONDS)
-        if self._listen_conn:
-            self._listen_conn.close()
+            try:
+                future.result()
+            except Exception:
+                # execute() handles job failures; this catches worker implementation failures.
+                logger.exception("job thread crashed")
+        return remaining
 
     def run_once(self) -> bool:
         job = queue.claim(self.worker_id)
@@ -81,35 +142,75 @@ class Worker:
     def execute(self, job: Job) -> None:
         logger.info("job started", extra={"job": job.pk, "kind": job.kind, "attempt": job.attempts})
         try:
-            if job.kind == Job.Kind.PROCESS_DOCUMENT:
-                pipeline.run(job.document_id)  # type: ignore[arg-type]
-            elif job.kind == Job.Kind.DELETE_STORAGE:
-                self.delete_storage(job)
-            elif job.kind == Job.Kind.TRAIN_CLASSIFIER:
-                classifier.train_all()
-            elif job.kind == Job.Kind.REINDEX_DOCUMENT:
-                pipeline.reindex(Document.objects.get(pk=job.document_id or 0))
-            else:
-                raise pipeline.PermanentError(f"unknown job kind {job.kind}")
+            with self.maintain_lease(job):
+                if job.kind == Job.Kind.PROCESS_DOCUMENT:
+                    pipeline.run(job.document_id)  # type: ignore[arg-type]
+                elif job.kind == Job.Kind.DELETE_STORAGE:
+                    self.delete_storage(job)
+                elif job.kind == Job.Kind.TRAIN_CLASSIFIER:
+                    classifier.train_all()
+                elif job.kind == Job.Kind.REINDEX_DOCUMENT:
+                    pipeline.reindex(Document.objects.get(pk=job.document_id or 0))
+                else:
+                    raise pipeline.PermanentError(f"unknown job kind {job.kind}")
         except pipeline.StorageUnavailable as exc:
-            queue.defer(job, 600, str(exc))
+            if not queue.defer(job, 600, str(exc)):
+                logger.error("job ownership lost before deferral", extra={"job": job.pk})
+                return
             self._mark_document(job, Document.State.PENDING, "Waiting for storage: " + str(exc))
             logger.warning("storage unavailable, job deferred", extra={"job": job.pk})
             return
         except pipeline.PermanentError as exc:
-            queue.retry_or_fail(job, str(exc), retryable=False)
+            if queue.retry_or_fail(job, str(exc), retryable=False) is None:
+                logger.error("job ownership lost before failure", extra={"job": job.pk})
+                return
             self._mark_document(job, Document.State.FAILED, str(exc))
             logger.warning("job failed permanently", extra={"job": job.pk, "error": str(exc)[:200]})
             return
         except Exception as exc:
             message = f"{type(exc).__name__}: {exc}"
             failed = queue.retry_or_fail(job, message)
+            if failed is None:
+                logger.error("job ownership lost before retry", extra={"job": job.pk})
+                return
             state = Document.State.FAILED if failed else Document.State.PENDING
             self._mark_document(job, state, message if failed else f"Retrying: {message}")
             logger.exception("job error", extra={"job": job.pk, "final": failed})
             return
-        queue.complete(job)
+        if not queue.complete(job):
+            logger.error("job ownership lost before completion", extra={"job": job.pk})
+            return
         logger.info("job done", extra={"job": job.pk})
+
+    @contextmanager
+    def maintain_lease(self, job: Job):
+        """Renew the queue lease and worker heartbeat during long model inference."""
+        stopped = threading.Event()
+        interval = max(1.0, min(30.0, settings.JOB_LEASE_SECONDS / 3))
+
+        def heartbeat() -> None:
+            while not stopped.wait(interval):
+                try:
+                    close_old_connections()
+                    if not queue.renew(job):
+                        logger.error("job lease was lost", extra={"job": job.pk})
+                        return
+                    WorkerHeartbeat.objects.update_or_create(
+                        worker_id=self.worker_id,
+                        defaults={"last_seen_at": timezone.now()},
+                    )
+                except Exception:
+                    logger.exception("could not renew job lease", extra={"job": job.pk})
+                finally:
+                    close_old_connections()
+
+        thread = threading.Thread(target=heartbeat, name=f"lease-{job.pk}", daemon=True)
+        thread.start()
+        try:
+            yield
+        finally:
+            stopped.set()
+            thread.join(timeout=interval + 1)
 
     def _mark_document(self, job: Job, state: str, message: str) -> None:
         if job.kind == Job.Kind.PROCESS_DOCUMENT and job.document_id:
@@ -153,7 +254,12 @@ class Worker:
         now = timezone.now()
         AuditLog.objects.filter(created_at__lt=now - timedelta(days=settings.AUDIT_RETENTION_DAYS)).delete()
         LoginThrottle.objects.filter(window_started_at__lt=now - timedelta(days=1)).delete()
-        Job.objects.filter(state=Job.State.DONE, updated_at__lt=now - timedelta(days=30)).delete()
+        history_cutoff = now - timedelta(hours=settings.JOB_HISTORY_HOURS)
+        Job.objects.filter(
+            state__in=[Job.State.DONE, Job.State.FAILED],
+        ).filter(
+            Q(finished_at__lt=history_cutoff) | Q(finished_at__isnull=True, updated_at__lt=history_cutoff)
+        ).delete()
 
     def check_storage(self) -> None:
         """Also keeps the Proton session fresh (token refresh on use)."""

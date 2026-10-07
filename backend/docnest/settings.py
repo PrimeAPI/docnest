@@ -186,13 +186,24 @@ MASTER_KEY = secret("DOCNEST_MASTER_KEY", required=not DEV, min_length=32) or (
 
 # --- Processing -------------------------------------------------------------
 
+OCR_BACKEND = env("DOCNEST_OCR_BACKEND", "ocrmypdf").lower()
+if OCR_BACKEND not in {"ocrmypdf", "docling"}:
+    raise ConfigError("DOCNEST_OCR_BACKEND must be 'ocrmypdf' or 'docling'")
 OCR_LANGUAGES = env("DOCNEST_OCR_LANGUAGES", "deu+eng")
 OCR_TIMEOUT_SECONDS = env_int("DOCNEST_OCR_TIMEOUT_SECONDS", 900)
 OCR_JOBS = env_int("DOCNEST_OCR_JOBS", 2)
+DOCLING_THREADS = env_int("DOCNEST_DOCLING_THREADS", 2)
+DOCLING_DEVICE = env("DOCNEST_DOCLING_DEVICE", "cpu").lower()
+DOCLING_ARTIFACTS_PATH = Path(env("DOCNEST_DOCLING_ARTIFACTS_PATH", "/var/lib/docnest/models"))
+DOCLING_FIELD_DETECTION = env("DOCNEST_DOCLING_FIELD_DETECTION", "layout").lower()
+if DOCLING_FIELD_DETECTION not in {"layout", "vlm", "hybrid"}:
+    raise ConfigError("DOCNEST_DOCLING_FIELD_DETECTION must be 'layout', 'vlm', or 'hybrid'")
 MAX_PAGES = env_int("DOCNEST_MAX_PAGES", 500)
 JOB_LEASE_SECONDS = env_int("DOCNEST_JOB_LEASE_SECONDS", 1800)
 JOB_MAX_ATTEMPTS = env_int("DOCNEST_JOB_MAX_ATTEMPTS", 5)
 WORKER_POLL_SECONDS = env_int("DOCNEST_WORKER_POLL_SECONDS", 30)
+PROCESSING_CONCURRENCY = env_int("DOCNEST_PROCESSING_CONCURRENCY", 1)
+JOB_HISTORY_HOURS = env_int("DOCNEST_JOB_HISTORY_HOURS", 24)
 AUDIT_RETENTION_DAYS = env_int("DOCNEST_AUDIT_RETENTION_DAYS", 365)
 
 # --- Static / SPA -----------------------------------------------------------

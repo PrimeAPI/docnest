@@ -29,7 +29,9 @@ jobs:
           pipx install uv
           cd backend
           uv export --frozen --no-dev --no-hashes -o /tmp/requirements.txt
-          pipx run pip-audit -r /tmp/requirements.txt --strict
+          # Audit CPU wheels against their matching upstream PyPI releases.
+          sed -E -i 's/^(torch(vision)?==[^+[:space:]]+)\+cpu/\1/' /tmp/requirements.txt
+          pipx run pip-audit -r /tmp/requirements.txt --strict --no-deps --disable-pip
       - uses: pnpm/action-setup@v4
         with:
           package_json_file: frontend/package.json

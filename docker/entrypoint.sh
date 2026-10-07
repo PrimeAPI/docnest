@@ -5,6 +5,7 @@
 #   migrate        apply database migrations
 #   createuser U   create a user (prompts for the password)
 #   proton-login   one-time Proton Drive login (opens a sign-in link)
+#   models         pre-download all Docling models into the persistent cache
 #   proton <args>  run the Proton Drive CLI with DocNest's settings
 #   manage <args>  any Django management command
 set -eu
@@ -72,6 +73,9 @@ case "$cmd" in
     ;;
   proton)
     exec docnest-proton "$@"
+    ;;
+  models)
+    exec python manage.py download_docling_models "$@"
     ;;
   manage)
     exec python manage.py "$@"

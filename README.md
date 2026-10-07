@@ -3,7 +3,7 @@
 [![Build](https://github.com/PrimeAPI/docnest/actions/workflows/preview.yml/badge.svg)](https://github.com/PrimeAPI/docnest/actions/workflows/preview.yml)
 [![Security](https://github.com/PrimeAPI/docnest/actions/workflows/security.yml/badge.svg)](https://github.com/PrimeAPI/docnest/actions/workflows/security.yml)
 
-**A self-hosted, security-first document archive for scanned mail.** A scanner uploads PDFs; DocNest runs OCR, recognizes sender, date, type and tags, groups recurring documents into series, stores the files in **Proton Drive** and makes everything searchable — without ever keeping readable document text in its database.
+**A self-hosted, security-first document archive for scanned mail.** A scanner uploads PDFs; DocNest runs selectable OCRmyPDF or Docling processing, recognizes sender, date, type and tags, groups recurring documents into series, stores the files in **Proton Drive** and makes everything searchable — without ever keeping readable document text in its database.
 
 - **Inbox workflow** — new, unread, todo and important documents at a glance; one click to mark done.
 - **Review mode** — go through the inbox one document at a time: PDF and OCR text side by side, select text to fill title, sender, date or tags, then “Save & next”.

@@ -24,6 +24,13 @@ x-dev: &dev
     DOCNEST_FRONTEND_DIR: /app/frontend/dist
     DOCNEST_BASE_URL: ${DOCNEST_DEV_BASE_URL:-http://localhost:8000}  # not DOCNEST_BASE_URL: deploy/.env belongs to production
     DOCNEST_STORAGE_BACKEND: local
+    DOCNEST_OCR_BACKEND: ${DOCNEST_OCR_BACKEND:-ocrmypdf}
+    DOCNEST_DOCLING_THREADS: ${DOCNEST_DOCLING_THREADS:-2}
+    DOCNEST_DOCLING_FIELD_DETECTION: ${DOCNEST_DOCLING_FIELD_DETECTION:-layout}
+    DOCNEST_PROCESSING_CONCURRENCY: ${DOCNEST_PROCESSING_CONCURRENCY:-1}
+    DOCNEST_DOCLING_ARTIFACTS_PATH: /app/backend/.data/models
+    HF_HOME: /app/backend/.data/models/.cache/huggingface
+    HF_HUB_DISABLE_TELEMETRY: "1"
     HOME: /tmp
     PYTHONPATH: /app/backend
   depends_on:
@@ -60,3 +67,4 @@ services:
   worker:
     <<: *dev
     command: python manage.py worker
+    stop_grace_period: ${DOCNEST_WORKER_STOP_GRACE_PERIOD:-24h}

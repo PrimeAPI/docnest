@@ -33,6 +33,8 @@ DATE_PATTERNS = [
     (re.compile(rf"\b(\d{{1,2}})\.?\s+({_MONTH_NAMES})\.?\s+(\d{{4}})\b", re.I), "d_month_y"),
     # March 12, 2026
     (re.compile(rf"\b({_MONTH_NAMES})\.?\s+(\d{{1,2}}),?\s+(\d{{4}})\b", re.I), "month_d_y"),
+    # "Hamburg, im November 2025": letters dated by month only; read as the 1st
+    (re.compile(rf"\b({_MONTH_NAMES})\.?\s+(\d{{4}})\b", re.I), "month_y"),
 ]
 
 DATE_HINTS = re.compile(
@@ -45,7 +47,10 @@ ORG_SUFFIX = re.compile(
     r"\b(GmbH|AG|SE|KG|KGaA|OHG|e\.\s?V\.|eG|mbH|UG|GbR|Inc\.?|Ltd\.?|LLC|plc|S\.A\.|B\.V\.|"
     r"Versicherung(?:en)?|Bank|Sparkasse|Volksbank|Stadtwerke|Finanzamt|Krankenkasse|Universität|"
     r"Hochschule|Landratsamt|Rathaus|Stadt|Gemeinde|Bundesagentur|Deutsche Rentenversicherung|AOK|"
-    r"Techniker|Barmer|Telekom|Vodafone|Amt)\b"
+    r"Techniker|Barmer|Telekom|Vodafone|Amt|Behörde|Ministerium|Jobcenter|Polizei|Landkreis|Stiftung|"
+    r"Klinikum|"
+    # German compounds: Bundesamt, Amtsgericht, Familienkasse, Sachversicherung, Bundesagentur …
+    r"(?!Gesamt\b)[A-ZÄÖÜ][a-zäöüß]+(?:amt|gericht|kasse|versicherung|agentur|behörde|ministerium))\b"
 )
 RETURN_ADDRESS_SEP = re.compile(r"\s+[·•|]\s+|\s+-\s+|\s{3,}")
 POSTCODE = re.compile(r"\b\d{5}\s+[A-ZÄÖÜ][a-zäöüß]+")
@@ -53,7 +58,9 @@ POSTCODE = re.compile(r"\b\d{5}\s+[A-ZÄÖÜ][a-zäöüß]+")
 SUBJECT_RE = re.compile(r"^\s*(?:betreff|betr\.|subject|re|ihr zeichen)\s*:\s*(.{4,120})$", re.I | re.M)
 
 AMOUNT_RE = re.compile(
-    r"(?:(?:EUR|€|USD|\$|CHF)\s*)?(-?\d{1,3}(?:[.\s']\d{3})*(?:[.,]\d{2})|-?\d+[.,]\d{2})\s*(?:EUR|€|USD|\$|CHF)?"
+    # The lookarounds keep dates out: "25.02.2026 267,21 €" is neither 25.02 nor 26 267,21.
+    r"(?:(?:EUR|€|USD|\$|CHF)\s*)?(?<![\d.,/])(-?\d{1,3}(?:[.\s']\d{3})*(?:[.,]\d{2})|-?\d+[.,]\d{2})(?![.,]?\d)"
+    r"\s*(?:EUR|€|USD|\$|CHF)?"
 )
 TOTAL_HINTS = re.compile(
     r"(gesamtbetrag|rechnungsbetrag|endbetrag|zu zahlen|zahlbetrag|summe|gesamt|total|amount due|"
@@ -113,31 +120,42 @@ def _to_date(kind: str, m: re.Match[str]) -> date | None:
             return date(int(m.group(3)), MONTHS[m.group(2).lower().rstrip(".")], int(m.group(1)))
         if kind == "month_d_y":
             return date(int(m.group(3)), MONTHS[m.group(1).lower().rstrip(".")], int(m.group(2)))
+        if kind == "month_y":
+            return date(int(m.group(2)), MONTHS[m.group(1).lower().rstrip(".")], 1)
     except (ValueError, KeyError):
         return None
     return None
 
 
-def find_dates(text: str) -> list[tuple[date, int]]:
-    """All plausible dates with their character offset."""
-    out: list[tuple[date, int]] = []
+def _find_dates(text: str) -> list[tuple[date, int, bool]]:
+    """Plausible dates with their offset and whether they name a day (not only a month)."""
+    out: list[tuple[date, int, bool]] = []
+    taken: list[tuple[int, int]] = []
     today = date.today()
     for pattern, kind in DATE_PATTERNS:
         for m in pattern.finditer(text):
+            if kind == "month_y" and any(start <= m.start() < end for start, end in taken):
+                continue  # "3. März 2026" was already read as a full date
             d = _to_date(kind, m)
             if d and date(1950, 1, 1) <= d <= today + timedelta(days=400):
-                out.append((d, m.start()))
+                out.append((d, m.start(), kind != "month_y"))
+                taken.append(m.span())
     out.sort(key=lambda x: x[1])
     return out
 
 
-def pick_document_date(text: str, dates: list[tuple[date, int]]) -> date | None:
+def find_dates(text: str) -> list[tuple[date, int]]:
+    """All plausible dates with their character offset."""
+    return [(d, pos) for d, pos, _ in _find_dates(text)]
+
+
+def pick_document_date(text: str, dates: list[tuple[date, int, bool]]) -> date | None:
     if not dates:
         return None
     length = max(len(text), 1)
     today = date.today()
     best: tuple[float, date] | None = None
-    for d, pos in dates:
+    for d, pos, has_day in dates:
         score = 0.0
         line_start = text.rfind("\n", 0, pos) + 1
         line = text[line_start : text.find("\n", pos) if text.find("\n", pos) != -1 else len(text)]
@@ -146,12 +164,17 @@ def pick_document_date(text: str, dates: list[tuple[date, int]]) -> date | None:
             score += 3
         if PERIOD_HINTS.search(before):
             score -= 1
-        if re.search(r"(geb\.|geboren|birth|fällig|due|bis zum|zahlbar)", before, re.I):
+        if re.search(r"(geb\.|geboren|geburt|birth|fällig|due|bis zum|zahlbar)", before, re.I):
             score -= 2
+        if re.search(r"\b(ab|bis|from|until)\s*$", before, re.I):  # validity/payment boundaries
+            score -= 1
         if pos < length * 0.25:
             score += 2
-        if re.search(r"[A-ZÄÖÜ][a-zäöüß]+,\s*(den\s*)?$", text[line_start:pos]):  # "Berlin, 12.03.2026"
+        # "Berlin, 12.03.2026", "Hamburg, im November 2025"
+        if re.search(r"[A-ZÄÖÜ][a-zäöüß]+,\s*(?:den|im|am)?\s*$", text[line_start:pos]):
             score += 2
+        if not has_day:
+            score -= 1.5  # a month alone is weaker evidence than a full date
         if d > today + timedelta(days=30):
             score -= 3
         score -= pos / length  # earlier is better
@@ -257,11 +280,11 @@ def find_references(text: str) -> dict[str, str]:
 
 
 def extract(text: str) -> Extracted:
-    dates = find_dates(text)
+    dates = _find_dates(text)
     total, amounts = find_amounts(text)
     return Extracted(
         document_date=pick_document_date(text, dates),
-        dates=[d.isoformat() for d, _ in dates[:20]],
+        dates=[d.isoformat() for d, _, _ in dates[:20]],
         sender=find_sender(text),
         subject=find_subject(text),
         total_amount=total,

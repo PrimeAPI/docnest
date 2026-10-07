@@ -12,6 +12,7 @@ import {
 } from "@/api/queries";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
+import { DateInput } from "@/components/ui/date-input";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input, Label, Select } from "@/components/ui/input";
 import { EmptyState, ErrorNote, PageHeader, Spinner } from "@/components/ui/misc";
@@ -362,11 +363,19 @@ function DateRange({
       <div className="grid grid-cols-2 gap-2">
         <div>
           <Label className="text-xs text-muted-foreground">From</Label>
-          <Input type="date" className="h-8 px-2 text-xs" value={from ?? ""} onChange={(e) => onChange(e.target.value, to ?? "")} />
+          <DateInput
+            className="h-8 px-2 text-xs"
+            value={from}
+            onValueChange={(value) => onChange(value, to ?? "")}
+          />
         </div>
         <div>
           <Label className="text-xs text-muted-foreground">To</Label>
-          <Input type="date" className="h-8 px-2 text-xs" value={to ?? ""} onChange={(e) => onChange(from ?? "", e.target.value)} />
+          <DateInput
+            className="h-8 px-2 text-xs"
+            value={to}
+            onValueChange={(value) => onChange(from ?? "", value)}
+          />
         </div>
       </div>
       <div className="flex flex-wrap gap-1">
