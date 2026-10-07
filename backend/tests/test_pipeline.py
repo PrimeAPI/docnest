@@ -14,7 +14,14 @@ from apps.processing.models import Job
 from apps.processing.worker import Worker
 from apps.storage import backends
 from tests.conftest import upload
-from tests.pdfs import INSURANCE_LINES, INVOICE_LINES, javascript_pdf, scanned_pdf, text_pdf
+from tests.pdfs import (
+    INSURANCE_LINES,
+    INVOICE_LINES,
+    javascript_pdf,
+    scanned_letter_pdf,
+    scanned_pdf,
+    text_pdf,
+)
 
 pytestmark = pytest.mark.django_db(transaction=True)
 
@@ -80,6 +87,39 @@ def test_scanned_document_can_be_processed_with_docling(scanner, settings):
     structure = crypto_fields.get_structure(doc)
     assert structure.get("schema_name") == "DoclingDocument"
     assert structure.get("texts")
+
+
+@pytest.mark.ocr
+def test_docling_reads_two_column_letter_with_banded_subject(scanner, settings):
+    _, token = scanner
+    settings.OCR_BACKEND = "docling"
+    doc_id = upload(Client(), token, scanned_letter_pdf()).json()["id"]
+    process_all()
+
+    doc = Document.objects.get(uuid=doc_id)
+    assert doc.processing_state == "done", doc.processing_error
+    extracted = crypto_fields.get_extracted(doc)
+    assert doc.correspondent and doc.correspondent.name == "Nordlicht Versicherung"
+    assert extracted["subject"] == "Hausratrechnung"
+    assert doc.document_date == date(2025, 11, 1)
+    assert extracted["amounts"] == ["120.00"]
+    assert doc.document_type and doc.document_type.slug == "invoice"
+
+
+@pytest.mark.ocr
+def test_docling_keeps_exact_text_of_born_digital_pdfs(scanner, settings):
+    _, token = scanner
+    settings.OCR_BACKEND = "docling"
+    doc_id = upload(Client(), token, text_pdf(INVOICE_LINES)).json()["id"]
+    process_all()
+
+    doc = Document.objects.get(uuid=doc_id)
+    assert doc.processing_state == "done", doc.processing_error
+    assert "DE89 3704 0044 0532 0130 00" in crypto_fields.get_content(doc)
+    lines = crypto_fields.get_layout(doc)["pages"][0]["lines"]
+    assert lines and not any(line["from_ocr"] for line in lines)
+    assert doc.correspondent and doc.correspondent.name == "Stadtwerke Musterstadt GmbH"
+    assert crypto_fields.get_extracted(doc)["ibans"] == ["DE89370400440532013000"]
 
 
 def test_database_contains_no_plaintext_content(scanner):

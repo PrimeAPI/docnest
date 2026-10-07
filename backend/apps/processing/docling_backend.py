@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import threading
 from dataclasses import dataclass, field
+from itertools import pairwise
 from pathlib import Path
 from typing import Any
 
@@ -35,6 +36,11 @@ class DoclingFieldResult:
 
 _field_extractors = threading.local()
 
+COLUMN_GAP = 18.0  # pt; wider than any justified word space at letter font sizes
+MIN_SPECK_CONFIDENCE = 0.35
+MIN_DIGITAL_CHARS = 20  # fewer characters per page: blank, a stamp, or a scan
+SCAN_COVERAGE = 0.5  # an image covering half the page makes it a scan
+
 
 def _languages() -> list[str]:
     return [part.strip() for part in str(settings.OCR_LANGUAGES).replace(",", "+").split("+") if part.strip()]
@@ -52,6 +58,22 @@ def _layout_pages(pages: list[Any], limit: int = 2) -> dict:
         lines = _group_line_cells(parsed.textline_cells, height)
         output.append({"page_no": page.page_no, "width": width, "height": height, "lines": lines})
     return {"pages": output}
+
+
+def _split_columns(row: list[dict[str, Any]]) -> list[list[dict[str, Any]]]:
+    """Split a visual row where a wide horizontal gap separates two columns.
+
+    Letters put the sender block, the date and the recipient side by side; joined
+    they read as "Landratsamt Musterkreis Musterstadt, den 12.03.2024" and hide the sender.
+    """
+    segments = [[row[0]]]
+    for previous, item in pairwise(row):
+        height = max(item["y1"] - item["y0"], previous["y1"] - previous["y0"], 1.0)
+        if item["x0"] - previous["x1"] > max(COLUMN_GAP, height * 2.2):
+            segments.append([item])
+        else:
+            segments[-1].append(item)
+    return segments
 
 
 def _group_line_cells(cells: list[Any], page_height: float) -> list[dict[str, Any]]:
@@ -92,31 +114,83 @@ def _group_line_cells(cells: list[Any], page_height: float) -> list[dict[str, An
     output = []
     for row in rows:
         row.sort(key=lambda item: item["x0"])
-        top_left = bool(row[0]["top_left"])
-        raw_y0 = min(item["y0"] for item in row)
-        raw_y1 = max(item["y1"] for item in row)
-        y0, y1 = (page_height - raw_y1, page_height - raw_y0) if top_left else (raw_y0, raw_y1)
-        output.append(
-            {
-                "text": " ".join(item["text"] for item in row),
-                "x0": min(item["x0"] for item in row),
-                "y0": y0,
-                "x1": max(item["x1"] for item in row),
-                "y1": y1,
-                "confidence": round(sum(float(item["cell"].confidence) for item in row) / len(row), 4),
-                "from_ocr": any(bool(item["cell"].from_ocr) for item in row),
-            }
-        )
+        for segment in _split_columns(row):
+            confidence = sum(float(item["cell"].confidence) for item in segment) / len(segment)
+            text = " ".join(item["text"] for item in segment)
+            if confidence < MIN_SPECK_CONFIDENCE and len(text) <= 4:
+                continue  # scanner dust, stamps and page edges read as "ee" or "|"
+            top_left = bool(segment[0]["top_left"])
+            raw_y0 = min(item["y0"] for item in segment)
+            raw_y1 = max(item["y1"] for item in segment)
+            y0, y1 = (page_height - raw_y1, page_height - raw_y0) if top_left else (raw_y0, raw_y1)
+            output.append(
+                {
+                    "text": text,
+                    "x0": min(item["x0"] for item in segment),
+                    "y0": y0,
+                    "x1": max(item["x1"] for item in segment),
+                    "y1": y1,
+                    "confidence": round(confidence, 4),
+                    "from_ocr": any(bool(item["cell"].from_ocr) for item in segment),
+                }
+            )
     return output
+
+
+def has_digital_text(src: Path) -> bool:
+    """True when every page has real text and no page-sized (scanned) image.
+
+    Online invoices and statements qualify. Scans do not, including scans that
+    carry a scanner's OCR text layer: DocNest's own OCR reads those consistently.
+    Any doubt, including unreadable files, answers False and keeps full OCR.
+    """
+    try:
+        import pypdfium2 as pdfium
+        import pypdfium2.raw as pdfium_c
+        from docling.utils.locks import pypdfium2_lock
+    except ImportError:  # pragma: no cover - indicates a broken production image
+        return False
+
+    # pdfium is not thread-safe; share Docling's lock with concurrent jobs.
+    with pypdfium2_lock:
+        try:
+            pdf = pdfium.PdfDocument(src)
+        except pdfium.PdfiumError:
+            return False
+        try:
+            if len(pdf) == 0:
+                return False
+            for page in pdf:
+                try:
+                    width, height = page.get_size()
+                    textpage = page.get_textpage()
+                    try:
+                        if textpage.count_chars() < MIN_DIGITAL_CHARS:
+                            return False
+                    finally:
+                        textpage.close()
+                    for image in page.get_objects(filter=[pdfium_c.FPDF_PAGEOBJ_IMAGE]):
+                        left, bottom, right, top = image.get_bounds()
+                        if (right - left) * (top - bottom) >= SCAN_COVERAGE * width * height:
+                            return False
+                finally:
+                    page.close()
+            return True
+        except pdfium.PdfiumError:
+            return False
+        finally:
+            pdf.close()
 
 
 def convert(src: Path) -> DoclingResult:
     """Convert a PDF without imposing a wall-clock timeout.
 
     Docling supplies layout, reading order, headings, and table structure. Its
-    Tesseract CLI adapter keeps DocNest's multilingual ``deu+eng`` behavior.
+    Tesseract CLI adapter keeps DocNest's multilingual ``deu+eng`` behavior;
+    ``DocNestPdfPipeline`` re-reads layout regions full-page OCR left empty.
     """
     try:
+        from docling.backend.pypdfium2_backend import PyPdfiumDocumentBackend
         from docling.datamodel.accelerator_options import AcceleratorDevice, AcceleratorOptions
         from docling.datamodel.base_models import ConversionStatus, InputFormat
         from docling.datamodel.pipeline_options import (
@@ -127,6 +201,8 @@ def convert(src: Path) -> DoclingResult:
             TesseractCliOcrOptions,
         )
         from docling.document_converter import DocumentConverter, PdfFormatOption
+
+        from apps.processing.docling_ocr import DocNestPdfPipeline
     except ImportError as exc:  # pragma: no cover - indicates a broken production image
         raise DoclingFailed("Docling is not installed") from exc
 
@@ -138,7 +214,11 @@ def convert(src: Path) -> DoclingResult:
         do_ocr=True,
         do_table_structure=True,
         table_structure_options=TableStructureOptions(do_cell_matching=True),
-        ocr_options=TesseractCliOcrOptions(lang=_languages(), mode=OcrMode.FULL_PAGE),
+        ocr_options=TesseractCliOcrOptions(
+            lang=_languages(),
+            # Born-digital PDFs already carry exact text; OCR only their images.
+            mode=OcrMode.DEFAULT if has_digital_text(src) else OcrMode.FULL_PAGE,
+        ),
         accelerator_options=AcceleratorOptions(
             num_threads=max(1, settings.DOCLING_THREADS),
             device=AcceleratorDevice(settings.DOCLING_DEVICE),
@@ -150,7 +230,15 @@ def convert(src: Path) -> DoclingResult:
     )
     converter = DocumentConverter(
         allowed_formats=[InputFormat.PDF],
-        format_options={InputFormat.PDF: PdfFormatOption(pipeline_options=options)},
+        format_options={
+            InputFormat.PDF: PdfFormatOption(
+                pipeline_cls=DocNestPdfPipeline,
+                # docling-parse's own rasterizer blurs embedded scans noticeably;
+                # pdfium renders them sharply, which markedly improves OCR of scans.
+                backend=PyPdfiumDocumentBackend,
+                pipeline_options=options,
+            )
+        },
     )
     try:
         result = converter.convert(src)
@@ -214,7 +302,7 @@ def _field_extractor(artifacts_path: str, threads: int, device: str) -> tuple[An
 
 def _build_field_extractor(artifacts_path: str, threads: int, device: str) -> tuple[Any, type[Any]]:
     try:
-        from docling.backend.docling_parse_v4_backend import ThreadedDoclingParseDocumentBackend
+        from docling.backend.pypdfium2_backend import PyPdfiumDocumentBackend
         from docling.datamodel.accelerator_options import AcceleratorDevice, AcceleratorOptions
         from docling.datamodel.base_models import InputFormat
         from docling.datamodel.pipeline_options import VlmExtractionPipelineOptions
@@ -248,7 +336,7 @@ def _build_field_extractor(artifacts_path: str, threads: int, device: str) -> tu
         extraction_format_options={
             InputFormat.PDF: ExtractionFormatOption(
                 pipeline_cls=ExtractionVlmPipeline,
-                backend=ThreadedDoclingParseDocumentBackend,
+                backend=PyPdfiumDocumentBackend,
                 pipeline_options=options,
             )
         },

@@ -12,7 +12,12 @@ from __future__ import annotations
 TYPE_KEYWORDS: dict[str, tuple[str, ...]] = {
     "invoice": ("rechnung", "invoice", "rechnungsnummer", "rechnungsbetrag", "beitragsrechnung"),
     "contract": ("vertrag", "vertragsbedingungen", "contract", "vereinbarung", "agreement", "versicherungsschein"),
-    "notice": ("bescheid", "festsetzung", "steuerbescheid", "notice of assessment"),
+    "notice": (
+        "bescheid", "festsetzung", "steuerbescheid", "notice of assessment",
+        # Official mail from authorities: certificates and register extracts
+        "bundesamt", "bundeszentralamt", "landratsamt", "buergeramt", "standesamt", "fuehrungszeugnis",
+        "bescheinigung", "meldebescheinigung", "behoerde",
+    ),
     "statement": (
         "abrechnung", "kontoauszug", "gehaltsabrechnung", "entgeltabrechnung", "lohnabrechnung", "statement",
         "depotauszug", "jahresabrechnung", "verdienstabrechnung",

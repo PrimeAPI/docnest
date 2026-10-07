@@ -41,6 +41,67 @@ def scanned_pdf(lines: list[str]) -> bytes:
         return out.getvalue()
 
 
+def _rasterize(pdf: bytes, dpi: int = 200) -> bytes:
+    with tempfile.TemporaryDirectory() as tmp:
+        src = Path(tmp) / "src.pdf"
+        src.write_bytes(pdf)
+        subprocess.run(
+            ["pdftoppm", "-r", str(dpi), "-png", "-singlefile", str(src), str(Path(tmp) / "page")],
+            check=True,
+        )
+        image = Image.open(Path(tmp) / "page.png").convert("RGB")
+        out = io.BytesIO()
+        image.save(out, format="PDF", resolution=dpi)
+        return out.getvalue()
+
+
+def scanned_letter_pdf() -> bytes:
+    """A scanned two-column business letter like German insurers send.
+
+    The sender block sits beside the recipient, the subject is white text on a
+    dark band, and the letter is dated by month only.
+    """
+    buf = io.BytesIO()
+    c = canvas.Canvas(buf, pagesize=A4)
+    c.setFont("Helvetica-Bold", 12)
+    c.drawString(330, 790, "Nordlicht Versicherung AG")
+    c.setFont("Helvetica", 9)
+    c.drawString(330, 776, "Postanschrift: Nordlicht Versicherung, 20095 Hamburg")
+    c.drawString(330, 762, "Kundenservice Mo - Fr 8 - 18 Uhr")
+    c.drawString(330, 748, "Telefon 040 1234567")
+    c.setFont("Helvetica", 7)
+    c.drawString(60, 742, "Nordlicht Versicherung, 20095 Hamburg")
+    c.setFont("Helvetica", 11)
+    for i, line in enumerate(["Frau", "Erika Musterfrau", "Musterweg 3", "12345 Musterstadt"]):
+        c.drawString(60, 720 - i * 14, line)
+    c.setFillColorRGB(0.1, 0.25, 0.55)
+    c.rect(55, 560, 230, 24, stroke=0, fill=1)
+    c.setFillColorRGB(1, 1, 1)
+    c.setFont("Helvetica-Bold", 14)
+    c.drawString(62, 567, "Ihre Hausratrechnung")
+    c.setFillColorRGB(0, 0, 0)
+    c.setFont("Helvetica", 11)
+    body = [
+        "Hamburg, im November 2025",
+        "",
+        "Sehr geehrte Frau Musterfrau,",
+        "anbei erhalten Sie Ihre Rechnung fuer die Hausratversicherung.",
+        "Ihr Jahresbeitrag ab 01.01.2026 inkl. Versicherungsteuer 120,00 EUR",
+        "",
+        "Mit freundlichen Gruessen",
+        "Nordlicht Versicherung AG",
+    ]
+    for i, line in enumerate(body):
+        c.drawString(60, 530 - i * 16, line)
+    c.setFont("Helvetica", 7)
+    c.drawString(
+        60, 60, "Nordlicht Versicherung AG, Hafenstrasse 1, 20095 Hamburg, Amtsgericht Hamburg HRB 12345"
+    )
+    c.showPage()
+    c.save()
+    return _rasterize(buf.getvalue())
+
+
 def javascript_pdf() -> bytes:
     import pikepdf
 
