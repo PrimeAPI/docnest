@@ -23,7 +23,6 @@ import {
   type DocumentDetail,
   type DocumentPatch,
   keys,
-  useBuckets,
   useCorrespondents,
   useDocument,
   useInvalidateDocuments,
@@ -37,6 +36,7 @@ import { Input, Label, Select } from "@/components/ui/input";
 import { EmptyState, ErrorNote, Kbd, Spinner } from "@/components/ui/misc";
 import { TagChip } from "@/features/documents/document-row";
 import { PdfViewer } from "@/features/documents/pdf-viewer";
+import { FolderSelect } from "@/features/folders/folder-ui";
 import { cn } from "@/lib/utils";
 
 type Status = "new" | "todo" | "done";
@@ -46,7 +46,7 @@ type Draft = {
   documentDate: string;
   sender: string;
   typeId: number | null;
-  bucketId: number;
+  folderId: number | null;
   tags: string[];
   seriesId: number | null;
   status: Status;
@@ -59,7 +59,7 @@ function draftFrom(doc: DocumentDetail, statusOnSave: Status): Draft {
     documentDate: doc.document_date ?? "",
     sender: doc.correspondent?.name ?? "",
     typeId: doc.document_type?.id ?? null,
-    bucketId: doc.bucket.id,
+    folderId: doc.folder?.id ?? null,
     tags: doc.tags.map((t) => t.name),
     seriesId: doc.series?.id ?? null,
     status: doc.status === "new" ? statusOnSave : (doc.status as Status),
@@ -317,7 +317,10 @@ function ReviewWorkspace({
       }
     }
     if (draft.typeId !== null && draft.typeId !== (doc.document_type?.id ?? null)) p.document_type_id = draft.typeId;
-    if (draft.bucketId !== doc.bucket.id) p.bucket_id = draft.bucketId;
+    if (draft.folderId !== (doc.folder?.id ?? null)) {
+      if (draft.folderId === null) p.clear_folder = true;
+      else p.folder_id = draft.folderId;
+    }
     const currentTags = doc.tags.map((t) => t.name);
     const tagsChanged =
       draft.tags.length !== currentTags.length || draft.tags.some((t) => !currentTags.includes(t));
@@ -596,7 +599,6 @@ function ReviewForm({
   set: <K extends keyof Draft>(key: K, value: Draft[K]) => void;
   titleRef: React.RefObject<HTMLInputElement | null>;
 }) {
-  const buckets = useBuckets();
   const types = useTypes();
   const correspondents = useCorrespondents();
   const tags = useTags();
@@ -653,14 +655,8 @@ function ReviewForm({
         </FormField>
       </div>
       <div className="grid grid-cols-2 gap-3">
-        <FormField label="Bucket" htmlFor="review-bucket">
-          <Select id="review-bucket" value={draft.bucketId} onChange={(e) => set("bucketId", Number(e.target.value))}>
-            {buckets.data?.map((b) => (
-              <option key={b.id} value={b.id}>
-                {b.name}
-              </option>
-            ))}
-          </Select>
+        <FormField label="Folder" htmlFor="review-folder">
+          <FolderSelect id="review-folder" value={draft.folderId} onChange={(id) => set("folderId", id)} />
         </FormField>
         <FormField label="Series" htmlFor="review-series">
           <Select

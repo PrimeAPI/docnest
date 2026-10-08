@@ -5,7 +5,7 @@ from apps.documents.models import Document
 from apps.processing import queue
 from apps.processing.models import Job
 from apps.processing.worker import Worker
-from apps.taxonomy.models import Bucket, DocumentType
+from apps.taxonomy.models import DocumentType, Folder
 from tests.conftest import upload
 from tests.pdfs import INSURANCE_LINES, INVOICE_LINES, text_pdf
 
@@ -24,8 +24,8 @@ def docs(scanner):
 
 def test_combined_filters_and_search(api, docs):
     a, b = docs
-    business = Bucket.objects.get(slug="business").pk
-    r = api.get("/api/v1/documents", {"bucket": business}).json()
+    business = Folder.objects.get(name="Business").pk
+    r = api.get("/api/v1/documents", {"folder": business}).json()
     assert [i["id"] for i in r["items"]] == [b]
     r = api.get("/api/v1/documents", {"status": "todo"}).json()
     assert [i["id"] for i in r["items"]] == [a]
@@ -202,13 +202,13 @@ def test_web_upload_goes_through_the_pipeline(api, isolated_dirs):
 
     from tests.pdfs import INVOICE_LINES as LINES
 
-    business = Bucket.objects.get(slug="business").pk
+    business = Folder.objects.get(name="Business").pk
     pdf = text_pdf(LINES)
     r = api.post(
         "/api/v1/documents/upload",
         {
             "file": SimpleUploadedFile("brief.pdf", pdf, content_type="application/pdf"),
-            "bucket_id": business,
+            "folder_id": business,
             "todo": "true",
         },
     )
@@ -217,7 +217,7 @@ def test_web_upload_goes_through_the_pipeline(api, isolated_dirs):
     assert list((isolated_dirs / "intake").iterdir())  # durable, encrypted intake
     Worker().run_until_empty()
     d = api.get(f"/api/v1/documents/{doc_id}").json()
-    assert d["processing_state"] == "done" and d["bucket"]["id"] == business and d["status"] == "todo"
+    assert d["processing_state"] == "done" and d["folder"]["id"] == business and d["status"] == "todo"
     assert d["received_from"] == "Web upload" and d["original_filename"] == "brief.pdf"
     # same file again -> duplicate, no new document
     r = api.post("/api/v1/documents/upload", {"file": SimpleUploadedFile("again.pdf", pdf)})

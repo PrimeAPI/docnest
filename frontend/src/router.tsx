@@ -5,6 +5,7 @@ import { LoginPage } from "@/features/auth/login-page";
 import { SetupPage } from "@/features/auth/setup-page";
 import { DocumentPage } from "@/pages/document-page";
 import { DocumentsPage } from "@/pages/documents-page";
+import { FilingPage } from "@/pages/filing-page";
 import { InboxPage } from "@/pages/inbox-page";
 import { OrganizePage } from "@/pages/organize-page";
 import { ReviewPage } from "@/pages/review-page";
@@ -27,6 +28,8 @@ export const router = createBrowserRouter([
       { path: "inbox/review", element: <ReviewPage /> },
       { path: "documents", element: <DocumentsPage /> },
       { path: "documents/:id", element: <DocumentPage /> },
+      { path: "filing", element: <FilingPage /> },
+      { path: "filing/:folderId", element: <FilingPage /> },
       { path: "todos", element: <TodosPage /> },
       { path: "series", element: <SeriesPage /> },
       { path: "series/:id", element: <SeriesDetailPage /> },

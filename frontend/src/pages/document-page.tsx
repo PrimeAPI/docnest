@@ -20,7 +20,6 @@ import { toast } from "sonner";
 import { call, client } from "@/api/client";
 import {
   type DocumentDetail,
-  useBuckets,
   useCorrespondents,
   useDocument,
   useInvalidateDocuments,
@@ -53,6 +52,7 @@ import { ErrorNote, Spinner } from "@/components/ui/misc";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { StatusBadge, TagChip } from "@/features/documents/document-row";
 import { PdfViewer } from "@/features/documents/pdf-viewer";
+import { FolderSelect } from "@/features/folders/folder-ui";
 import { cn, formatBytes, formatDate, formatDateTime } from "@/lib/utils";
 
 export function DocumentPage() {
@@ -322,7 +322,6 @@ function Field({ label, children, doc, field }: { label: string; children: React
 
 function Details({ doc }: { doc: DocumentDetail }) {
   const update = useUpdateDocument(doc.id);
-  const buckets = useBuckets();
   const types = useTypes();
   const correspondents = useCorrespondents();
   const series = useSeriesList();
@@ -382,14 +381,11 @@ function Details({ doc }: { doc: DocumentDetail }) {
           </Select>
         </Field>
       </div>
-      <Field label="Bucket" doc={doc} field="bucket">
-        <Select value={doc.bucket.id} onChange={(e) => update.mutate({ bucket_id: Number(e.target.value) })}>
-          {buckets.data?.map((b) => (
-            <option key={b.id} value={b.id}>
-              {b.name}
-            </option>
-          ))}
-        </Select>
+      <Field label="Folder" doc={doc} field="folder">
+        <FolderSelect
+          value={doc.folder?.id ?? null}
+          onChange={(id) => update.mutate(id === null ? { clear_folder: true } : { folder_id: id })}
+        />
       </Field>
       <Field label="Tags" doc={doc} field="tags">
         <TagEditor doc={doc} />

@@ -3,6 +3,7 @@ import {
   AlertTriangle,
   CheckSquare,
   FileText,
+  FolderTree,
   Inbox,
   Layers,
   LogOut,
@@ -38,6 +39,7 @@ import { cn } from "@/lib/utils";
 const NAV = [
   { to: "/inbox", label: "Inbox", icon: Inbox, count: "inbox" },
   { to: "/documents", label: "Documents", icon: FileText },
+  { to: "/filing", label: "Filing", icon: FolderTree },
   { to: "/todos", label: "Todos", icon: CheckSquare, count: "todo" },
   { to: "/series", label: "Series", icon: Layers },
   { to: "/organize", label: "Tags & more", icon: Tags, count: "suggested" },

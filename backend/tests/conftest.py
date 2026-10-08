@@ -98,9 +98,9 @@ def seed_taxonomy(request):
     if request.node.get_closest_marker("django_db") is None:
         return
     request.getfixturevalue("db") if "transactional_db" not in request.fixturenames else None
-    from apps.taxonomy.models import Bucket, DocumentType
+    from apps.taxonomy.models import DocumentType, Folder
 
-    for name, slug in (("Private", "private"), ("Business", "business"), ("Studies", "studies")):
-        Bucket.objects.get_or_create(slug=slug, defaults={"name": name})
+    for name in ("Private", "Business", "Studies"):
+        Folder.objects.get_or_create(parent=None, name=name)
     for name in ("Mail", "Contract", "Invoice", "Notice", "Statement", "Other"):
         DocumentType.objects.get_or_create(slug=name.lower(), defaults={"name": name})

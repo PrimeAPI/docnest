@@ -3,7 +3,7 @@ import { createContext, type ReactNode, useCallback, useContext, useEffect, useR
 import { useNavigate } from "react-router";
 import { toast } from "sonner";
 import { ensureCsrf } from "@/api/client";
-import { useBuckets, useInvalidateDocuments } from "@/api/queries";
+import { useFolders, useInvalidateDocuments } from "@/api/queries";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import {
@@ -14,21 +14,23 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { Label, Select } from "@/components/ui/input";
+import { Label } from "@/components/ui/input";
+import { FolderSelect } from "@/features/folders/folder-ui";
+import { DOCS_MIME } from "@/features/folders/tree";
 import { cn } from "@/lib/utils";
 
-type Options = { bucketId: number | null; todo: boolean; important: boolean };
+type Options = { folderId: number | null; todo: boolean; important: boolean };
 
 const STORAGE_KEY = "docnest-upload-options";
 
 function loadOptions(): Options {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
-    if (raw) return { bucketId: null, todo: false, important: false, ...JSON.parse(raw) };
+    if (raw) return { folderId: null, todo: false, important: false, ...JSON.parse(raw) };
   } catch {
     /* storage unavailable */
   }
-  return { bucketId: null, todo: false, important: false };
+  return { folderId: null, todo: false, important: false };
 }
 
 function saveOptions(options: Options) {
@@ -62,7 +64,7 @@ export function useUpload() {
  * pipeline. Files go through the same durable, encrypted intake as scanner uploads.
  */
 export function UploadProvider({ children }: { children: ReactNode }) {
-  const buckets = useBuckets();
+  const folders = useFolders();
   const invalidate = useInvalidateDocuments();
   const navigate = useNavigate();
   const [options, setOptionsState] = useState<Options>(loadOptions);
@@ -76,10 +78,8 @@ export function UploadProvider({ children }: { children: ReactNode }) {
     saveOptions(next);
   };
 
-  const bucket =
-    buckets.data?.find((b) => b.id === options.bucketId) ??
-    buckets.data?.find((b) => b.slug === "private") ??
-    buckets.data?.[0];
+  // A remembered folder may have been deleted meanwhile: fall back to unfiled.
+  const folder = folders.data?.find((f) => f.id === options.folderId) ?? null;
 
   const uploadOne = useCallback(
     async (file: File) => {
@@ -88,7 +88,7 @@ export function UploadProvider({ children }: { children: ReactNode }) {
         await ensureCsrf();
         const form = new FormData();
         form.append("file", file);
-        if (bucket) form.append("bucket_id", String(bucket.id));
+        if (folder) form.append("folder_id", String(folder.id));
         form.append("todo", String(options.todo));
         form.append("important", String(options.important));
         const response = await fetch("/api/v1/documents/upload", {
@@ -107,7 +107,7 @@ export function UploadProvider({ children }: { children: ReactNode }) {
         toast.error(`${file.name}: ${(err as Error).message}`, { id });
       }
     },
-    [bucket, options.todo, options.important, navigate],
+    [folder, options.todo, options.important, navigate],
   );
 
   const uploadFiles = useCallback(
@@ -123,7 +123,11 @@ export function UploadProvider({ children }: { children: ReactNode }) {
 
   // Window-wide drag & drop
   useEffect(() => {
-    const hasFiles = (e: DragEvent) => Array.from(e.dataTransfer?.types ?? []).includes("Files");
+    // Dragging documents between folders is not an upload.
+    const hasFiles = (e: DragEvent) => {
+      const types = Array.from(e.dataTransfer?.types ?? []);
+      return types.includes("Files") && !types.includes(DOCS_MIME);
+    };
     const onEnter = (e: DragEvent) => {
       if (!hasFiles(e)) return;
       e.preventDefault();
@@ -183,7 +187,7 @@ export function UploadProvider({ children }: { children: ReactNode }) {
             <FileUp className="size-10 text-primary" />
             <div className="text-lg font-semibold">Drop PDFs to upload</div>
             <div className="text-sm text-muted-foreground">
-              Into <span className="font-medium text-foreground">{bucket?.name ?? "Private"}</span>
+              Into <span className="font-medium text-foreground">{folder?.path ?? "Unfiled"}</span>
               {options.todo && " · as Todo"}
               {options.important && " · important"}
             </div>
@@ -213,18 +217,12 @@ export function UploadProvider({ children }: { children: ReactNode }) {
           </button>
           <div className="grid gap-3">
             <div className="flex flex-col gap-1.5">
-              <Label htmlFor="upload-bucket">Bucket</Label>
-              <Select
-                id="upload-bucket"
-                value={bucket?.id ?? ""}
-                onChange={(e) => setOptions({ ...options, bucketId: Number(e.target.value) })}
-              >
-                {buckets.data?.map((b) => (
-                  <option key={b.id} value={b.id}>
-                    {b.name}
-                  </option>
-                ))}
-              </Select>
+              <Label htmlFor="upload-folder">Folder</Label>
+              <FolderSelect
+                id="upload-folder"
+                value={folder?.id ?? null}
+                onChange={(id) => setOptions({ ...options, folderId: id })}
+              />
             </div>
             <label className="flex items-center gap-2 text-sm">
               <Checkbox checked={options.todo} onCheckedChange={(v) => setOptions({ ...options, todo: v === true })} />

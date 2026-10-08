@@ -58,8 +58,9 @@ const ACTIONS: Record<string, string> = {
   "settings.processing_updated": "Changed default processor",
   "tag.merged": "Merged tags",
   "tag.deleted": "Deleted tag",
-  "bucket.created": "Created bucket",
-  "bucket.deleted": "Deleted bucket",
+  "folder.created": "Created folder",
+  "folder.moved": "Moved folder",
+  "folder.deleted": "Deleted folder",
 };
 
 export function describeAction(action: string): string {

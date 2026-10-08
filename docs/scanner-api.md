@@ -95,7 +95,7 @@ Until assembly, the uploaded files are kept **encrypted** in the intake volume l
 
 | Field | Required | Default | Description |
 |---|---|---|---|
-| `bucket` | yes | – | Bucket slug or name, e.g. `private`, `business`, `studies` (see *Tags & more → Buckets & types*). |
+| `bucket` | no | – | Folder to file the document in, as a path: `Private`, `Private/Taxes/2024`. Matched case-insensitively against the folders under *Filing*; **missing folders are created**. Empty → the document stays unfiled. Max 10 levels. |
 | `document_type` | no | `auto` | Type slug/name (`mail`, `contract`, `invoice`, `notice`, `statement`, `other`) or `auto` to let DocNest decide. |
 | `todo` | no | `false` | `true` → the document starts with status *Todo*. |
 | `important` | no | `false` | `true` → marked important. |
@@ -211,7 +211,7 @@ GET  /documents/D                 → {"status": "processed", …}   (optional)
 }
 ```
 
-Bucket and type are checked here, so a typo fails before any page is sent. A session expires `DOCNEST_SCAN_SESSION_HOURS` (default 24 h) after its last page upload; a token can have at most `DOCNEST_MAX_OPEN_SCAN_SESSIONS` (default 10) open sessions.
+The type (and the folder path's syntax) is checked here, so a typo fails before any page is sent. Missing folders are only created once the document is complete. A session expires `DOCNEST_SCAN_SESSION_HOURS` (default 24 h) after its last page upload; a token can have at most `DOCNEST_MAX_OPEN_SCAN_SESSIONS` (default 10) open sessions.
 
 ### Upload a page
 
@@ -290,7 +290,7 @@ Errors are JSON: `{"detail": "<message>"}`.
 
 | Status | Meaning |
 |---|---|
-| `400` | Unknown bucket or type, invalid `metadata`, `dpi` or `compression`, empty file, invalid page number. |
+| `400` | Unknown type, folder path too deep, invalid `metadata`, `dpi` or `compression`, empty file, invalid page number. |
 | `401` | Missing, wrong, revoked or expired token, or IP not allowed. |
 | `403` | Token lacks the required scope. |
 | `404` | Session/document not found (or belongs to another token). |
@@ -339,7 +339,7 @@ API="https://docs.example.com/api/upload/v1"
 TOKEN="$(cat ~/.docnest-token)"
 DEVICE="${SCANNER_DEVICE:-}"          # empty = first scanner SANE finds
 DPI=300
-BUCKET="${1:-private}"
+BUCKET="${1:-Private}"                # folder path, e.g. "Private/Taxes"
 
 work=$(mktemp -d)
 trap 'rm -rf "$work"' EXIT

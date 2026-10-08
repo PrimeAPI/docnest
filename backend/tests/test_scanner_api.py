@@ -42,7 +42,7 @@ def test_idempotency_key(scanner):
     assert b.status_code == 200 and a.json()["id"] == b.json()["id"]
 
 
-def test_rejects_non_pdf_and_unknown_bucket(scanner):
+def test_rejects_non_pdf_and_invalid_fields(scanner):
     _, token = scanner
     from django.core.files.uploadedfile import SimpleUploadedFile
 
@@ -52,7 +52,7 @@ def test_rejects_non_pdf_and_unknown_bucket(scanner):
         HTTP_AUTHORIZATION=f"Bearer {token}",
     )
     assert r.status_code == 415
-    assert upload(Client(), token, text_pdf(["x"]), bucket="nope").status_code == 400
+    assert upload(Client(), token, text_pdf(["x"]), bucket="/".join("x" * 11)).status_code == 400
     assert upload(Client(), token, text_pdf(["x"]), document_type="nope").status_code == 400
 
 

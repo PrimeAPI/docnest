@@ -24,7 +24,7 @@ ALPHA = 0.5
 MIN_CLASS_SAMPLES = 2
 MIN_TOTAL_SAMPLES = 4
 
-SINGLE_TARGETS = ("document_type", "correspondent", "bucket")
+SINGLE_TARGETS = ("document_type", "correspondent")
 TAG_TARGET = "tags"
 
 
@@ -93,7 +93,7 @@ def _training_rows() -> list[tuple[list[int], dict[str, Any]]]:
     docs = (
         Document.objects.filter(deleted_at__isnull=True, processing_state=Document.State.DONE)
         .prefetch_related("documenttag_set")
-        .only("id", "document_type_id", "correspondent_id", "bucket_id", "field_sources")
+        .only("id", "document_type_id", "correspondent_id", "field_sources")
     )
     for doc in docs:
         sig = sigs.get(doc.pk)
@@ -105,7 +105,6 @@ def _training_rows() -> list[tuple[list[int], dict[str, Any]]]:
                 {
                     "document_type": doc.document_type_id,
                     "correspondent": doc.correspondent_id,
-                    "bucket": doc.bucket_id,
                     "tags": [dt.tag_id for dt in doc.documenttag_set.all()],
                 },
             )

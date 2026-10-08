@@ -64,15 +64,17 @@ In the web UI go to **Settings → Scanners → Add scanner** and copy the token
 curl -X POST https://docs.your-domain.tld/api/upload/v1/documents \
   -H "Authorization: Bearer dn_scan_…" \
   -H "Idempotency-Key: $(uuidgen)" \
-  -F file=@scan.pdf -F bucket=private -F document_type=auto -F todo=true
+  -F file=@scan.pdf -F bucket=Private/Taxes -F document_type=auto -F todo=true
 ```
+
+`bucket` is the folder path the document is filed in (see **Filing** in the web UI); missing folders are created automatically.
 
 Raw scanner pages work too — DocNest turns them into the PDF:
 
 ```bash
 curl -X POST https://docs.your-domain.tld/api/upload/v1/documents \
   -H "Authorization: Bearer dn_scan_…" \
-  -F file=@page-1.png -F file=@page-2.png -F bucket=private -F dpi=300
+  -F file=@page-1.png -F file=@page-2.png -F bucket=Private -F dpi=300
 ```
 
 For long feeder scans, upload page by page with a scan session. Full reference, including a Raspberry Pi scan station script: [docs/scanner-api.md](docs/scanner-api.md).

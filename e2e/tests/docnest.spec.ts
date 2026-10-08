@@ -285,7 +285,7 @@ test("the inbox can be reviewed one document at a time using the OCR text", asyn
 
   await selectText(/\d{2}\.\d{2}\.\d{4}/);
   await page.getByRole("button", { name: "Date", exact: true }).click();
-  await expect(page.getByLabel("Document date")).toHaveValue(/^\d{4}-\d{2}-\d{2}$/);
+  await expect(page.getByLabel("Document date")).toHaveValue(/^\d{2}\/\d{2}\/\d{4}$/);
 
   await page.getByRole("button", { name: "Save & next" }).click();
   if (total > 1) await expect(page.getByText(`Reviewing 2 of ${total}`)).toBeVisible();
@@ -324,6 +324,42 @@ test("sign-ins are logged with device, failures and per-session actions", async 
   await expect(page.getByText(/Opened|Edited|Uploaded/).first()).toBeVisible();
 });
 
+test("documents are filed into folders by drag & drop and the move dialog", async ({ page }) => {
+  await login(page);
+  await page.getByRole("button", { name: "Use authenticator app" }).click();
+  await page.getByLabel("6-digit code from your authenticator app").fill(await freshTotp(totpSecret));
+  await page.getByRole("button", { name: "Verify" }).click();
+  await page.getByRole("link", { name: "Filing" }).click();
+  const tree = page.locator("main aside");
+
+  // scanner uploads with bucket "private" landed in the "Private" folder; web uploads are unfiled
+  await expect(page.locator("main").getByRole("link", { name: /^Private/ }).last()).toBeVisible();
+  await expect(page.getByText(/Unfiled documents \([1-9]/)).toBeVisible();
+
+  // nested folders can be created in one go
+  await page.getByRole("button", { name: "New folder" }).click();
+  await page.getByLabel("Name").fill("Haushalt/Strom");
+  await page.getByRole("button", { name: "Create" }).click();
+  await expect(page.getByRole("navigation", { name: "Breadcrumb" })).toContainText("Haushalt");
+  await expect(page.getByText("This folder is empty")).toBeVisible();
+
+  // drag an unfiled document onto the folder in the tree
+  await tree.getByRole("link", { name: "Unfiled" }).click();
+  const row = page.locator("main a[href^='/documents/']").nth(1);
+  await row.dragTo(tree.getByRole("link", { name: "Strom" }));
+  await expect(page.getByText(/Moved 1 document to Strom/)).toBeVisible();
+  await expect(page.getByText("Everything is filed. Nice!")).toBeVisible();
+
+  // and move it on with the dialog
+  await tree.getByRole("link", { name: "Strom" }).click();
+  await page.getByRole("checkbox", { name: "Select" }).first().check();
+  await page.getByRole("button", { name: "Move to…" }).click();
+  await page.getByPlaceholder("Search folders…").fill("haushalt");
+  await page.getByRole("dialog").getByRole("button", { name: "Haushalt", exact: true }).click();
+  await expect(page.getByText(/Moved 1 document to Haushalt/)).toBeVisible();
+  await expect(page.getByText("This folder is empty")).toBeVisible();
+});
+
 test("screenshots of the main pages", async ({ page }) => {
   test.skip(!process.env.SCREENSHOTS, "set SCREENSHOTS=1 to capture");
   await page.setViewportSize({ width: 1440, height: 900 });
@@ -344,6 +380,8 @@ test("screenshots of the main pages", async ({ page }) => {
   await page.goto("/series");
   await page.getByText(/Muster Software GmbH/).first().click();
   await shot("series");
+  await page.goto("/filing");
+  await shot("filing");
   await page.goto("/organize");
   await shot("organize");
   await page.goto("/settings");

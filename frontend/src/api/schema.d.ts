@@ -627,25 +627,25 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/v1/buckets": {
+    "/api/v1/folders": {
         parameters: {
             query?: never;
             header?: never;
             path?: never;
             cookie?: never;
         };
-        /** List Buckets */
-        get: operations["apps_taxonomy_api_list_buckets"];
+        /** List Folders */
+        get: operations["apps_taxonomy_api_list_folders"];
         put?: never;
-        /** Create Bucket */
-        post: operations["apps_taxonomy_api_create_bucket"];
+        /** Create Folder */
+        post: operations["apps_taxonomy_api_create_folder"];
         delete?: never;
         options?: never;
         head?: never;
         patch?: never;
         trace?: never;
     };
-    "/api/v1/buckets/{bucket_id}": {
+    "/api/v1/folders/{folder_id}": {
         parameters: {
             query?: never;
             header?: never;
@@ -655,12 +655,12 @@ export interface paths {
         get?: never;
         put?: never;
         post?: never;
-        /** Delete Bucket */
-        delete: operations["apps_taxonomy_api_delete_bucket"];
+        /** Delete Folder */
+        delete: operations["apps_taxonomy_api_delete_folder"];
         options?: never;
         head?: never;
-        /** Update Bucket */
-        patch: operations["apps_taxonomy_api_update_bucket"];
+        /** Update Folder */
+        patch: operations["apps_taxonomy_api_update_folder"];
         trace?: never;
     };
     "/api/v1/document-types": {
@@ -1293,8 +1293,18 @@ export interface components {
              * @default
              */
             q: string;
-            /** Bucket */
-            bucket?: number[];
+            /** Folder */
+            folder?: number[];
+            /**
+             * Subfolders
+             * @default false
+             */
+            subfolders: boolean;
+            /**
+             * Unfiled
+             * @default false
+             */
+            unfiled: boolean;
             /** Document Type */
             document_type?: number[];
             /** Correspondent */
@@ -1345,7 +1355,7 @@ export interface components {
             id: string;
             /** Title */
             title: string;
-            bucket: components["schemas"]["RefOut"];
+            folder: components["schemas"]["FolderRefOut"] | null;
             document_type: components["schemas"]["RefOut"] | null;
             correspondent: components["schemas"]["RefOut"] | null;
             series: components["schemas"]["RefOut"] | null;
@@ -1388,6 +1398,15 @@ export interface components {
             page: number;
             /** Page Size */
             page_size: number;
+        };
+        /** FolderRefOut */
+        FolderRefOut: {
+            /** Id */
+            id: number;
+            /** Name */
+            name: string;
+            /** Path */
+            path: string;
         };
         /** RefOut */
         RefOut: {
@@ -1437,7 +1456,9 @@ export interface components {
              * Action
              * @enum {string}
              */
-            action: "mark_read" | "mark_unread" | "status_done" | "status_todo" | "status_new" | "important" | "unimportant";
+            action: "mark_read" | "mark_unread" | "status_done" | "status_todo" | "status_new" | "important" | "unimportant" | "move";
+            /** Folder Id */
+            folder_id?: number | null;
         };
         /** DocumentDetail */
         DocumentDetail: {
@@ -1448,7 +1469,7 @@ export interface components {
             id: string;
             /** Title */
             title: string;
-            bucket: components["schemas"]["RefOut"];
+            folder: components["schemas"]["FolderRefOut"] | null;
             document_type: components["schemas"]["RefOut"] | null;
             correspondent: components["schemas"]["RefOut"] | null;
             series: components["schemas"]["RefOut"] | null;
@@ -1537,8 +1558,13 @@ export interface components {
             clear_document_date: boolean;
             /** Document Type Id */
             document_type_id?: number | null;
-            /** Bucket Id */
-            bucket_id?: number | null;
+            /** Folder Id */
+            folder_id?: number | null;
+            /**
+             * Clear Folder
+             * @default false
+             */
+            clear_folder: boolean;
             /** Correspondent Id */
             correspondent_id?: number | null;
             /** Correspondent Name */
@@ -1603,25 +1629,43 @@ export interface components {
             /** Backend */
             backend?: ("ocrmypdf" | "docling") | null;
         };
-        /** BucketOut */
-        BucketOut: {
+        /** FolderOut */
+        FolderOut: {
             /** Id */
             id: number;
             /** Name */
             name: string;
-            /** Slug */
-            slug: string;
+            /** Parent Id */
+            parent_id: number | null;
+            /** Path */
+            path: string;
             /** Color */
             color: string;
             /** Document Count */
             document_count: number;
         };
-        /** NamedIn */
-        NamedIn: {
+        /** FolderIn */
+        FolderIn: {
             /** Name */
             name: string;
+            /** Parent Id */
+            parent_id?: number | null;
             /** Color */
             color?: string | null;
+        };
+        /** FolderPatch */
+        FolderPatch: {
+            /** Name */
+            name?: string | null;
+            /** Color */
+            color?: string | null;
+            /** Parent Id */
+            parent_id?: number | null;
+            /**
+             * Move To Root
+             * @default false
+             */
+            move_to_root: boolean;
         };
         /** TypeOut */
         TypeOut: {
@@ -1633,6 +1677,13 @@ export interface components {
             slug: string;
             /** Document Count */
             document_count: number;
+        };
+        /** NamedIn */
+        NamedIn: {
+            /** Name */
+            name: string;
+            /** Color */
+            color?: string | null;
         };
         /** TagOut */
         TagOut: {
@@ -2410,7 +2461,9 @@ export interface operations {
         parameters: {
             query?: {
                 q?: string;
-                bucket?: number[];
+                folder?: number[];
+                subfolders?: boolean;
+                unfiled?: boolean;
                 document_type?: number[];
                 correspondent?: number[];
                 tag?: number[];
@@ -2459,8 +2512,8 @@ export interface operations {
                      * Format: binary
                      */
                     file: string;
-                    /** Bucket Id */
-                    bucket_id?: number | null;
+                    /** Folder Id */
+                    folder_id?: number | null;
                     /**
                      * Document Type
                      * @default auto
@@ -2725,7 +2778,7 @@ export interface operations {
             };
         };
     };
-    apps_taxonomy_api_list_buckets: {
+    apps_taxonomy_api_list_folders: {
         parameters: {
             query?: never;
             header?: never;
@@ -2740,12 +2793,12 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["BucketOut"][];
+                    "application/json": components["schemas"]["FolderOut"][];
                 };
             };
         };
     };
-    apps_taxonomy_api_create_bucket: {
+    apps_taxonomy_api_create_folder: {
         parameters: {
             query?: never;
             header?: never;
@@ -2754,7 +2807,7 @@ export interface operations {
         };
         requestBody: {
             content: {
-                "application/json": components["schemas"]["NamedIn"];
+                "application/json": components["schemas"]["FolderIn"];
             };
         };
         responses: {
@@ -2764,17 +2817,17 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["BucketOut"];
+                    "application/json": components["schemas"]["FolderOut"];
                 };
             };
         };
     };
-    apps_taxonomy_api_delete_bucket: {
+    apps_taxonomy_api_delete_folder: {
         parameters: {
             query?: never;
             header?: never;
             path: {
-                bucket_id: number;
+                folder_id: number;
             };
             cookie?: never;
         };
@@ -2789,18 +2842,18 @@ export interface operations {
             };
         };
     };
-    apps_taxonomy_api_update_bucket: {
+    apps_taxonomy_api_update_folder: {
         parameters: {
             query?: never;
             header?: never;
             path: {
-                bucket_id: number;
+                folder_id: number;
             };
             cookie?: never;
         };
         requestBody: {
             content: {
-                "application/json": components["schemas"]["NamedIn"];
+                "application/json": components["schemas"]["FolderPatch"];
             };
         };
         responses: {
@@ -2810,7 +2863,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["BucketOut"];
+                    "application/json": components["schemas"]["FolderOut"];
                 };
             };
         };

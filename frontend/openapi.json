@@ -811,13 +811,33 @@
      },
      {
       "in": "query",
-      "name": "bucket",
+      "name": "folder",
       "schema": {
        "items": {
         "type": "integer"
        },
-       "title": "Bucket",
+       "title": "Folder",
        "type": "array"
+      },
+      "required": false
+     },
+     {
+      "in": "query",
+      "name": "subfolders",
+      "schema": {
+       "default": false,
+       "title": "Subfolders",
+       "type": "boolean"
+      },
+      "required": false
+     },
+     {
+      "in": "query",
+      "name": "unfiled",
+      "schema": {
+       "default": false,
+       "title": "Unfiled",
+       "type": "boolean"
       },
       "required": false
      },
@@ -1112,7 +1132,7 @@
           "title": "File",
           "type": "string"
          },
-         "bucket_id": {
+         "folder_id": {
           "anyOf": [
            {
             "type": "integer"
@@ -1121,7 +1141,7 @@
             "type": "null"
            }
           ],
-          "title": "Bucket Id"
+          "title": "Folder Id"
          },
          "document_type": {
           "default": "auto",
@@ -1547,10 +1567,10 @@
     ]
    }
   },
-  "/api/v1/buckets": {
+  "/api/v1/folders": {
    "get": {
-    "operationId": "apps_taxonomy_api_list_buckets",
-    "summary": "List Buckets",
+    "operationId": "apps_taxonomy_api_list_folders",
+    "summary": "List Folders",
     "parameters": [],
     "responses": {
      "200": {
@@ -1559,7 +1579,7 @@
        "application/json": {
         "schema": {
          "items": {
-          "$ref": "#/components/schemas/BucketOut"
+          "$ref": "#/components/schemas/FolderOut"
          },
          "title": "Response",
          "type": "array"
@@ -1578,8 +1598,8 @@
     ]
    },
    "post": {
-    "operationId": "apps_taxonomy_api_create_bucket",
-    "summary": "Create Bucket",
+    "operationId": "apps_taxonomy_api_create_folder",
+    "summary": "Create Folder",
     "parameters": [],
     "responses": {
      "200": {
@@ -1587,7 +1607,7 @@
       "content": {
        "application/json": {
         "schema": {
-         "$ref": "#/components/schemas/BucketOut"
+         "$ref": "#/components/schemas/FolderOut"
         }
        }
       }
@@ -1600,7 +1620,7 @@
      "content": {
       "application/json": {
        "schema": {
-        "$ref": "#/components/schemas/NamedIn"
+        "$ref": "#/components/schemas/FolderIn"
        }
       }
      },
@@ -1613,16 +1633,16 @@
     ]
    }
   },
-  "/api/v1/buckets/{bucket_id}": {
+  "/api/v1/folders/{folder_id}": {
    "patch": {
-    "operationId": "apps_taxonomy_api_update_bucket",
-    "summary": "Update Bucket",
+    "operationId": "apps_taxonomy_api_update_folder",
+    "summary": "Update Folder",
     "parameters": [
      {
       "in": "path",
-      "name": "bucket_id",
+      "name": "folder_id",
       "schema": {
-       "title": "Bucket Id",
+       "title": "Folder Id",
        "type": "integer"
       },
       "required": true
@@ -1634,7 +1654,7 @@
       "content": {
        "application/json": {
         "schema": {
-         "$ref": "#/components/schemas/BucketOut"
+         "$ref": "#/components/schemas/FolderOut"
         }
        }
       }
@@ -1647,7 +1667,7 @@
      "content": {
       "application/json": {
        "schema": {
-        "$ref": "#/components/schemas/NamedIn"
+        "$ref": "#/components/schemas/FolderPatch"
        }
       }
      },
@@ -1660,14 +1680,14 @@
     ]
    },
    "delete": {
-    "operationId": "apps_taxonomy_api_delete_bucket",
-    "summary": "Delete Bucket",
+    "operationId": "apps_taxonomy_api_delete_folder",
+    "summary": "Delete Folder",
     "parameters": [
      {
       "in": "path",
-      "name": "bucket_id",
+      "name": "folder_id",
       "schema": {
-       "title": "Bucket Id",
+       "title": "Folder Id",
        "type": "integer"
       },
       "required": true
@@ -3562,12 +3582,22 @@
       "title": "Q",
       "type": "string"
      },
-     "bucket": {
+     "folder": {
       "items": {
        "type": "integer"
       },
-      "title": "Bucket",
+      "title": "Folder",
       "type": "array"
+     },
+     "subfolders": {
+      "default": false,
+      "title": "Subfolders",
+      "type": "boolean"
+     },
+     "unfiled": {
+      "default": false,
+      "title": "Unfiled",
+      "type": "boolean"
      },
      "document_type": {
       "items": {
@@ -3736,8 +3766,15 @@
       "title": "Title",
       "type": "string"
      },
-     "bucket": {
-      "$ref": "#/components/schemas/RefOut"
+     "folder": {
+      "anyOf": [
+       {
+        "$ref": "#/components/schemas/FolderRefOut"
+       },
+       {
+        "type": "null"
+       }
+      ]
      },
      "document_type": {
       "anyOf": [
@@ -3850,7 +3887,7 @@
     "required": [
      "id",
      "title",
-     "bucket",
+     "folder",
      "document_type",
      "correspondent",
      "series",
@@ -3898,6 +3935,29 @@
      "page_size"
     ],
     "title": "DocumentPage",
+    "type": "object"
+   },
+   "FolderRefOut": {
+    "properties": {
+     "id": {
+      "title": "Id",
+      "type": "integer"
+     },
+     "name": {
+      "title": "Name",
+      "type": "string"
+     },
+     "path": {
+      "title": "Path",
+      "type": "string"
+     }
+    },
+    "required": [
+     "id",
+     "name",
+     "path"
+    ],
+    "title": "FolderRefOut",
     "type": "object"
    },
    "RefOut": {
@@ -4020,10 +4080,22 @@
        "status_todo",
        "status_new",
        "important",
-       "unimportant"
+       "unimportant",
+       "move"
       ],
       "title": "Action",
       "type": "string"
+     },
+     "folder_id": {
+      "anyOf": [
+       {
+        "type": "integer"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Folder Id"
      }
     },
     "required": [
@@ -4044,8 +4116,15 @@
       "title": "Title",
       "type": "string"
      },
-     "bucket": {
-      "$ref": "#/components/schemas/RefOut"
+     "folder": {
+      "anyOf": [
+       {
+        "$ref": "#/components/schemas/FolderRefOut"
+       },
+       {
+        "type": "null"
+       }
+      ]
      },
      "document_type": {
       "anyOf": [
@@ -4221,7 +4300,7 @@
     "required": [
      "id",
      "title",
-     "bucket",
+     "folder",
      "document_type",
      "correspondent",
      "series",
@@ -4326,7 +4405,7 @@
       ],
       "title": "Document Type Id"
      },
-     "bucket_id": {
+     "folder_id": {
       "anyOf": [
        {
         "type": "integer"
@@ -4335,7 +4414,12 @@
         "type": "null"
        }
       ],
-      "title": "Bucket Id"
+      "title": "Folder Id"
+     },
+     "clear_folder": {
+      "default": false,
+      "title": "Clear Folder",
+      "type": "boolean"
      },
      "correspondent_id": {
       "anyOf": [
@@ -4521,7 +4605,7 @@
     "title": "ReprocessIn",
     "type": "object"
    },
-   "BucketOut": {
+   "FolderOut": {
     "properties": {
      "id": {
       "title": "Id",
@@ -4531,8 +4615,19 @@
       "title": "Name",
       "type": "string"
      },
-     "slug": {
-      "title": "Slug",
+     "parent_id": {
+      "anyOf": [
+       {
+        "type": "integer"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Parent Id"
+     },
+     "path": {
+      "title": "Path",
       "type": "string"
      },
      "color": {
@@ -4547,18 +4642,30 @@
     "required": [
      "id",
      "name",
-     "slug",
+     "parent_id",
+     "path",
      "color",
      "document_count"
     ],
-    "title": "BucketOut",
+    "title": "FolderOut",
     "type": "object"
    },
-   "NamedIn": {
+   "FolderIn": {
     "properties": {
      "name": {
       "title": "Name",
       "type": "string"
+     },
+     "parent_id": {
+      "anyOf": [
+       {
+        "type": "integer"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Parent Id"
      },
      "color": {
       "anyOf": [
@@ -4575,7 +4682,51 @@
     "required": [
      "name"
     ],
-    "title": "NamedIn",
+    "title": "FolderIn",
+    "type": "object"
+   },
+   "FolderPatch": {
+    "properties": {
+     "name": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Name"
+     },
+     "color": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Color"
+     },
+     "parent_id": {
+      "anyOf": [
+       {
+        "type": "integer"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Parent Id"
+     },
+     "move_to_root": {
+      "default": false,
+      "title": "Move To Root",
+      "type": "boolean"
+     }
+    },
+    "title": "FolderPatch",
     "type": "object"
    },
    "TypeOut": {
@@ -4604,6 +4755,30 @@
      "document_count"
     ],
     "title": "TypeOut",
+    "type": "object"
+   },
+   "NamedIn": {
+    "properties": {
+     "name": {
+      "title": "Name",
+      "type": "string"
+     },
+     "color": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Color"
+     }
+    },
+    "required": [
+     "name"
+    ],
+    "title": "NamedIn",
     "type": "object"
    },
    "TagOut": {

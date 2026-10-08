@@ -104,7 +104,7 @@ def _idempotency_key(request: HttpRequest) -> str:
 def upload_document(
     request: HttpRequest,
     file: File[list[UploadedFile]],
-    bucket: Form[str],
+    bucket: Form[str] = "",
     document_type: Form[str] = "auto",
     important: Form[str] = "false",
     todo: Form[str] = "false",
@@ -117,6 +117,8 @@ def upload_document(
     """Upload one scan: a PDF, page images, or several files (repeat `file`) in page order.
 
     Images and multiple files are assembled into one PDF by DocNest.
+    `bucket` is the folder path to file the document in (e.g. `Private/Taxes`);
+    missing folders are created, an empty value leaves the document unfiled.
     `tags` is a comma-separated list; `metadata` an optional JSON object.
     Send an `Idempotency-Key` header to make retries safe.
     """
@@ -243,7 +245,7 @@ def _intake_error(request: HttpRequest, scanner: ScannerClient, exc: IntakeError
 @upload_router.post("/scans", response={200: ScanSessionOut, 201: ScanSessionOut})
 def create_scan(
     request: HttpRequest,
-    bucket: Form[str],
+    bucket: Form[str] = "",
     document_type: Form[str] = "auto",
     important: Form[str] = "false",
     todo: Form[str] = "false",

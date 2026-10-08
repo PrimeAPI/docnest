@@ -3,6 +3,7 @@ import {
   Check,
   CircleDot,
   FileText,
+  Folder,
   Layers,
   Loader2,
   MoreHorizontal,
@@ -20,6 +21,8 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown";
+import { MoveButton, MoveToFolderDialog } from "@/features/folders/folder-ui";
+import { dragDocuments } from "@/features/folders/tree";
 import { cn, colorClass, formatDate, formatDateTime } from "@/lib/utils";
 
 export function Thumbnail({ doc, className }: { doc: DocumentListItem; className?: string }) {
@@ -37,6 +40,7 @@ export function Thumbnail({ doc, className }: { doc: DocumentListItem; className
           src={`/api/v1/documents/${doc.id}/thumbnail`}
           alt=""
           loading="lazy"
+          draggable={false}
           className="h-full w-full object-cover object-top"
           onError={() => setFailed(true)}
         />
@@ -85,16 +89,24 @@ export function DocumentRow({
   doc,
   selected,
   onSelect,
+  dragIds,
+  showFolder = true,
 }: {
   doc: DocumentListItem;
   selected?: boolean;
   onSelect?: (checked: boolean) => void;
+  /** Documents dragged along when this row is dragged (defaults to just this one). */
+  dragIds?: string[];
+  showFolder?: boolean;
 }) {
   const bulk = useBulkAction();
   const act = (action: Parameters<typeof bulk.mutate>[0]["action"]) => bulk.mutate({ ids: [doc.id], action });
+  const [moving, setMoving] = useState(false);
 
   return (
     <div
+      draggable
+      onDragStart={(e) => dragDocuments(e, dragIds?.length ? dragIds : [doc.id])}
       className={cn(
         "group flex items-start gap-3 border-b px-3 py-3 transition-colors last:border-b-0 hover:bg-muted/50",
         selected && "bg-accent/50",
@@ -123,7 +135,11 @@ export function DocumentRow({
           <StatusBadge doc={doc} />
           {doc.correspondent && <span className="font-medium text-foreground/80">{doc.correspondent.name}</span>}
           {doc.document_type && <span>· {doc.document_type.name}</span>}
-          <span>· {doc.bucket.name}</span>
+          {showFolder && doc.folder && (
+            <span className="inline-flex items-center gap-1" title={doc.folder.path}>
+              · <Folder className="size-3" /> {doc.folder.name}
+            </span>
+          )}
           {doc.document_date && <span>· {formatDate(doc.document_date)}</span>}
           {doc.series && (
             <span className="inline-flex items-center gap-1">
@@ -169,6 +185,7 @@ export function DocumentRow({
               </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent>
+              <DropdownMenuItem onSelect={() => setMoving(true)}>Move to folder…</DropdownMenuItem>
               <DropdownMenuItem onSelect={() => act("status_todo")}>Mark as todo</DropdownMenuItem>
               <DropdownMenuItem onSelect={() => act("status_new")}>Mark as new</DropdownMenuItem>
               <DropdownMenuItem onSelect={() => act(doc.is_read ? "mark_unread" : "mark_read")}>
@@ -176,6 +193,7 @@ export function DocumentRow({
               </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>
+          <MoveToFolderDialog ids={[doc.id]} open={moving} onOpenChange={setMoving} />
         </div>
       </div>
     </div>
@@ -203,6 +221,7 @@ export function BulkBar({ ids, onClear }: { ids: string[]; onClear: () => void }
         <Button size="sm" variant="outline" onClick={() => run("important")}>
           <Star /> Important
         </Button>
+        <MoveButton ids={ids} onMoved={onClear} />
         <Button size="sm" variant="ghost" onClick={onClear}>
           Clear
         </Button>

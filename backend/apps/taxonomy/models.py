@@ -5,15 +5,29 @@ from django.db.models.functions import Lower
 from django.utils import timezone
 
 
-class Bucket(models.Model):
-    """Logical separation of document areas (e.g. Private, Business, Studies)."""
+class Folder(models.Model):
+    """A filing folder ("Ablage"). Folders nest; a document lives in at most one folder."""
 
-    name = models.CharField(max_length=80, unique=True)
-    slug = models.SlugField(max_length=80, unique=True)
+    name = models.CharField(max_length=80)
+    parent = models.ForeignKey(
+        "self", null=True, blank=True, on_delete=models.CASCADE, related_name="children"
+    )
     color = models.CharField(max_length=20, default="slate")
+    created_at = models.DateTimeField(default=timezone.now)
 
     class Meta:
         ordering = ["name"]
+        constraints = [
+            models.UniqueConstraint(
+                "parent",
+                Lower("name"),
+                name="folder_name_ci_unique",
+                condition=models.Q(parent__isnull=False),
+            ),
+            models.UniqueConstraint(
+                Lower("name"), name="folder_root_name_ci_unique", condition=models.Q(parent__isnull=True)
+            ),
+        ]
 
     def __str__(self) -> str:
         return self.name

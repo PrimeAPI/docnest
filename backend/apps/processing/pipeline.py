@@ -101,7 +101,8 @@ def _advance(document: Document, stage: str) -> None:
 
 def _storage_folder(document: Document) -> str:
     year = (document.uploaded_at or timezone.now()).year
-    return f"{document.bucket.slug}/{year}/{document.uuid}"
+    # Independent of the filing folder, so moving a document never moves files in storage.
+    return f"{year}/{document.uuid}"
 
 
 def _original_local(document: Document, work: Path) -> Path:
@@ -311,9 +312,7 @@ def stage_index(document: Document, work: Path) -> None:
 
 
 def reindex(document: Document) -> None:
-    document = Document.objects.select_related("correspondent", "document_type", "bucket", "series").get(
-        pk=document.pk
-    )
+    document = Document.objects.select_related("correspondent", "document_type", "series").get(pk=document.pk)
     meta = [t.name for t in document.tags.all()]
     meta += [a.alias for t in document.tags.all() for a in t.aliases.all()]
     if document.correspondent:
@@ -345,7 +344,7 @@ STAGES: dict[str, Callable[[Document, Path], None]] = {
 
 def run(document_id: int) -> None:
     """Run all outstanding stages of a document."""
-    document = Document.objects.select_related("bucket").get(pk=document_id)
+    document = Document.objects.get(pk=document_id)
     if document.deleted_at is not None:
         return
     if document.processing_stage == Stage.RECEIVED:

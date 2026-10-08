@@ -24,8 +24,8 @@ from apps.processing.preferences import get_default_ocr_backend
 from apps.search import index as search_index
 from apps.search.snippets import make_snippet
 from apps.storage.backends import StorageAuthError, StorageError
-from apps.taxonomy.models import Bucket, Correspondent, DocumentType, Series, Tag
-from apps.taxonomy.services import find_correspondent, resolve_or_create_tag
+from apps.taxonomy.models import Correspondent, DocumentType, Folder, Series, Tag
+from apps.taxonomy.services import find_correspondent, folder_paths, folder_subtree, resolve_or_create_tag
 
 router = Router(tags=["documents"])
 
@@ -36,6 +36,12 @@ router = Router(tags=["documents"])
 class RefOut(Schema):
     id: int
     name: str
+
+
+class FolderRefOut(Schema):
+    id: int
+    name: str
+    path: str
 
 
 class TagRefOut(Schema):
@@ -53,7 +59,7 @@ class SnippetOut(Schema):
 class DocumentListItem(Schema):
     id: UUID
     title: str
-    bucket: RefOut
+    folder: FolderRefOut | None
     document_type: RefOut | None
     correspondent: RefOut | None
     series: RefOut | None
@@ -103,7 +109,9 @@ class DocumentDetail(DocumentListItem):
 
 class DocumentFilters(Schema):
     q: str = ""
-    bucket: list[int] = Field(default_factory=list)
+    folder: list[int] = Field(default_factory=list)
+    subfolders: bool = False  # with `folder`: include documents in subfolders
+    unfiled: bool = False  # only documents without a folder
     document_type: list[int] = Field(default_factory=list)
     correspondent: list[int] = Field(default_factory=list)
     tag: list[int] = Field(default_factory=list)
@@ -126,7 +134,8 @@ class DocumentPatch(Schema):
     document_date: date | None = None
     clear_document_date: bool = False
     document_type_id: int | None = None
-    bucket_id: int | None = None
+    folder_id: int | None = None
+    clear_folder: bool = False
     correspondent_id: int | None = None
     correspondent_name: str | None = None
     clear_correspondent: bool = False
@@ -143,8 +152,16 @@ class DocumentPatch(Schema):
 class BulkAction(Schema):
     ids: list[UUID]
     action: Literal[
-        "mark_read", "mark_unread", "status_done", "status_todo", "status_new", "important", "unimportant"
+        "mark_read",
+        "mark_unread",
+        "status_done",
+        "status_todo",
+        "status_new",
+        "important",
+        "unimportant",
+        "move",
     ]
+    folder_id: int | None = None  # target of "move"; null = unfile
 
 
 class TextOut(Schema):
@@ -173,7 +190,7 @@ class ReprocessIn(Schema):
 def base_queryset() -> QuerySet[Document]:
     return (
         Document.objects.filter(deleted_at__isnull=True)
-        .select_related("bucket", "document_type", "correspondent", "series")
+        .select_related("folder", "document_type", "correspondent", "series")
         .prefetch_related("documenttag_set__tag")
     )
 
@@ -191,7 +208,20 @@ def _ref(obj: object) -> RefOut | None:
     return RefOut(id=obj.pk, name=str(obj))  # type: ignore[attr-defined]
 
 
-def to_list_item(document: Document, score: float | None = None, snippet: object = None) -> DocumentListItem:
+def _folder_ref(document: Document, paths: dict[int, str] | None) -> FolderRefOut | None:
+    folder = document.folder
+    if folder is None:
+        return None
+    paths = paths if paths is not None else folder_paths()
+    return FolderRefOut(id=folder.pk, name=folder.name, path=paths.get(folder.pk, folder.name))
+
+
+def to_list_item(
+    document: Document,
+    score: float | None = None,
+    snippet: object = None,
+    paths: dict[int, str] | None = None,
+) -> DocumentListItem:
     tags = sorted(
         (
             TagRefOut(id=dt.tag.pk, name=dt.tag.name, color=dt.tag.color, source=dt.source)
@@ -202,7 +232,7 @@ def to_list_item(document: Document, score: float | None = None, snippet: object
     return DocumentListItem(
         id=document.uuid,
         title=crypto_fields.get_title(document) or "Processing…",
-        bucket=_ref(document.bucket),  # type: ignore[arg-type]
+        folder=_folder_ref(document, paths),
         document_type=_ref(document.document_type),
         correspondent=_ref(document.correspondent),
         series=_ref(document.series),
@@ -251,8 +281,10 @@ def to_detail(document: Document) -> DocumentDetail:
 
 
 def apply_filters(qs: QuerySet[Document], f: DocumentFilters) -> QuerySet[Document]:
-    if f.bucket:
-        qs = qs.filter(bucket_id__in=f.bucket)
+    if f.unfiled:
+        qs = qs.filter(folder__isnull=True)
+    elif f.folder:
+        qs = qs.filter(folder_id__in=folder_subtree(f.folder) if f.subfolders else f.folder)
     if f.document_type:
         qs = qs.filter(document_type_id__in=f.document_type)
     if f.correspondent:
@@ -312,17 +344,19 @@ def list_documents(request: HttpRequest, filters: Query[DocumentFilters]) -> Doc
                 key=lambda d: (getattr(d, key) is not None, getattr(d, key) or date.min), reverse=reverse
             )
         items = []
+        paths = folder_paths()
         for d in ordered:
             snippet = make_snippet(crypto_fields.get_content(d), query)
-            items.append(to_list_item(d, hits.scores.get(d.pk), snippet))
+            items.append(to_list_item(d, hits.scores.get(d.pk), snippet, paths))
         return DocumentPage(items=items, total=hits.total, page=filters.page, page_size=filters.page_size)
 
     order = _SORTS.get(filters.sort, _SORTS["-uploaded"])
     page_qs = base_queryset().filter(pk__in=qs.values("pk")).order_by(*order)
     total = qs.count()
     page_docs = list(page_qs[offset : offset + filters.page_size])
+    paths = folder_paths()
     return DocumentPage(
-        items=[to_list_item(d) for d in page_docs],
+        items=[to_list_item(d, paths=paths) for d in page_docs],
         total=total,
         page=filters.page,
         page_size=filters.page_size,
@@ -338,21 +372,19 @@ class WebUploadOut(Schema):
 def web_upload(
     request: HttpRequest,
     file: File[UploadedFile],
-    bucket_id: Form[int | None] = None,
+    folder_id: Form[int | None] = None,
     document_type: Form[str] = "auto",
     todo: Form[bool] = False,
     important: Form[bool] = False,
 ) -> Status:
     """Upload a PDF from the web UI. Uses the same durable intake and pipeline as scanners."""
-    bucket = Bucket.objects.filter(pk=bucket_id).first() if bucket_id else None
-    bucket = bucket or Bucket.objects.filter(slug="private").first() or Bucket.objects.order_by("pk").first()
-    if bucket is None:
-        raise HttpError(400, "Create a bucket first")
+    if folder_id is not None and not Folder.objects.filter(pk=folder_id).exists():
+        raise HttpError(400, "Unknown folder")
     temp = getattr(file, "temporary_file_path", None)
     if temp is None:
         raise HttpError(500, "upload was not streamed to disk")
     req = IntakeRequest(
-        bucket=bucket.slug,
+        folder_id=folder_id,
         document_type=document_type,
         todo=todo,
         important=important,
@@ -377,6 +409,18 @@ def web_upload(
 @router.post("/bulk", response=BulkOut)
 def bulk_update(request: HttpRequest, data: BulkAction) -> dict[str, int]:
     qs = Document.objects.filter(uuid__in=data.ids[:500], deleted_at__isnull=True)
+    if data.action == "move":
+        if data.folder_id is not None and not Folder.objects.filter(pk=data.folder_id).exists():
+            raise HttpError(400, "Unknown folder")
+        n = 0
+        with transaction.atomic():
+            for document in qs.select_for_update():
+                document.folder_id = data.folder_id
+                document.set_source("folder", Source.USER)
+                document.save(update_fields=["folder", "field_sources", "updated_at"])
+                n += 1
+        audit("document.bulk", request=request, operation="move", count=n, folder=data.folder_id)
+        return {"updated": n}
     updates: dict[str, object] = {
         "mark_read": {"read_at": timezone.now()},
         "mark_unread": {"read_at": None},
@@ -428,12 +472,16 @@ def update_document(request: HttpRequest, doc_id: UUID, data: DocumentPatch) -> 
             document.document_type_id = data.document_type_id
             document.set_source("document_type", Source.USER)
             changed.append("document_type")
-        if data.bucket_id is not None:
-            if not Bucket.objects.filter(pk=data.bucket_id).exists():
-                raise HttpError(400, "Unknown bucket")
-            document.bucket_id = data.bucket_id
-            document.set_source("bucket", Source.USER)
-            changed.append("bucket")
+        if data.clear_folder:
+            document.folder = None
+            document.set_source("folder", Source.USER)
+            changed.append("folder")
+        elif data.folder_id is not None:
+            if not Folder.objects.filter(pk=data.folder_id).exists():
+                raise HttpError(400, "Unknown folder")
+            document.folder_id = data.folder_id
+            document.set_source("folder", Source.USER)
+            changed.append("folder")
         if data.clear_correspondent:
             document.correspondent = None
             document.set_source("correspondent", Source.USER)
@@ -523,7 +571,7 @@ def update_document(request: HttpRequest, doc_id: UUID, data: DocumentPatch) -> 
     if changed:
         if {"title", "correspondent", "document_type", "tags", "series"} & set(changed):
             reindex_quietly(document)
-        if {"document_type", "correspondent", "bucket", "tags"} & set(changed):
+        if {"document_type", "correspondent", "tags"} & set(changed):
             SystemState.objects.update_or_create(key="classifier_dirty", defaults={"value": {"dirty": True}})
         audit("document.updated", request=request, target=str(document.uuid), fields=changed)
     return to_detail(get_document(doc_id))

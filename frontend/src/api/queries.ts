@@ -6,6 +6,7 @@ export type DocumentListItem = Schemas["DocumentPage"]["items"][number];
 export type DocumentDetail = Schemas["DocumentDetail"];
 export type DocumentPatch = Partial<Schemas["DocumentPatch"]>;
 export type TagOut = Schemas["TagOut"];
+export type FolderOut = Schemas["FolderOut"];
 export type SessionState = Schemas["SessionStateOut"];
 
 export const keys = {
@@ -16,7 +17,7 @@ export const keys = {
   documents: (params: object) => ["documents", params] as const,
   document: (id: string) => ["document", id] as const,
   tags: ["tags"] as const,
-  buckets: ["buckets"] as const,
+  folders: ["folders"] as const,
   types: ["types"] as const,
   correspondents: ["correspondents"] as const,
   series: ["series"] as const,
@@ -65,7 +66,9 @@ export function useProcessingQueue() {
 
 export type DocumentQuery = {
   q?: string;
-  bucket?: number[];
+  folder?: number[];
+  subfolders?: boolean;
+  unfiled?: boolean;
   document_type?: number[];
   correspondent?: number[];
   tag?: number[];
@@ -111,6 +114,7 @@ export function useInvalidateDocuments() {
     qc.invalidateQueries({ queryKey: keys.processingQueue });
     qc.invalidateQueries({ queryKey: ["series"] });
     qc.invalidateQueries({ queryKey: keys.tags });
+    qc.invalidateQueries({ queryKey: keys.folders });
   };
 }
 
@@ -168,8 +172,8 @@ export function useBulkAction() {
 export function useTags() {
   return useQuery({ queryKey: keys.tags, queryFn: () => call(() => client.GET("/api/v1/tags")) });
 }
-export function useBuckets() {
-  return useQuery({ queryKey: keys.buckets, queryFn: () => call(() => client.GET("/api/v1/buckets")) });
+export function useFolders() {
+  return useQuery({ queryKey: keys.folders, queryFn: () => call(() => client.GET("/api/v1/folders")) });
 }
 export function useTypes() {
   return useQuery({ queryKey: keys.types, queryFn: () => call(() => client.GET("/api/v1/document-types")) });

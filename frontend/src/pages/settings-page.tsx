@@ -539,7 +539,7 @@ function TokenDialog({ token, onClose }: { token: string | null; onClose: () => 
   -H "Authorization: Bearer ${token}" \\
   -H "Idempotency-Key: $(uuidgen)" \\
   -F "file=@scan.pdf" \\
-  -F "bucket=private" \\
+  -F "bucket=Private/Taxes" \\
   -F "document_type=auto" \\
   -F "todo=false" -F "important=false"`;
   return (

@@ -16,8 +16,8 @@ from apps.audit.service import audit
 from apps.documents import crypto_fields
 from apps.documents.models import Document
 from apps.processing.models import SystemState
-from apps.taxonomy.models import Bucket, Correspondent, DocumentType, MatchRule, Series, Tag, TagAlias
-from apps.taxonomy.services import merge_tags, normalize_label
+from apps.taxonomy.models import Correspondent, DocumentType, Folder, MatchRule, Series, Tag, TagAlias
+from apps.taxonomy.services import folder_paths, folder_subtree, merge_tags, normalize_label
 
 router = Router(tags=["taxonomy"])
 
@@ -29,12 +29,26 @@ class NamedIn(Schema):
     color: str | None = None
 
 
-class BucketOut(Schema):
+class FolderOut(Schema):
     id: int
     name: str
-    slug: str
+    parent_id: int | None
+    path: str
     color: str
-    document_count: int
+    document_count: int  # directly in this folder
+
+
+class FolderIn(Schema):
+    name: str
+    parent_id: int | None = None
+    color: str | None = None
+
+
+class FolderPatch(Schema):
+    name: str | None = None
+    color: str | None = None
+    parent_id: int | None = None
+    move_to_root: bool = False
 
 
 class TypeOut(Schema):
@@ -142,51 +156,89 @@ def _unique_slug(model: type, name: str, exclude_pk: int | None = None) -> str:
     return slug
 
 
-# --- Buckets & types ------------------------------------------------------------
+# --- Folders ------------------------------------------------------------------
 
 
-@router.get("/buckets", response=list[BucketOut])
-def list_buckets(request: HttpRequest) -> list[BucketOut]:
-    qs = Bucket.objects.annotate(n=Count("documents", filter=ACTIVE))
-    return [BucketOut(id=b.pk, name=b.name, slug=b.slug, color=b.color, document_count=b.n) for b in qs]
+def _folder_name(value: str) -> str:
+    name = _clean_name(value)
+    if "/" in name or "\\" in name:
+        raise HttpError(400, "Folder names cannot contain slashes")
+    return name
 
 
-@router.post("/buckets", response=BucketOut)
-def create_bucket(request: HttpRequest, data: NamedIn) -> BucketOut:
-    name = _clean_name(data.name)
+def _folder_out(f: Folder, n: int, paths: dict[int, str] | None = None) -> FolderOut:
+    paths = paths if paths is not None else folder_paths()
+    return FolderOut(
+        id=f.pk,
+        name=f.name,
+        parent_id=f.parent_id,
+        path=paths.get(f.pk, f.name),
+        color=f.color,
+        document_count=n,
+    )
+
+
+def _save_folder(f: Folder) -> None:
     try:
-        b = Bucket.objects.create(name=name, slug=_unique_slug(Bucket, name), color=data.color or "slate")
+        with transaction.atomic():
+            f.save()
     except IntegrityError as exc:
-        raise HttpError(400, "A bucket with this name exists") from exc
-    audit("bucket.created", request=request, target=name)
-    return BucketOut(id=b.pk, name=b.name, slug=b.slug, color=b.color, document_count=0)
+        raise HttpError(400, "A folder with this name already exists here") from exc
 
 
-@router.patch("/buckets/{bucket_id}", response=BucketOut)
-def update_bucket(request: HttpRequest, bucket_id: int, data: NamedIn) -> BucketOut:
-    b = Bucket.objects.filter(pk=bucket_id).first()
-    if b is None:
+@router.get("/folders", response=list[FolderOut])
+def list_folders(request: HttpRequest) -> list[FolderOut]:
+    paths = folder_paths()
+    qs = Folder.objects.annotate(n=Count("documents", filter=ACTIVE))
+    return [_folder_out(f, f.n, paths) for f in qs]
+
+
+@router.post("/folders", response=FolderOut)
+def create_folder(request: HttpRequest, data: FolderIn) -> FolderOut:
+    if data.parent_id is not None and not Folder.objects.filter(pk=data.parent_id).exists():
+        raise HttpError(400, "Unknown parent folder")
+    f = Folder(name=_folder_name(data.name), parent_id=data.parent_id, color=(data.color or "slate")[:20])
+    _save_folder(f)
+    audit("folder.created", request=request, target=f.name)
+    return _folder_out(f, 0)
+
+
+@router.patch("/folders/{folder_id}", response=FolderOut)
+def update_folder(request: HttpRequest, folder_id: int, data: FolderPatch) -> FolderOut:
+    f = Folder.objects.filter(pk=folder_id).first()
+    if f is None:
         raise HttpError(404, "Not found")
-    b.name = _clean_name(data.name)
+    if data.name is not None:
+        f.name = _folder_name(data.name)
     if data.color:
-        b.color = data.color[:20]
-    try:
-        b.save()
-    except IntegrityError as exc:
-        raise HttpError(400, "A bucket with this name exists") from exc
-    return BucketOut(id=b.pk, name=b.name, slug=b.slug, color=b.color, document_count=b.documents.count())
+        f.color = data.color[:20]
+    if data.move_to_root:
+        f.parent = None
+    elif data.parent_id is not None:
+        if not Folder.objects.filter(pk=data.parent_id).exists():
+            raise HttpError(400, "Unknown parent folder")
+        if data.parent_id in folder_subtree([f.pk]):
+            raise HttpError(400, "A folder cannot be moved into itself")
+        f.parent_id = data.parent_id
+    _save_folder(f)
+    if data.parent_id is not None or data.move_to_root:
+        audit("folder.moved", request=request, target=f.name)
+    return _folder_out(f, f.documents.filter(deleted_at__isnull=True).count())
 
 
-@router.delete("/buckets/{bucket_id}")
-def delete_bucket(request: HttpRequest, bucket_id: int) -> dict[str, bool]:
-    b = Bucket.objects.filter(pk=bucket_id).first()
-    if b is None:
+@router.delete("/folders/{folder_id}")
+def delete_folder(request: HttpRequest, folder_id: int) -> dict[str, bool]:
+    f = Folder.objects.filter(pk=folder_id).first()
+    if f is None:
         raise HttpError(404, "Not found")
-    if b.documents.exists():
-        raise HttpError(400, "The bucket still contains documents")
-    b.delete()
-    audit("bucket.deleted", request=request, target=b.name)
+    if Document.objects.filter(folder_id__in=folder_subtree([f.pk]), deleted_at__isnull=True).exists():
+        raise HttpError(400, "The folder (or a subfolder) still contains documents")
+    f.delete()  # subfolders cascade; trashed documents become unfiled
+    audit("folder.deleted", request=request, target=f.name)
     return {"ok": True}
+
+
+# --- Document types ---------------------------------------------------------------
 
 
 @router.get("/document-types", response=list[TypeOut])

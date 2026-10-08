@@ -5,7 +5,7 @@ import uuid
 from django.db import models
 from django.utils import timezone
 
-from apps.taxonomy.models import Bucket, Correspondent, DocumentType, Series, Tag
+from apps.taxonomy.models import Correspondent, DocumentType, Folder, Series, Tag
 
 
 class Source(models.TextChoices):
@@ -43,7 +43,9 @@ class Document(models.Model):
     uuid = models.UUIDField(default=uuid.uuid4, unique=True, editable=False)
 
     # Classification (plaintext by design: needed for filtering, low sensitivity)
-    bucket = models.ForeignKey(Bucket, on_delete=models.PROTECT, related_name="documents")
+    folder = models.ForeignKey(
+        Folder, null=True, blank=True, on_delete=models.SET_NULL, related_name="documents"
+    )
     document_type = models.ForeignKey(DocumentType, null=True, blank=True, on_delete=models.SET_NULL)
     correspondent = models.ForeignKey(Correspondent, null=True, blank=True, on_delete=models.SET_NULL)
     series = models.ForeignKey(

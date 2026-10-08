@@ -4,7 +4,7 @@ import { type FormEvent, useState } from "react";
 import { Link } from "react-router";
 import { toast } from "sonner";
 import { call, client, type Schemas } from "@/api/client";
-import { keys, useBuckets, useCorrespondents, useTags, useTypes } from "@/api/queries";
+import { keys, useCorrespondents, useTags, useTypes } from "@/api/queries";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -25,7 +25,7 @@ import { cn, dotClass, TAG_COLORS } from "@/lib/utils";
 function useInvalidateTaxonomy() {
   const qc = useQueryClient();
   return () => {
-    for (const k of [keys.tags, keys.buckets, keys.types, keys.correspondents, keys.rules, keys.overview]) {
+    for (const k of [keys.tags, keys.folders, keys.types, keys.correspondents, keys.rules, keys.overview]) {
       qc.invalidateQueries({ queryKey: k });
     }
     qc.invalidateQueries({ queryKey: ["documents"] });
@@ -47,12 +47,12 @@ function useAction<T>(fn: (arg: T) => Promise<unknown>, success?: string) {
 export function OrganizePage() {
   return (
     <>
-      <PageHeader title="Tags & more" description="Keep your structure tidy: tags, senders, buckets, types and rules." />
+      <PageHeader title="Tags & more" description="Keep your structure tidy: tags, senders, types and rules. Folders live under Filing." />
       <Tabs defaultValue="tags">
         <TabsList className="flex-wrap">
           <TabsTrigger value="tags">Tags</TabsTrigger>
           <TabsTrigger value="senders">Senders</TabsTrigger>
-          <TabsTrigger value="buckets">Buckets & types</TabsTrigger>
+          <TabsTrigger value="types">Types</TabsTrigger>
           <TabsTrigger value="rules">Rules</TabsTrigger>
         </TabsList>
         <TabsContent value="tags">
@@ -61,8 +61,8 @@ export function OrganizePage() {
         <TabsContent value="senders">
           <SendersTab />
         </TabsContent>
-        <TabsContent value="buckets">
-          <BucketsTab />
+        <TabsContent value="types">
+          <TypesTab />
         </TabsContent>
         <TabsContent value="rules">
           <RulesTab />
@@ -436,23 +436,14 @@ function SenderMergeDialog({
   );
 }
 
-// --- Buckets & types ---------------------------------------------------------------
+// --- Types -------------------------------------------------------------------------
 
-function BucketsTab() {
-  const buckets = useBuckets();
+function TypesTab() {
   const types = useTypes();
-  const [bucketName, setBucketName] = useState("");
   const [typeName, setTypeName] = useState("");
-  const addBucket = useAction((name: string) => call(() => client.POST("/api/v1/buckets", { body: { name } })));
   const addType = useAction((name: string) => call(() => client.POST("/api/v1/document-types", { body: { name } })));
-  const delBucket = useAction((id: number) =>
-    call(() => client.DELETE("/api/v1/buckets/{bucket_id}", { params: { path: { bucket_id: id } } })),
-  );
   const delType = useAction((id: number) =>
     call(() => client.DELETE("/api/v1/document-types/{type_id}", { params: { path: { type_id: id } } })),
-  );
-  const renameBucket = useAction((b: { id: number; name: string }) =>
-    call(() => client.PATCH("/api/v1/buckets/{bucket_id}", { params: { path: { bucket_id: b.id } }, body: { name: b.name } })),
   );
   const renameType = useAction((t: { id: number; name: string }) =>
     call(() =>
@@ -461,93 +452,49 @@ function BucketsTab() {
   );
 
   return (
-    <div className="grid gap-6 lg:grid-cols-2">
-      <div>
-        <h3 className="mb-1 text-sm font-semibold">Buckets</h3>
-        <p className="mb-3 text-sm text-muted-foreground">
-          Separate areas of your life. The scanner sends the bucket's <em>slug</em> (shown in grey).
-        </p>
-        <Card className="overflow-hidden">
-          {buckets.data?.map((b) => (
-            <div key={b.id} className="flex items-center gap-3 border-b px-4 py-2.5 last:border-b-0">
-              <span className={cn("size-2.5 rounded-full", dotClass(b.color))} />
-              <span className="font-medium">{b.name}</span>
-              <code className="text-xs text-muted-foreground">{b.slug}</code>
-              <span className="ml-auto text-xs text-muted-foreground">{b.document_count} docs</span>
-              <Button
-                size="icon-sm"
-                variant="ghost"
-                title="Rename"
-                onClick={() => {
-                  const name = prompt("New name", b.name);
-                  if (name) renameBucket.mutate({ id: b.id, name });
-                }}
-              >
-                <Pencil />
-              </Button>
-              <Button size="icon-sm" variant="ghost" title="Delete" disabled={b.document_count > 0} onClick={() => delBucket.mutate(b.id)}>
-                <Trash2 />
-              </Button>
-            </div>
-          ))}
-        </Card>
-        <form
-          className="mt-3 flex gap-2"
-          onSubmit={(e) => {
-            e.preventDefault();
-            if (bucketName.trim()) addBucket.mutate(bucketName.trim(), { onSuccess: () => setBucketName("") });
-          }}
-        >
-          <Input value={bucketName} onChange={(e) => setBucketName(e.target.value)} placeholder="New bucket" />
-          <Button type="submit" variant="outline">
-            <Plus /> Add
-          </Button>
-        </form>
-      </div>
-      <div>
-        <h3 className="mb-1 text-sm font-semibold">Document types</h3>
-        <p className="mb-3 text-sm text-muted-foreground">The scanner can send a type slug, or “auto”.</p>
-        <Card className="overflow-hidden">
-          {types.data?.map((t) => (
-            <div key={t.id} className="flex items-center gap-3 border-b px-4 py-2.5 last:border-b-0">
-              <span className="font-medium">{t.name}</span>
-              <code className="text-xs text-muted-foreground">{t.slug}</code>
-              <span className="ml-auto text-xs text-muted-foreground">{t.document_count} docs</span>
-              <Button
-                size="icon-sm"
-                variant="ghost"
-                title="Rename"
-                onClick={() => {
-                  const name = prompt("New name", t.name);
-                  if (name) renameType.mutate({ id: t.id, name });
-                }}
-              >
-                <Pencil />
-              </Button>
-              <Button
-                size="icon-sm"
-                variant="ghost"
-                title="Delete"
-                onClick={() => confirm(`Delete type “${t.name}”?`) && delType.mutate(t.id)}
-              >
-                <Trash2 />
-              </Button>
-            </div>
-          ))}
-        </Card>
-        <form
-          className="mt-3 flex gap-2"
-          onSubmit={(e) => {
-            e.preventDefault();
-            if (typeName.trim()) addType.mutate(typeName.trim(), { onSuccess: () => setTypeName("") });
-          }}
-        >
-          <Input value={typeName} onChange={(e) => setTypeName(e.target.value)} placeholder="New type" />
-          <Button type="submit" variant="outline">
-            <Plus /> Add
-          </Button>
-        </form>
-      </div>
+    <div className="max-w-2xl">
+      <h3 className="mb-1 text-sm font-semibold">Document types</h3>
+      <p className="mb-3 text-sm text-muted-foreground">The scanner can send a type slug, or “auto”.</p>
+      <Card className="overflow-hidden">
+        {types.data?.map((t) => (
+          <div key={t.id} className="flex items-center gap-3 border-b px-4 py-2.5 last:border-b-0">
+            <span className="font-medium">{t.name}</span>
+            <code className="text-xs text-muted-foreground">{t.slug}</code>
+            <span className="ml-auto text-xs text-muted-foreground">{t.document_count} docs</span>
+            <Button
+              size="icon-sm"
+              variant="ghost"
+              title="Rename"
+              onClick={() => {
+                const name = prompt("New name", t.name);
+                if (name) renameType.mutate({ id: t.id, name });
+              }}
+            >
+              <Pencil />
+            </Button>
+            <Button
+              size="icon-sm"
+              variant="ghost"
+              title="Delete"
+              onClick={() => confirm(`Delete type “${t.name}”?`) && delType.mutate(t.id)}
+            >
+              <Trash2 />
+            </Button>
+          </div>
+        ))}
+      </Card>
+      <form
+        className="mt-3 flex gap-2"
+        onSubmit={(e) => {
+          e.preventDefault();
+          if (typeName.trim()) addType.mutate(typeName.trim(), { onSuccess: () => setTypeName("") });
+        }}
+      >
+        <Input value={typeName} onChange={(e) => setTypeName(e.target.value)} placeholder="New type" />
+        <Button type="submit" variant="outline">
+          <Plus /> Add
+        </Button>
+      </form>
     </div>
   );
 }

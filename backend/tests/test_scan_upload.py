@@ -282,7 +282,7 @@ def test_scan_session_is_idempotent_private_and_deletable(scanner, isolated_dirs
     )
     assert first.status_code == 201 and again.status_code == 200
     assert first.json()["id"] == again.json()["id"]
-    assert open_scan(token, bucket="nope").status_code == 400
+    assert open_scan(token, document_type="nope").status_code == 400
 
     other_token, prefix, token_hash = tokens.generate()
     ScannerClient.objects.create(

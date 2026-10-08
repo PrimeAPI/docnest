@@ -98,3 +98,13 @@ const dotClasses: Record<string, string> = {
 export function dotClass(color?: string | null): string {
   return dotClasses[color ?? "slate"] ?? dotClasses.slate;
 }
+
+const iconClasses: Record<string, string> = {
+  slate: "text-slate-400", red: "text-red-500", orange: "text-orange-500", amber: "text-amber-500",
+  lime: "text-lime-500", emerald: "text-emerald-500", teal: "text-teal-500", sky: "text-sky-500",
+  indigo: "text-indigo-500", violet: "text-violet-500", pink: "text-pink-500",
+};
+
+export function iconClass(color?: string | null): string {
+  return iconClasses[color ?? "slate"] ?? iconClasses.slate;
+}

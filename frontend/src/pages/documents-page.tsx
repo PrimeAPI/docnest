@@ -3,9 +3,9 @@ import { type ReactNode, useMemo, useState } from "react";
 import { useSearchParams } from "react-router";
 import {
   type DocumentQuery,
-  useBuckets,
   useCorrespondents,
   useDocuments,
+  useFolders,
   useSeriesList,
   useTags,
   useTypes,
@@ -17,6 +17,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Input, Label, Select } from "@/components/ui/input";
 import { EmptyState, ErrorNote, PageHeader, Spinner } from "@/components/ui/misc";
 import { BulkBar, DocumentRow } from "@/features/documents/document-row";
+import { buildTree, flatten } from "@/features/folders/tree";
 import { cn, dotClass } from "@/lib/utils";
 
 const PAGE_SIZE = 25;
@@ -32,7 +33,7 @@ function parseQuery(params: URLSearchParams): DocumentQuery {
   const q: DocumentQuery = { page: Number(params.get("page") ?? 1) || 1, page_size: PAGE_SIZE };
   const text = params.get("q");
   if (text) q.q = text;
-  for (const key of ["bucket", "document_type", "correspondent", "tag"] as const) {
+  for (const key of ["folder", "document_type", "correspondent", "tag"] as const) {
     const v = numbers(params, key);
     if (v.length) q[key] = v;
   }
@@ -42,7 +43,7 @@ function parseQuery(params: URLSearchParams): DocumentQuery {
   if (status?.length) q.status = status;
   const processing = params.getAll("processing") as DocumentQuery["processing"];
   if (processing?.length) q.processing = processing;
-  for (const key of ["important", "unread"] as const) {
+  for (const key of ["important", "unread", "unfiled", "subfolders"] as const) {
     const v = params.get(key);
     if (v === "true" || v === "false") q[key] = v === "true";
   }
@@ -192,7 +193,8 @@ function CheckOption({
 }
 
 function Filters({ params, update }: { params: URLSearchParams; update: (fn: (p: URLSearchParams) => void) => void }) {
-  const buckets = useBuckets();
+  const folders = useFolders();
+  const folderOptions = useMemo(() => flatten(buildTree(folders.data ?? [])), [folders.data]);
   const types = useTypes();
   const tags = useTags();
   const correspondents = useCorrespondents();
@@ -255,17 +257,41 @@ function Filters({ params, update }: { params: URLSearchParams; update: (fn: (p:
           onChange={toggle("processing", "failed")}
         />
       </Section>
-      <Section title="Bucket">
-        {buckets.data?.map((b) => (
+      <Section title="Folder">
+        <CheckOption
+          label="Unfiled only"
+          checked={params.get("unfiled") === "true"}
+          onChange={(v) =>
+            update((p) => {
+              if (v) {
+                p.set("unfiled", "true");
+                p.delete("folder");
+                p.delete("subfolders");
+              } else p.delete("unfiled");
+            })
+          }
+        />
+        <Select
+          aria-label="Folder"
+          value={params.get("folder") ?? ""}
+          disabled={params.get("unfiled") === "true"}
+          onChange={(e) => setOne("folder", e.target.value)}
+        >
+          <option value="">Any folder</option>
+          {folderOptions.map((f) => (
+            <option key={f.id} value={f.id}>
+              {"\u00a0\u00a0\u00a0".repeat(f.depth)}
+              {f.name} ({f.total})
+            </option>
+          ))}
+        </Select>
+        {params.has("folder") && (
           <CheckOption
-            key={b.id}
-            label={b.name}
-            dot={b.color}
-            count={b.document_count}
-            checked={has("bucket", String(b.id))}
-            onChange={toggle("bucket", String(b.id))}
+            label="Include subfolders"
+            checked={params.get("subfolders") === "true"}
+            onChange={(v) => setOne("subfolders", v ? "true" : "")}
           />
-        ))}
+        )}
       </Section>
       <Section title="Type">
         {types.data

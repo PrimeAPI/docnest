@@ -35,8 +35,8 @@ from apps.processing.assemble import IMAGE_FORMATS, AssemblyOptions
 from apps.processing.models import Job
 from apps.processing.preferences import get_default_ocr_backend
 from apps.processing.queue import enqueue
-from apps.taxonomy.models import Bucket, DocumentType
-from apps.taxonomy.services import resolve_or_create_tag
+from apps.taxonomy.models import DocumentType, Folder
+from apps.taxonomy.services import ensure_folder_path, resolve_or_create_tag, split_folder_path
 
 logger = logging.getLogger(__name__)
 
@@ -56,7 +56,8 @@ class IntakeError(Exception):
 
 @dataclass
 class IntakeRequest:
-    bucket: str
+    bucket: str = ""  # folder path, e.g. "Private/Taxes"; missing folders are created
+    folder_id: int | None = None  # takes precedence over `bucket` (web upload)
     document_type: str | None = None  # None or "auto" = classify automatically
     important: bool = False
     todo: bool = False
@@ -79,14 +80,11 @@ class IntakeResult:
     created: bool
 
 
-def _resolve_bucket(value: str) -> Bucket:
-    value = value.strip()
-    bucket = (
-        Bucket.objects.filter(slug__iexact=value).first() or Bucket.objects.filter(name__iexact=value).first()
-    )
-    if bucket is None:
-        raise IntakeError(f"Unknown bucket '{value[:50]}'")
-    return bucket
+def _check_folder_path(value: str) -> None:
+    try:
+        split_folder_path(value)
+    except ValueError as exc:
+        raise IntakeError(str(exc)) from exc
 
 
 def _resolve_type(value: str | None) -> DocumentType | None:
@@ -281,7 +279,7 @@ def receive_files(
 
 def validate_request(req: IntakeRequest) -> None:
     """Fail early on request fields that would be rejected at registration."""
-    _resolve_bucket(req.bucket)
+    _check_folder_path(req.bucket)
     _resolve_type(req.document_type)
     if len(json.dumps(req.metadata or {}, ensure_ascii=False).encode()) > MAX_METADATA_BYTES:
         raise IntakeError("Metadata too large")
@@ -305,7 +303,7 @@ def register(
     if existing is not None:
         return IntakeResult(existing, created=False)
 
-    bucket = _resolve_bucket(req.bucket)
+    _check_folder_path(req.bucket)
     doc_type = _resolve_type(req.document_type)
     metadata_json = json.dumps(req.metadata or {}, ensure_ascii=False)
     if len(metadata_json.encode()) > MAX_METADATA_BYTES:
@@ -313,7 +311,6 @@ def register(
     tags = [t.strip()[:80] for t in req.tags if t and t.strip()][:20]
 
     document = Document(
-        bucket=bucket,
         document_type=doc_type,
         content_hash=digest,
         size=size,
@@ -324,7 +321,7 @@ def register(
         scanner_metadata_enc=encrypt_bytes(metadata_json.encode()) if req.metadata else None,
         original_filename_enc=encrypt_text(req.filename[:200]) if req.filename else None,
     )
-    sources = {"bucket": Source.SCANNER}
+    sources: dict[str, str] = {}
     if doc_type is not None:
         sources["document_type"] = Source.SCANNER
     if req.todo or req.important:
@@ -335,6 +332,12 @@ def register(
     store(doc_uuid)
     try:
         with transaction.atomic():
+            if req.folder_id is not None:
+                document.folder = Folder.objects.filter(pk=req.folder_id).first()
+            else:
+                document.folder = ensure_folder_path(req.bucket)
+            if document.folder is not None:
+                document.set_source("folder", Source.SCANNER if scanner else Source.USER)
             document.intake_path = intake_path_for(doc_uuid).name
             document.save()
             for name in tags:

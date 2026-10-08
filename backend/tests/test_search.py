@@ -6,16 +6,16 @@ from apps.search import tokenizer
 from apps.search.index import IndexInput, index_document, search
 from apps.search.models import SearchTerm
 from apps.search.snippets import make_snippet
-from apps.taxonomy.models import Bucket
+from apps.taxonomy.models import Folder
 
 pytestmark = pytest.mark.django_db
 
 
-def make_doc(content: str, title: str = "", bucket: str = "private") -> Document:
+def make_doc(content: str, title: str = "", folder: str = "Private") -> Document:
     import uuid
 
     doc = Document.objects.create(
-        bucket=Bucket.objects.get(slug=bucket), content_hash=uuid.uuid4().hex, processing_state="done"
+        folder=Folder.objects.get(name=folder), content_hash=uuid.uuid4().hex, processing_state="done"
     )
     index_document(doc.pk, IndexInput(title=title, content=content))
     return doc
@@ -52,11 +52,11 @@ def test_umlaut_folding():
 
 
 def test_all_words_must_match_and_filters_apply():
-    a = make_doc("Rechnung Fahrzeug Werkstatt", bucket="private")
-    b = make_doc("Rechnung Büromaterial", bucket="business")
+    a = make_doc("Rechnung Fahrzeug Werkstatt", folder="Private")
+    b = make_doc("Rechnung Büromaterial", folder="Business")
     assert ids("rechnung fahrzeug") == [a.pk]
     assert set(ids("rechnung")) == {a.pk, b.pk}
-    assert ids("rechnung", Document.objects.filter(bucket__slug="business")) == [b.pk]
+    assert ids("rechnung", Document.objects.filter(folder__name="Business")) == [b.pk]
 
 
 def test_title_ranks_higher_than_content():
