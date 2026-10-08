@@ -7,6 +7,7 @@ from apps.accounts.api import account_router, auth_router
 from apps.core.api import router as core_router
 from apps.core.auth import mfa_auth
 from apps.documents.api import router as documents_router
+from apps.paper.api import router as paper_router
 from apps.scanners.api import manage_router as scanners_manage_router
 from apps.scanners.api import upload_router
 from apps.scanners.auth import scanner_auth
@@ -27,6 +28,7 @@ web_api.add_router("/auth", auth_router)
 web_api.add_router("/account", account_router)
 web_api.add_router("/documents", documents_router)
 web_api.add_router("/", taxonomy_router)
+web_api.add_router("/paper", paper_router)
 web_api.add_router("/scanners", scanners_manage_router)
 
 upload_api = NinjaAPI(

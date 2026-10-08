@@ -4,11 +4,13 @@ from typing import Literal, cast
 
 from django.conf import settings
 
+from apps.processing.enhance_settings import EnhanceSettings
 from apps.processing.models import SystemState
 
 DEFAULT_OCR_BACKEND_KEY = "default_ocr_backend"
 DOCLING_FIELD_DETECTION_KEY = "docling_field_detection"
 PROCESSING_CONCURRENCY_KEY = "processing_concurrency"
+SCAN_ENHANCEMENT_KEY = "scan_enhancement"
 OCR_BACKENDS = {"ocrmypdf", "docling"}
 DOCLING_FIELD_DETECTION_MODES = {"layout", "vlm", "hybrid"}
 OcrBackend = Literal["ocrmypdf", "docling"]
@@ -84,3 +86,15 @@ def set_processing_concurrency(concurrency: int) -> int:
         defaults={"value": {"concurrency": concurrency}},
     )
     return concurrency
+
+
+def get_enhance_settings() -> EnhanceSettings:
+    value = SystemState.objects.filter(key=SCAN_ENHANCEMENT_KEY).values_list("value", flat=True).first()
+    return EnhanceSettings.from_json(value or {})
+
+
+def set_enhance_settings(data: dict[str, object]) -> EnhanceSettings:
+    """Merge `data` into the current settings (invalid values keep the current value)."""
+    merged = EnhanceSettings.from_json(data, base=get_enhance_settings())
+    SystemState.objects.update_or_create(key=SCAN_ENHANCEMENT_KEY, defaults={"value": merged.to_json()})
+    return merged

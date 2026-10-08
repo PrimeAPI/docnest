@@ -51,8 +51,10 @@ import { Input, Label, Select } from "@/components/ui/input";
 import { ErrorNote, Spinner } from "@/components/ui/misc";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { StatusBadge, TagChip } from "@/features/documents/document-row";
-import { PdfViewer } from "@/features/documents/pdf-viewer";
+import { DocumentViewer } from "@/features/documents/document-viewer";
 import { FolderSelect } from "@/features/folders/folder-ui";
+import { PaperCard } from "@/features/paper/paper";
+import { ReprocessDialog, describeEnhancement } from "@/features/processing/enhancement";
 import { cn, formatBytes, formatDate, formatDateTime } from "@/lib/utils";
 
 export function DocumentPage() {
@@ -76,7 +78,7 @@ export function DocumentPage() {
         </div>
         <div className="min-h-0 flex-1">
           {viewable ? (
-            <PdfViewer url={`/api/v1/documents/${d.id}/file?variant=archive`} />
+            <DocumentViewer id={d.id} enhanced={d.enhanced} />
           ) : (
             <div className="flex h-full flex-col items-center justify-center gap-2 text-sm text-muted-foreground">
               <Spinner className="size-6" /> The document is still being processed…
@@ -133,13 +135,14 @@ function Header({ doc }: { doc: DocumentDetail }) {
   const invalidate = useInvalidateDocuments();
   const navigate = useNavigate();
   const [confirmDelete, setConfirmDelete] = useState(false);
+  const [reprocessOpen, setReprocessOpen] = useState(false);
 
-  const reprocess = async (stage: "ocr" | "analyze", backend?: "ocrmypdf" | "docling") => {
+  const reanalyze = async () => {
     try {
       await call(() =>
         client.POST("/api/v1/documents/{doc_id}/reprocess", {
           params: { path: { doc_id: doc.id } },
-          body: { stage, backend },
+          body: { stage: "analyze" },
         }),
       );
       toast.success("Reprocessing started");
@@ -208,7 +211,7 @@ function Header({ doc }: { doc: DocumentDetail }) {
           Important
         </Button>
         <Button variant="outline" size="sm" asChild>
-          <a href={`/api/v1/documents/${doc.id}/file?variant=archive&download=true`}>
+          <a href={`/api/v1/documents/${doc.id}/file?variant=archive&download=true`} title="Download the enhanced version">
             <Download /> Download
           </a>
         </Button>
@@ -221,21 +224,18 @@ function Header({ doc }: { doc: DocumentDetail }) {
           <DropdownMenuContent>
             <DropdownMenuItem asChild>
               <a href={`/api/v1/documents/${doc.id}/file?variant=original&download=true`}>
-                <Download /> Download original scan
+                <Download /> Download original
               </a>
             </DropdownMenuItem>
             <DropdownMenuItem onSelect={markUnread}>
               <CircleDot /> Mark as unread
             </DropdownMenuItem>
             <DropdownMenuSeparator />
-            <DropdownMenuItem onSelect={() => reprocess("analyze")}>
+            <DropdownMenuItem onSelect={reanalyze}>
               <RefreshCw /> Re-run analysis
             </DropdownMenuItem>
-            <DropdownMenuItem onSelect={() => reprocess("ocr", "ocrmypdf")}>
-              <RefreshCw /> Reprocess with OCRmyPDF
-            </DropdownMenuItem>
-            <DropdownMenuItem onSelect={() => reprocess("ocr", "docling")}>
-              <RefreshCw /> Reprocess with Docling
+            <DropdownMenuItem onSelect={() => setReprocessOpen(true)}>
+              <RefreshCw /> Reprocess from original…
             </DropdownMenuItem>
             <DropdownMenuSeparator />
             <DropdownMenuItem className="text-destructive" onSelect={() => setConfirmDelete(true)}>
@@ -244,6 +244,12 @@ function Header({ doc }: { doc: DocumentDetail }) {
           </DropdownMenuContent>
         </DropdownMenu>
       </div>
+      <ReprocessDialog
+        ids={[doc.id]}
+        open={reprocessOpen}
+        onOpenChange={setReprocessOpen}
+        onDone={() => update.reset()}
+      />
       <Dialog open={confirmDelete} onOpenChange={setConfirmDelete}>
         <DialogContent className="max-w-sm">
           <DialogHeader>
@@ -405,6 +411,8 @@ function Details({ doc }: { doc: DocumentDetail }) {
           ))}
         </Select>
       </Field>
+
+      <PaperCard doc={doc} />
 
       <Card className="p-3 text-sm">
         <h4 className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Detected data</h4>
@@ -577,13 +585,29 @@ function HistoryTab({ doc }: { doc: DocumentDetail }) {
         Processing stage: <span className="font-medium text-foreground">{doc.processing_stage}</span> · OCR backend:{" "}
         <span className="font-medium text-foreground">{doc.ocr_backend}</span>
       </p>
+      {doc.enhancement.summary ? (
+        <p className="text-xs text-muted-foreground">
+          Scan enhancement:{" "}
+          <span className="font-medium text-foreground">
+            {describeEnhancement(doc.enhancement.summary as Record<string, unknown>) || "switched off"}
+          </span>
+          {doc.original_page_count !== doc.page_count &&
+            ` · original has ${doc.original_page_count} page${doc.original_page_count === 1 ? "" : "s"}`}
+        </p>
+      ) : null}
       {doc.events.length === 0 && <p className="text-muted-foreground">No processing events yet.</p>}
       {doc.events.map((e, i) => (
         <div key={i} className="flex items-start gap-2 rounded-md border px-3 py-2">
           <span
             className={cn(
               "mt-1.5 size-2 shrink-0 rounded-full",
-              e.outcome === "ok" ? "bg-emerald-500" : e.outcome === "warning" ? "bg-amber-500" : "bg-red-500",
+              e.outcome === "ok"
+                ? "bg-emerald-500"
+                : e.outcome === "info"
+                  ? "bg-sky-500"
+                  : e.outcome === "warning"
+                    ? "bg-amber-500"
+                    : "bg-red-500",
             )}
           />
           <div className="min-w-0 flex-1">
@@ -594,7 +618,16 @@ function HistoryTab({ doc }: { doc: DocumentDetail }) {
             <div className="text-xs text-muted-foreground">
               {e.outcome} · {(e.duration_ms / 1000).toFixed(1)} s
             </div>
-            {e.message && <div className="mt-1 break-words text-xs text-destructive">{e.message}</div>}
+            {e.message && (
+              <div
+                className={cn(
+                  "mt-1 break-words text-xs",
+                  e.outcome === "info" ? "text-muted-foreground" : "text-destructive",
+                )}
+              >
+                {e.message}
+              </div>
+            )}
           </div>
         </div>
       ))}

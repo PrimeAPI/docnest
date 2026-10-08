@@ -285,7 +285,7 @@ test("the inbox can be reviewed one document at a time using the OCR text", asyn
 
   await selectText(/\d{2}\.\d{2}\.\d{4}/);
   await page.getByRole("button", { name: "Date", exact: true }).click();
-  await expect(page.getByLabel("Document date")).toHaveValue(/^\d{2}\/\d{2}\/\d{4}$/);
+  await expect(page.getByLabel("Document date")).toHaveValue(/^\d{2}\.\d{2}\.\d{4}$/);
 
   await page.getByRole("button", { name: "Save & next" }).click();
   if (total > 1) await expect(page.getByText(`Reviewing 2 of ${total}`)).toBeVisible();
@@ -360,6 +360,70 @@ test("documents are filed into folders by drag & drop and the move dialog", asyn
   await expect(page.getByText("This folder is empty")).toBeVisible();
 });
 
+test("scans are enhanced, the original stays available, and paper is put away", async ({ page, request }) => {
+  await login(page);
+  await page.getByRole("button", { name: "Use authenticator app" }).click();
+  await page.getByLabel("6-digit code from your authenticator app").fill(await freshTotp(totpSecret));
+  await page.getByRole("button", { name: "Verify" }).click();
+  await expect(page).toHaveURL(/\/inbox/);
+
+  // a crooked, too long page plus an empty backside, sent as raw scanner images
+  const upload = await request.post("/api/upload/v1/documents", {
+    headers: { Authorization: `Bearer ${scannerToken}` },
+    multipart: {
+      file: { name: "p1.png", mimeType: "image/png", buffer: readFileSync("fixtures/crooked-page.png") },
+      bucket: "private",
+    },
+  });
+  expect(upload.status()).toBe(202);
+  const { id } = await upload.json();
+  const blank = await request.post("/api/upload/v1/documents", {
+    headers: { Authorization: `Bearer ${scannerToken}` },
+    multipart: {
+      file: { name: "p2.png", mimeType: "image/png", buffer: readFileSync("fixtures/blank-page.png") },
+      bucket: "private",
+    },
+  });
+  expect(blank.status()).toBe(202);
+  await expect
+    .poll(
+      async () =>
+        (
+          await (
+            await request.get(`/api/upload/v1/documents/${id}`, { headers: { Authorization: `Bearer ${scannerToken}` } })
+          ).json()
+        ).status,
+      { timeout: 120_000, intervals: [2000] },
+    )
+    .toBe("processed");
+
+  // the document shows the enhanced version; the original can be viewed
+  await page.goto(`/documents/${id}`);
+  await expect(page.locator(".pdf-page canvas").first()).toBeVisible({ timeout: 30_000 });
+  await expect(page.getByText("Straightened, cropped and cleaned up")).toBeVisible();
+  await page.getByRole("radio", { name: "Original" }).click();
+  await expect(page.getByText("The file exactly as it was scanned or uploaded")).toBeVisible();
+  await expect(page.locator(".pdf-page canvas").first()).toBeVisible({ timeout: 30_000 });
+  await page.getByRole("tab", { name: "History" }).click();
+  await expect(page.getByText(/straightened/).first()).toBeVisible();
+  await expect(page.getByText(/cropped/).first()).toBeVisible();
+
+  // put the paper away in a new binder
+  await page.getByRole("link", { name: /^Paper/ }).click();
+  await expect(page.getByText(/waiting to be put away/)).toBeVisible();
+  await page.getByRole("button", { name: "Put away…" }).click();
+  await page.getByRole("button", { name: "New location", exact: true }).click();
+  await page.getByLabel("Name").fill("Binder E2E");
+  await page.getByRole("button", { name: /^Put away \d+/ }).click();
+  await expect(page.getByText("Every paper original has a location.")).toBeVisible();
+  await expect(page.getByText("Binder E2E").first()).toBeVisible();
+
+  // the document tells where its paper is
+  await page.goto(`/documents/${id}`);
+  await expect(page.getByText("Binder E2E").first()).toBeVisible();
+  await expect(page.getByText(/from the top/)).toBeVisible();
+});
+
 test("screenshots of the main pages", async ({ page }) => {
   test.skip(!process.env.SCREENSHOTS, "set SCREENSHOTS=1 to capture");
   await page.setViewportSize({ width: 1440, height: 900 });
@@ -386,6 +450,11 @@ test("screenshots of the main pages", async ({ page }) => {
   await shot("organize");
   await page.goto("/settings");
   await shot("settings");
+  await page.getByRole("tab", { name: "System" }).click();
+  await page.getByText("Scan enhancement").first().scrollIntoViewIfNeeded();
+  await shot("settings-enhancement");
+  await page.goto("/paper");
+  await shot("paper");
   await page.goto("/documents");
   await page.locator("main a[href^='/documents/']").first().click();
   await expect(page.locator(".pdf-page canvas").first()).toBeVisible({ timeout: 30_000 });

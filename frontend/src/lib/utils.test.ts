@@ -20,13 +20,13 @@ describe("utils", () => {
     expect(formatDuration(125)).toBe("2m 5s");
     expect(formatDuration(7_380)).toBe("2h 3m");
   });
-  it("formats dates consistently as DD/MM/YYYY", () => {
+  it("formats dates consistently as DD.MM.YYYY", () => {
     expect(formatDate(null)).toBe("—");
-    expect(formatDate("2026-03-14")).toBe("14/03/2026");
-    expect(formatDateInput("2026-03-04")).toBe("04/03/2026");
-    expect(formatDateTime("2026-03-14T15:06:00")).toBe("14/03/2026, 15:06");
+    expect(formatDate("2026-03-14")).toBe("14.03.2026");
+    expect(formatDateInput("2026-03-04")).toBe("04.03.2026");
+    expect(formatDateTime("2026-03-14T15:06:00")).toBe("14.03.2026, 15:06");
   });
-  it("parses DD/MM/YYYY inputs and rejects impossible dates", () => {
+  it("parses DD.MM.YYYY (and DD/MM/YYYY) inputs and rejects impossible dates", () => {
     expect(parseDateInput("14/03/2026")).toBe("2026-03-14");
     expect(parseDateInput("1.2.2026")).toBe("2026-02-01");
     expect(parseDateInput("31/02/2026")).toBeNull();

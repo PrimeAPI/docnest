@@ -317,7 +317,7 @@ DocNest/
 
 **compose.yml:** `app` + `db` (postgres:17, healthcheck, internal network only), named volumes for DB data and the encrypted intake, `tmpfs` for work dir, Docker secrets for `master_key`, `db_password`, `django_secret_key`; a `proton-session` volume (or host bind mount) for the Proton CLI session (see 2.3). Ports: app binds to `127.0.0.1:8000` by default (behind the existing reverse proxy). Example reverse-proxy snippets (Caddy, Traefik, nginx) in `docs/operations.md`, including the upload body size limit.
 
-**Backups:** documented: PostgreSQL dump (contains only encrypted content + metadata) + the master key stored separately offline. Without the master key, backups are unreadable — this is stated loudly in the docs. Documents themselves live in Proton Drive.
+**Backups:** the worker uploads a daily PostgreSQL dump to `<root>/backups/` in Proton Drive (newest 14 kept; `docnest backup` on demand). Documented: PostgreSQL dump (contains only encrypted content + metadata) + the master key stored separately offline. Without the master key, backups are unreadable — this is stated loudly in the docs. Documents themselves live in Proton Drive.
 
 ---
 
@@ -453,3 +453,105 @@ S3 storage backend, e-mail import, mobile upload, webhooks, additional OCR engin
 
 - Scanner device capabilities (needed for M2).
 - Whether Proton's terms allow bundling the CLI binary in a public image.
+
+---
+
+## 12. Feature plan 2026-10
+
+Requested on 2026-10-08. Worked on branch `feature/scan-quality-learning-storage`, one commit per feature.
+
+**Status (2026-10-08):** 12.1–12.3 implemented; 12.4 explored, proposal below, not implemented. Verification: 157 backend tests (incl. real OCR/Docling), 21 frontend tests, 12 Playwright e2e tests against the production image (incl. a crooked, too long scan being enhanced and paper being put away).
+
+### 12.1 Date format `dd.mm.yyyy`
+
+- [x] All dates in the UI (display and the date input) use `dd.mm.yyyy` instead of `dd/mm/yyyy`; the input also accepts `/` and `-` as separators.
+
+### 12.2 Scan enhancement (stage `enhance`)
+
+Goal: crooked, rotated, too long scans and blank pages are fixed before OCR/Docling, while the untouched original is always kept.
+
+Research and library choice:
+
+| Step | Choice | Why / alternatives |
+|---|---|---|
+| Fine skew | `jdeskew` (MIT) — Adaptive Radial Projection on the Fourier spectrum | Best on DISE 2021 (≈0.07° mean deviation); needs only numpy + OpenCV (already installed). `deskew` (Hough) adds scikit-image; unpaper only handles small angles |
+| 90/180/270° | Tesseract OSD (`--psm 0`) with a confidence threshold | `osd.traineddata` already in the image (same as OCRmyPDF `--rotate-pages`). PP-LCNet ONNX (`docorient`, PaddleOCR) would need onnxruntime + a model download — possible later |
+| Paper too long / scanner background | Own OpenCV paper detection (background colour from the edges, crop to the paper) | unpaper (in the image) only paints borders white and targets b/w book pages |
+| Gentle cleanup | Own: background flattening (paper → white), despeckle, mild contrast stretch | Off-the-shelf tools (unpaper, scantailor) are tuned for b/w text and damage colour letters, stamps, signatures |
+| Blank pages | Existing `assemble.is_blank()`, run after cropping | Cropped borders no longer count as ink |
+
+Decisions (from the user):
+- Runs for **all** uploads; only pages that are a single raster image (scans) are touched, pages with real text/vector content stay unchanged.
+- Cropped pages keep their **cropped size** (no snapping to A4).
+- Blank pages are **always** removed from the enhanced version (the original keeps them). `skip_blank_pages` in the scanner API no longer removes pages from the original.
+- Gentle cleanup is included.
+- Everything is configurable under Settings → System (master switch + each step + its parameters), and can be overridden once per document when reprocessing from the original.
+- Viewer toggle **Enhanced / Original** on the document and review page; both downloadable.
+- Existing documents are never changed automatically; they can be reprocessed (single or as a **bulk action**).
+
+Implementation:
+- [x] Pipeline: `assemble → validate → enhance → ocr → analyze → store → index`. `enhance` writes `enhanced.pdf` (encrypted in the intake); OCR/Docling/VLM/thumbnail/page count use it. The archive (`archive.pdf`) is built from it, so storage keeps two files: untouched `original.pdf` and processed `archive.pdf`.
+- [x] `apps/processing/enhance.py`: per page extract the embedded image at native resolution, orientation → deskew → crop → cleanup → blank check, re-encode (G4 for bilevel, JPEG 90 otherwise; untouched pages are copied as-is).
+- [x] Settings stored in `SystemState` (`scan_enhancement`), API + Settings → System UI.
+- [x] Reprocess "from original" with one-off overrides (stored on the job/document for that run only); bulk "reprocess" action.
+- [x] Processing event with a summary ("rotated 1, deskewed 3, cropped 2, removed 1 blank page").
+- [x] Tests with synthetic skewed / rotated / too long / blank scans; docs (`architecture.md`, `scanner-api.md`).
+- [x] Tuned on real scans in `testdoc/` (2026-10-08): pages with a hidden OCR text layer (Microsoft Lens, OCRmyPDF output) are enhanced too (were skipped); crooked/small sheets on a grey backing are found as a shape, straightened by their edges (up to 30°, refined by jdeskew ±1°) and cut out with wedges, edge shadows and corners beyond the scan area painted in the paper colour (previously only axis-aligned bands were cut and anything above 8° was not straightened); scanner padding only counts next to backing/scan edge; cleanup fades near-white with a soft knee so show-through no longer looks mottled.
+
+### 12.3 Physical storage locations
+
+Goal: know where the paper original of a document lies.
+
+Decisions (from the user):
+- Separate from the digital filing folders: **storage locations** (e.g. cabinet → binder), nested.
+- Action "file everything not yet placed here": takes all scanner uploads without a location, plus manual uploads marked "paper original exists"; preview list where single documents can be deselected before confirming.
+- Documents are placed in scan (upload) order, **newest on top**.
+- Thickness: **simplex**, one sheet per page of the original.
+- Each location has a capacity in sheets (default 500 ≈ 8 cm binder) used for the fill level.
+- Document page: location path + a binder pictogram with a marker at the document's height, computed from the sheets of the documents above and below it.
+
+Implementation:
+- [x] App `apps/paper`: model `Location` (name, parent, capacity in sheets); on `Document`: `paper_location`, `paper_placed_at` (batch), `has_paper` (true for scanner uploads, false for web uploads; existing scanned documents migrated to true). Named "paper" to avoid confusion with the Proton storage backend.
+- [x] API `/api/v1/paper`: location CRUD, `pending` (preview), `place` (one batch), `stack`; document detail `paper` with position (documents/sheets above and below, neighbours, depth in mm); document PATCH `has_paper` / `paper_location_id`; filters `paper_location` / `paper_pending`; bulk `paper_yes` / `paper_no`; overview count `paper_pending`.
+- [x] UI: *Paper* page (tree with fill level, stack view top → bottom, put-away dialog with deselectable preview and new-location option), paper card with binder pictogram on the document page, document filters, nav badge.
+- [x] Tests + docs.
+
+### 12.4 Learning from corrections (exploration only)
+
+The user wants the existing models to learn better from corrections of title, sender, labels — **no** replacement rules ("word a → word b"). If that is not feasible, nothing is built yet; only explore and propose.
+
+- [x] Explore and write the findings + proposal below (no implementation). **Nothing of this is built yet — waiting for a decision.**
+
+#### How it learns today
+
+| Field | How it is chosen (strongest first) | Learns from corrections? |
+|---|---|---|
+| Sender | user rules → a *known* sender name found in the text → Naive Bayes classifier (≥ 0.8) → Docling layout / VLM / regex sender (creates a new sender) | Partly: the classifier is retrained (≤ 2 min after a change) on all processed documents |
+| Type | rules → classifier (≥ 0.7) → keyword knowledge → "Other" | Partly (same classifier) |
+| Tags | rules → per-tag classifiers (≥ 0.75) → keyword knowledge; removed tags are never re-added to that document | Partly |
+| Title | user title pattern of the same series → Docling/regex subject → "Type Sender Period" | No (only the series pattern) |
+| Docling sender/title candidates | hand-tuned scores over first-page lines (`docling_fields._sender/_title`), optional local VLM | No — fixed weights |
+
+The classifiers' features are the document's 300 most frequent stem hashes (blind index), so models contain no plaintext.
+
+#### Why corrections do not stick well
+
+1. **Self-confirmation.** Every processed document is a training sample with its *current* labels, whether a human checked them or not. An automatic mistake that nobody corrects becomes training data; a handful of those outvote the user's corrections, which count no more than an unchecked guess.
+2. **The classifier is only a fallback.** If any known sender's name appears in the text (e.g. the bank named in an insurance letter), that match wins and the classifier — which learned the correction — is never asked. The same holds for rules vs. type.
+3. **Position-blind features.** The letterhead (the strongest sender/type signal) weighs the same as a word in the body.
+4. **Nothing to train for titles.** Docling title/sender selection is a fixed scoring function; user edits are not fed back.
+
+#### Proposal (statistical learning, no "replace A with B" rules)
+
+| # | Change | Effort | Effect |
+|---|---|---|---|
+| A | **Measure first:** `manage.py evaluate_analysis` — leave-one-out over user-confirmed documents, accuracy per field. Without real data it is guesswork which of B–E matters most. | S | Makes progress visible (could also be shown in Settings) |
+| B | **Weighted training on confirmed labels:** sample weight 3 for user-set fields, 1 for reviewed/confirmed documents, 0 for untouched automatic guesses (weighted Naive Bayes = counts × weight). | S | Corrections dominate; errors stop reinforcing themselves |
+| C | **Let evidence compete:** combine "name found in text", classifier probability and layout candidate into one calibrated score instead of a fixed precedence, so a sender corrected several times wins even if another known name appears. | M | Fixes the "known name in text" trap |
+| D | **Header features:** an extra feature namespace with the hashed words of the letterhead / first lines (still keyed hashes). | S | Sharper sender/type predictions |
+| E | **Learned ranker for Docling titles and senders:** each first-page line is a candidate with numeric features (layout label, position, relative font size, keyword hit, explicit "Betreff", length, repeated in footer …). When the user edits title/sender, the most similar candidate (fuzzy ≥ 85) is the positive example, the others negatives → a small logistic regression (≈ 15 weights, pure Python), initialised with today's hand-tuned weights as prior. Stores only weights, no text; gets better with each correction; falls back to today's behaviour with few examples. Titles the user writes freely (not on the page) are covered by generalising the existing series title pattern to sender + type. | M–L | Titles and senders adapt to the user's documents |
+| F | Optional: **VLM few-shot** — give the local VLM the 2–3 most similar corrected documents (sender/title) as examples in the prompt. | M | Better VLM output; slower |
+
+Not recommended: fine-tuning Docling's layout model or the VLM itself — needs a GPU, many labelled pages and keeping training images; risky on a home server.
+
+Suggested order if wanted: A → B → D → E (C together with B if A shows the "known name" problem).

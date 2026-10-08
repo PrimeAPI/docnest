@@ -13,6 +13,7 @@ const STAGES: Record<string, string> = {
   received: "Received",
   assemble: "Building PDF",
   validate: "Validating",
+  enhance: "Improving scan",
   ocr: "Reading document",
   analyze: "Detecting fields",
   store: "Storing",

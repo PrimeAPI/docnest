@@ -16,11 +16,20 @@ from ninja.files import UploadedFile
 
 from apps.audit.service import audit
 from apps.documents import crypto_fields, files
-from apps.documents.intake import IntakeError, IntakeRequest, archive_intake_path_for, receive, remove_intake
+from apps.documents.intake import (
+    IntakeError,
+    IntakeRequest,
+    archive_intake_path_for,
+    receive,
+    remove_intake,
+)
 from apps.documents.models import Document, DocumentTag, ProcessingEvent, Source
+from apps.paper import services as paper_services
+from apps.paper.models import Location
 from apps.processing import pipeline, queue
 from apps.processing.models import Job, SystemState
 from apps.processing.preferences import get_default_ocr_backend
+from apps.processing.schemas import EnhanceSettingsIn
 from apps.search import index as search_index
 from apps.search.snippets import make_snippet
 from apps.storage.backends import StorageAuthError, StorageError
@@ -93,6 +102,33 @@ class EventOut(Schema):
     created_at: datetime
 
 
+class NeighbourOut(Schema):
+    id: UUID
+    title: str
+
+
+class PaperPositionOut(Schema):
+    index_from_top: int
+    count: int
+    sheets: int
+    sheets_above: int
+    sheets_below: int
+    total_sheets: int
+    capacity: int
+    mm_from_top: float
+    mm_from_bottom: float
+    above: NeighbourOut | None  # the document lying directly on top of this one
+    below: NeighbourOut | None
+
+
+class PaperOut(Schema):
+    has_paper: bool
+    location_id: int | None
+    location_path: str | None
+    placed_at: datetime | None
+    position: PaperPositionOut | None
+
+
 class DocumentDetail(DocumentListItem):
     series_suggestion: RefOut | None
     field_sources: dict[str, object]
@@ -104,6 +140,10 @@ class DocumentDetail(DocumentListItem):
     processing_stage: str
     ocr_backend: str
     stored: bool
+    original_page_count: int
+    enhanced: bool  # the shown file differs from the original
+    enhancement: dict[str, object]  # settings used and what was changed
+    paper: PaperOut
     events: list[EventOut]
 
 
@@ -124,6 +164,8 @@ class DocumentFilters(Schema):
     uploaded_to: date | None = None
     date_from: date | None = None
     date_to: date | None = None
+    paper_location: int | None = None  # documents put away in this location (or one inside it)
+    paper_pending: bool = False  # paper originals not put away yet
     sort: Literal["relevance", "uploaded", "-uploaded", "date", "-date"] = "relevance"
     page: int = Field(1, ge=1)
     page_size: int = Field(25, ge=1, le=100)
@@ -147,6 +189,17 @@ class DocumentPatch(Schema):
     clear_series: bool = False
     accept_series_suggestion: bool = False
     reject_series_suggestion: bool = False
+    has_paper: bool | None = None
+    paper_location_id: int | None = None  # put away (on top of that location's stack)
+    clear_paper_location: bool = False
+
+
+class ReprocessIn(Schema):
+    # "ocr" = from the original: enhancement, OCR/Docling and analysis run again.
+    stage: Literal["ocr", "analyze"] = "ocr"
+    backend: Literal["ocrmypdf", "docling"] | None = None
+    # One-off scan enhancement settings for this run (merged over the system settings).
+    enhancement: EnhanceSettingsIn | None = None
 
 
 class BulkAction(Schema):
@@ -160,8 +213,12 @@ class BulkAction(Schema):
         "important",
         "unimportant",
         "move",
+        "reprocess",
+        "paper_yes",
+        "paper_no",
     ]
     folder_id: int | None = None  # target of "move"; null = unfile
+    reprocess: ReprocessIn | None = None  # options of "reprocess"
 
 
 class TextOut(Schema):
@@ -177,11 +234,6 @@ class StructureOut(Schema):
 
 class BulkOut(Schema):
     updated: int
-
-
-class ReprocessIn(Schema):
-    stage: Literal["ocr", "analyze"] = "ocr"
-    backend: Literal["ocrmypdf", "docling"] | None = None
 
 
 # --- Helpers ------------------------------------------------------------------
@@ -267,6 +319,10 @@ def to_detail(document: Document) -> DocumentDetail:
         processing_stage=document.processing_stage,
         ocr_backend=document.ocr_backend or get_default_ocr_backend(),
         stored=bool(document.storage_original),
+        original_page_count=document.original_page_count or document.page_count,
+        enhanced=_is_enhanced(document),
+        enhancement={k: v for k, v in document.enhancement.items() if k in ("settings", "summary")},
+        paper=_paper(document),
         events=[
             EventOut(
                 stage=e.stage,
@@ -280,7 +336,44 @@ def to_detail(document: Document) -> DocumentDetail:
     )
 
 
+def _paper(document: Document) -> PaperOut:
+    pos = paper_services.position(document)
+    path = None
+    if document.paper_location_id is not None:
+        path = paper_services.location_paths().get(document.paper_location_id)
+    return PaperOut(
+        has_paper=document.has_paper,
+        location_id=document.paper_location_id,
+        location_path=path,
+        placed_at=document.paper_placed_at,
+        position=PaperPositionOut(
+            index_from_top=pos.index_from_top,
+            count=pos.count,
+            sheets=pos.sheets,
+            sheets_above=pos.sheets_above,
+            sheets_below=pos.sheets_below,
+            total_sheets=pos.total_sheets,
+            capacity=pos.capacity,
+            mm_from_top=pos.mm_from_top,
+            mm_from_bottom=pos.mm_from_bottom,
+            above=NeighbourOut(id=UUID(pos.above.id), title=pos.above.title) if pos.above else None,
+            below=NeighbourOut(id=UUID(pos.below.id), title=pos.below.title) if pos.below else None,
+        )
+        if pos
+        else None,
+    )
+
+
+def _is_enhanced(document: Document) -> bool:
+    summary = document.enhancement.get("summary") or {}
+    return any(summary.get(key) for key in ("rotated", "deskewed", "cropped", "cleaned", "removed_blank"))
+
+
 def apply_filters(qs: QuerySet[Document], f: DocumentFilters) -> QuerySet[Document]:
+    if f.paper_location is not None:
+        qs = qs.filter(paper_location_id__in=paper_services.location_subtree(f.paper_location))
+    if f.paper_pending:
+        qs = qs.filter(has_paper=True, paper_location__isnull=True)
     if f.unfiled:
         qs = qs.filter(folder__isnull=True)
     elif f.folder:
@@ -421,6 +514,17 @@ def bulk_update(request: HttpRequest, data: BulkAction) -> dict[str, int]:
                 n += 1
         audit("document.bulk", request=request, operation="move", count=n, folder=data.folder_id)
         return {"updated": n}
+    if data.action == "reprocess":
+        options = data.reprocess or ReprocessIn()
+        n = 0
+        for document in qs:
+            try:
+                start_reprocess(request, document, options)
+            except AlreadyProcessing:
+                continue  # already in the queue: nothing to do
+            n += 1
+        audit("document.bulk", request=request, operation="reprocess", count=n)
+        return {"updated": n}
     updates: dict[str, object] = {
         "mark_read": {"read_at": timezone.now()},
         "mark_unread": {"read_at": None},
@@ -429,6 +533,8 @@ def bulk_update(request: HttpRequest, data: BulkAction) -> dict[str, int]:
         "status_new": {"status": Document.Status.NEW},
         "important": {"is_important": True},
         "unimportant": {"is_important": False},
+        "paper_yes": {"has_paper": True},
+        "paper_no": {"has_paper": False, "paper_location": None, "paper_placed_at": None},
     }[data.action]  # type: ignore[assignment]
     n = qs.update(**updates)  # type: ignore[arg-type]
     audit("document.bulk", request=request, operation=data.action, count=n)
@@ -532,6 +638,25 @@ def update_document(request: HttpRequest, doc_id: UUID, data: DocumentPatch) -> 
             document.series_suggestion = None
             document.set_source("series", Source.USER)
             changed.append("series")
+
+        if data.has_paper is not None:
+            document.has_paper = data.has_paper
+            if not data.has_paper:
+                document.paper_location = None
+                document.paper_placed_at = None
+            changed.append("has_paper")
+        if data.clear_paper_location:
+            document.paper_location = None
+            document.paper_placed_at = None
+            changed.append("paper_location")
+        elif data.paper_location_id is not None:
+            if not Location.objects.filter(pk=data.paper_location_id).exists():
+                raise HttpError(400, "Unknown location")
+            if document.paper_location_id != data.paper_location_id:
+                document.paper_location_id = data.paper_location_id
+                document.paper_placed_at = timezone.now()
+                document.has_paper = True
+            changed.append("paper_location")
 
         document.save()
 
@@ -647,29 +772,58 @@ def document_structure(request: HttpRequest, doc_id: UUID) -> dict[str, object]:
     }
 
 
-@router.post("/{doc_id}/reprocess", response=DocumentDetail)
-def reprocess(request: HttpRequest, doc_id: UUID, data: ReprocessIn) -> DocumentDetail:
-    document = get_document(doc_id)
+class AlreadyProcessing(Exception):
+    pass
+
+
+def start_reprocess(request: HttpRequest, document: Document, data: ReprocessIn) -> str:
+    """Queue a document for reprocessing; returns the stage it restarts from."""
     if Job.objects.filter(
         document=document, kind=Job.Kind.PROCESS_DOCUMENT, state__in=[Job.State.QUEUED, Job.State.RUNNING]
     ).exists():
-        raise HttpError(409, "Document is already being processed")
-    stage: str = Document.Stage.OCR if data.stage == "ocr" else Document.Stage.ANALYZE
+        raise AlreadyProcessing
+    if data.stage != "ocr" and (data.backend is not None or data.enhancement is not None):
+        raise HttpError(
+            422, "OCR backend and enhancement can only be chosen when reprocessing from the original"
+        )
+    # OCR always starts from the original, so the enhancement runs again first.
+    stage: str = Document.Stage.ENHANCE if data.stage == "ocr" else Document.Stage.ANALYZE
+    fields: list[str] = []
     if data.backend is not None:
-        if data.stage != "ocr":
-            raise HttpError(422, "An OCR backend can only be selected when reprocessing OCR")
         document.ocr_backend = data.backend
-        document.save(update_fields=["ocr_backend"])
-    if document.processing_state == Document.State.FAILED and document.processing_stage in (
-        Document.Stage.VALIDATE,
-        Document.Stage.OCR,
-        Document.Stage.STORE,
-        Document.Stage.INDEX,
-    ):
-        stage = document.processing_stage  # retry where it failed
+        fields.append("ocr_backend")
+    state = {k: v for k, v in document.enhancement.items() if k != "override"}
+    if data.enhancement is not None:
+        state["override"] = data.enhancement.changes()
+    if state != document.enhancement:
+        document.enhancement = state
+        fields.append("enhancement")
+    if fields:
+        document.save(update_fields=fields)
+    if document.processing_state == Document.State.FAILED:
+        failed = document.processing_stage
+        if failed in (Document.Stage.ASSEMBLE, Document.Stage.VALIDATE):
+            stage = failed  # the original itself is not ready yet
+        elif data.stage != "ocr" and failed in (
+            Document.Stage.ENHANCE,
+            Document.Stage.OCR,
+            Document.Stage.STORE,
+            Document.Stage.INDEX,
+        ):
+            stage = failed  # retry where it failed
     pipeline.restart_from(document, stage)
     queue.enqueue(Job.Kind.PROCESS_DOCUMENT, document=document)
     audit("document.reprocess", request=request, target=str(document.uuid), stage=stage)
+    return stage
+
+
+@router.post("/{doc_id}/reprocess", response=DocumentDetail)
+def reprocess(request: HttpRequest, doc_id: UUID, data: ReprocessIn) -> DocumentDetail:
+    document = get_document(doc_id)
+    try:
+        start_reprocess(request, document, data)
+    except AlreadyProcessing as exc:
+        raise HttpError(409, "Document is already being processed") from exc
     return to_detail(get_document(doc_id))
 
 

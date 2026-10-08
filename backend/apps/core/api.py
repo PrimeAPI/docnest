@@ -16,17 +16,22 @@ from apps.audit.models import AuditLog
 from apps.audit.service import audit
 from apps.documents import crypto_fields
 from apps.documents.models import Document
+from apps.paper.services import pending as pending_paper
 from apps.processing.models import Job, SystemState, WorkerHeartbeat
 from apps.processing.preferences import (
     DoclingFieldDetection,
     OcrBackend,
     get_default_ocr_backend,
     get_docling_field_detection,
+    get_enhance_settings,
     get_processing_concurrency,
     set_default_ocr_backend,
     set_docling_field_detection,
+    set_enhance_settings,
     set_processing_concurrency,
 )
+from apps.processing.schemas import EnhanceSettingsIn, EnhanceSettingsOut
+from apps.storage import backup
 
 router = Router(tags=["system"])
 
@@ -42,6 +47,7 @@ class OverviewOut(Schema):
     waiting_for_storage: int
     series_suggestions: int
     suggested_tags: int
+    paper_pending: int  # paper originals not put away yet
 
 
 class StorageStatus(Schema):
@@ -52,14 +58,28 @@ class StorageStatus(Schema):
     checked_at: str | None
 
 
+class BackupStatus(Schema):
+    enabled: bool
+    interval_hours: int
+    keep: int
+    last_success_at: datetime | None
+    last_attempt_at: datetime | None
+    last_error: str
+    last_size: int | None
+    count: int  # backups currently kept in storage
+    pending: bool  # a backup job is queued or running
+
+
 class SystemStatus(Schema):
     version: str
     default_ocr_backend: OcrBackend
     docling_field_detection: DoclingFieldDetection
     storage: StorageStatus
+    backup: BackupStatus
     worker_online: bool
     worker_last_seen: datetime | None
     processing_concurrency: int
+    scan_enhancement: EnhanceSettingsOut
     queued_jobs: int
     running_jobs: int
     failed_jobs: int
@@ -156,6 +176,7 @@ def overview(request: HttpRequest) -> OverviewOut:
         waiting_for_storage=agg["waiting"],
         series_suggestions=agg["suggestions"],
         suggested_tags=Tag.objects.filter(is_suggested=True).count(),
+        paper_pending=pending_paper().count(),
     )
 
 
@@ -176,13 +197,40 @@ def system_status(request: HttpRequest) -> SystemStatus:
             message=value.get("message", ""),
             checked_at=value.get("checked_at"),
         ),
+        backup=_backup_status(),
         worker_online=bool(last_seen and timezone.now() - last_seen < timedelta(minutes=2)),
         worker_last_seen=last_seen,
         processing_concurrency=get_processing_concurrency(),
+        scan_enhancement=EnhanceSettingsOut(**get_enhance_settings().to_json()),
         queued_jobs=Job.objects.filter(state=Job.State.QUEUED).count(),
         running_jobs=Job.objects.filter(state=Job.State.RUNNING).count(),
         failed_jobs=Job.objects.filter(state=Job.State.FAILED).count(),
     )
+
+
+def _backup_status() -> BackupStatus:
+    state = backup.get_state()
+    return BackupStatus(
+        enabled=settings.BACKUP_INTERVAL_HOURS > 0,
+        interval_hours=settings.BACKUP_INTERVAL_HOURS,
+        keep=settings.BACKUP_KEEP,
+        last_success_at=state.get("last_success_at") or None,
+        last_attempt_at=state.get("last_attempt_at") or None,
+        last_error=state.get("last_error", ""),
+        last_size=state.get("last_size"),
+        count=len(state.get("backups", [])),
+        pending=Job.objects.filter(
+            kind=Job.Kind.BACKUP_DATABASE, state__in=[Job.State.QUEUED, Job.State.RUNNING]
+        ).exists(),
+    )
+
+
+@router.post("/system/backup", response=BackupStatus)
+def start_backup(request: HttpRequest) -> BackupStatus:
+    """Queue a database backup now (the worker uploads it to storage)."""
+    if backup.schedule() is not None:
+        audit("system.backup_requested", request=request)
+    return _backup_status()
 
 
 @router.put("/settings/processing", response=ProcessingSettingsOut)
@@ -214,6 +262,14 @@ def update_processing_settings(request: HttpRequest, data: ProcessingSettingsIn)
         docling_field_detection=detection,
         processing_concurrency=concurrency,
     )
+
+
+@router.put("/settings/enhancement", response=EnhanceSettingsOut)
+def update_enhancement_settings(request: HttpRequest, data: EnhanceSettingsIn) -> EnhanceSettingsOut:
+    changes = data.changes()
+    updated = set_enhance_settings(changes)
+    audit("settings.enhancement_updated", request=request, changes=changes)
+    return EnhanceSettingsOut(**updated.to_json())
 
 
 def _queue_item(job: Job, now: datetime) -> ProcessingQueueItem:

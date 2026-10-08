@@ -11,11 +11,13 @@ Per page image:
 3. Normalize the colour model: transparency is flattened onto white, palettes
    are expanded, 16-bit / float greyscale is reduced to 8 bit, exotic modes
    become RGB.
-4. Optionally drop blank pages (empty duplex backsides).
-5. Compress: JPEG files are embedded unchanged (no generation loss);
+4. Compress: JPEG files are embedded unchanged (no generation loss);
    black-and-white pages become CCITT G4; other pages become JPEG (quality 90)
    or, with `compression=lossless`, Flate (PNG).
-6. Size the page from the image resolution, so A4 at 300 dpi becomes an A4 page.
+5. Size the page from the image resolution, so A4 at 300 dpi becomes an A4 page.
+
+Blank pages stay in the original; the enhancement stage drops them from the
+enhanced version (see `enhance.py`), so nothing scanned is ever lost.
 """
 
 from __future__ import annotations
@@ -41,7 +43,7 @@ COMPRESSIONS = ("auto", "lossless")
 # Pillow format names we accept (Pillow's "PPM" covers PBM, PGM, PPM and PNM).
 IMAGE_FORMATS = {"PNG", "JPEG", "MPO", "TIFF", "PPM", "BMP", "GIF", "WEBP"}
 
-# Blank-page detection (opt-in): a page is blank when less than 0.01 % of its
+# Blank-page detection (used by the enhancement stage): a page is blank when less than 0.01 % of its
 # pixels is clearly darker than the paper. A single short line ("Seite 2") is
 # about 0.02 %, dust specks and scanner noise stay below it, and bleed-through
 # from the other side is not dark enough to count. The outer 2 % of each edge
@@ -59,6 +61,8 @@ class AssemblyFailed(Exception):
 @dataclass(frozen=True)
 class AssemblyOptions:
     dpi: int | None = None  # overrides the resolution stored in the images
+    # Scanner request to drop blank pages; honoured by the enhancement stage even
+    # when blank-page removal is switched off in the settings.
     skip_blank_pages: bool = False
     compression: str = "auto"
 
@@ -78,7 +82,6 @@ class AssemblyOptions:
 @dataclass
 class AssemblyResult:
     page_count: int
-    skipped_blank: int
 
 
 def assemble(
@@ -92,7 +95,6 @@ def assemble(
     """
     out = pikepdf.new()
     sources: list[pikepdf.Pdf] = []  # kept open until saved: appended pages reference them
-    skipped = 0
     try:
         for kind, materialize in parts:
             path = materialize()
@@ -103,20 +105,15 @@ def assemble(
                 continue
             try:
                 for page in _image_pages(path):
-                    if options.skip_blank_pages and is_blank(page):
-                        skipped += 1
-                        continue
                     single = pikepdf.open(io.BytesIO(_page_pdf(page, path, options)))
                     sources.append(single)
                     out.pages.extend(single.pages)
             finally:
                 path.unlink(missing_ok=True)
-        if len(out.pages) == 0 and skipped:
-            raise AssemblyFailed("All scanned pages are blank")
         if len(out.pages) == 0:
             raise AssemblyFailed("The scan contains no pages")
         out.save(dst)
-        return AssemblyResult(page_count=len(out.pages), skipped_blank=skipped)
+        return AssemblyResult(page_count=len(out.pages))
     finally:
         out.close()
         for src in sources:
@@ -212,8 +209,8 @@ def _is_grey(image: Image.Image) -> bool:
     return r.tobytes() == g.tobytes() == b.tobytes()
 
 
-def is_blank(page: _Page) -> bool:
-    grey = page.image.convert("L")
+def is_blank_image(image: Image.Image, ink_ratio: float = BLANK_INK_RATIO) -> bool:
+    grey = image.convert("L")
     width, height = grey.size
     mx, my = int(width * BLANK_MARGIN), int(height * BLANK_MARGIN)
     grey = grey.crop((mx, my, width - mx, height - my))
@@ -233,7 +230,7 @@ def is_blank(page: _Page) -> bool:
             break
     threshold = max(0, median - BLANK_CONTRAST)
     ink = sum(histogram[:threshold])
-    return ink / total < BLANK_INK_RATIO
+    return ink / total < ink_ratio
 
 
 def _page_pdf(page: _Page, path: Path, options: AssemblyOptions) -> bytes:
@@ -245,7 +242,7 @@ def _page_pdf(page: _Page, path: Path, options: AssemblyOptions) -> bytes:
     if page.jpeg_passthrough and _is_single_frame_file(path):
         data = path.read_bytes()
     else:
-        data = _encode(page.image, options.compression)
+        data = encode_image(page.image, options.compression)
     try:
         return img2pdf.convert(data, layout_fun=layout)
     except Exception as exc:  # img2pdf raises a variety of errors for odd inputs
@@ -257,7 +254,7 @@ def _is_single_frame_file(path: Path) -> bool:
         return getattr(image, "n_frames", 1) == 1
 
 
-def _encode(image: Image.Image, compression: str) -> bytes:
+def encode_image(image: Image.Image, compression: str) -> bytes:
     buf = io.BytesIO()
     if image.mode == "1":
         image.save(buf, format="TIFF", compression="group4")

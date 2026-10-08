@@ -39,7 +39,7 @@ RUN apt-get update \
       ca-certificates curl \
       tesseract-ocr tesseract-ocr-deu tesseract-ocr-eng \
       ghostscript poppler-utils unpaper pngquant qpdf \
-      libpq5 util-linux \
+      libpq5 postgresql-client-17 util-linux \
  && fetch_cli() { \
       curl -fsSL -o /tmp/proton-drive \
         "https://proton.me/download/drive/cli/${PROTON_DRIVE_CLI_VERSION}/$1/proton-drive" \

@@ -75,15 +75,23 @@ These are the steps scan-to-PDF software normally runs on the scanning computer.
 2. **Decode** every page image.
 3. **Rotate** according to the EXIF orientation tag, if present.
 4. **Normalize colour**: transparency is flattened onto white paper, palettes are expanded (pure-grey palettes stay greyscale), 16-bit and floating-point greyscale become 8-bit, CMYK/Lab/YCbCr become RGB (except JPEGs, which are kept as they are).
-5. **Drop blank pages** — only when `skip_blank_pages=true`. A page counts as blank when less than 0.01 % of its area (outer 2 % of each edge ignored) is clearly darker than the paper. A short line such as a page number line is enough to keep a page; dust and light bleed-through are not. If *every* page is blank, processing fails instead of producing an empty document.
-6. **Compress**:
+5. **Compress**:
    - JPEG input → embedded byte-for-byte (no generation loss).
    - Black-and-white (1-bit) pages → CCITT Group 4, like fax/office scanners.
    - Grey and colour pages → JPEG quality 90 (`compression=auto`, default) or lossless Flate/PNG (`compression=lossless`, much larger files).
-7. **Size each page** from its resolution: 2480 × 3508 px at 300 dpi becomes an A4 page. The resolution comes from `dpi` if you send it, otherwise from the file (PNG `pHYs`, TIFF, JPEG JFIF/EXIF), otherwise 300 dpi.
-8. **Join** everything into one PDF. This PDF is stored as the document's **original** in Proton Drive; the raw uploaded files are deleted once it has been built.
+6. **Size each page** from its resolution: 2480 × 3508 px at 300 dpi becomes an A4 page. The resolution comes from `dpi` if you send it, otherwise from the file (PNG `pHYs`, TIFF, JPEG JFIF/EXIF), otherwise 300 dpi.
+7. **Join** everything into one PDF. This PDF is stored as the document's **original** in Proton Drive; the raw uploaded files are deleted once it has been built.
 
-The usual pipeline then follows: validate & sanitize → OCR (OCRmyPDF: deskew, page rotation, searchable PDF/A archive) or Docling → field detection → storage → search index. So **don't deskew, crop, OCR or compress on the device** — send the scanner's raw output.
+The usual pipeline then follows: validate & sanitize → **scan enhancement** → OCR (OCRmyPDF, searchable PDF/A archive) or Docling → field detection → storage → search index. So **don't deskew, crop, OCR or compress on the device** — send the scanner's raw output.
+
+**Scan enhancement** (configurable under Settings → System, and once per document when reprocessing) produces the version shown in the UI; the original stays untouched and can always be viewed and downloaded. It applies to every upload, but only to pages that are a scanned image:
+
+- **Upright pages** — sideways / upside-down pages are turned using Tesseract's orientation detection (only above a confidence threshold).
+- **Straight pages** — skew is measured with jdeskew and corrected.
+- **Crop to the paper** — when the feeder scanned more than the sheet, the scanner backing beyond the paper edge (and the edge shadow) is cut off. Uniform, neutral bands only: a coloured letterhead band or anything with text on it stays.
+- **Crooked or small sheets** — a sheet lying askew on a darker backing (or smaller than A4) is straightened by its own edges (up to 30°) and cut out; backing wedges and edge shadows disappear.
+- **Cleanup** — paper whitening, a mild contrast stretch and removal of isolated specks.
+- **Blank pages** — a page counts as blank when less than 0.01 % of its area (outer 2 % of each edge ignored) is clearly darker than the paper; checked after cropping. A short line such as a page number line is enough to keep a page; dust and light bleed-through are not. If *every* page is blank, all pages are kept.
 
 A single uploaded PDF skips the assemble stage and is used as-is.
 
@@ -102,7 +110,7 @@ Until assembly, the uploaded files are kept **encrypted** in the intake volume l
 | `tags` | no | – | Comma-separated tag names, e.g. `Tax,2026`. Existing tags and aliases are reused. Max 20. |
 | `metadata` | no | – | JSON object with any extra data, e.g. `{"device":"pi-scanner","duplex":true}` (stored encrypted, max 8 KB). |
 | `dpi` | no | from file, else 300 | Scan resolution (50–2400). **Overrides** the resolution stored in the images. Send it whenever you upload PNM files or know the scan resolution. |
-| `skip_blank_pages` | no | `false` | `true` → drop blank pages (empty backsides of duplex scans). Applies to images only, never to pages of uploaded PDFs. |
+| `skip_blank_pages` | no | `false` | `true` → drop blank pages from the enhanced version even if blank-page removal is switched off in the settings. Blank pages are always kept in the original. |
 | `compression` | no | `auto` | `auto` or `lossless` — how grey/colour page images are stored (see step 6 above). |
 
 Booleans accept `true/false`, `1/0`, `yes/no`, `on/off`.
@@ -278,7 +286,7 @@ curl -fsS --retry 5 --retry-all-errors -X POST "$API/scans/$scan/complete" -H "$
 {"id": "…", "status": "processing | processed | failed", "stage": "assemble", "error": null}
 ```
 
-`stage` is the next step to run: `received`, `assemble`, `validate`, `ocr`, `analyze`, `store`, `index`, `done`. The response never contains document content or metadata. If the uploaded images cannot be turned into a PDF (e.g. a corrupt image, or every page blank with `skip_blank_pages`), `status` becomes `failed`; the upload stays in DocNest and the reason is shown in the web UI.
+`stage` is the next step to run: `received`, `assemble`, `validate`, `enhance`, `ocr`, `analyze`, `store`, `index`, `done`. The response never contains document content or metadata. If the uploaded images cannot be turned into a PDF (e.g. a corrupt image), `status` becomes `failed`; the upload stays in DocNest and the reason is shown in the web UI.
 
 ## Connectivity check
 

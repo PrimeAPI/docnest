@@ -43,11 +43,13 @@ Check **Settings → System**: storage should show *Connected* and the worker *R
 | `DOCNEST_PROCESSING_CONCURRENCY` | `1` | Initial maximum number of documents processed at once (1–8). It can be changed live under Settings → System. Keep this low for Docling because each parallel job uses additional CPU and memory. |
 | `DOCNEST_TIME_ZONE` | `Europe/Berlin` | |
 | `DOCNEST_VIEW_CACHE_MB` | `0` | Encrypted cache of recently viewed PDFs (faster viewing; 0 = off). |
+| `DOCNEST_BACKUP_INTERVAL_HOURS` | `24` | Hours between automatic database backups to Proton Drive (0 = off). See [Backup and restore](#backup-and-restore). |
+| `DOCNEST_BACKUP_KEEP` | `14` | Number of database backups kept in Proton Drive; older ones are deleted. |
 | `DOCNEST_TMP_SIZE` | `2g` | RAM-backed work area for OCR and downloads. |
 | `DOCNEST_MAX_UPLOAD_MB` | `100` | Maximum size of one uploaded file (a PDF or one page image). |
 | `DOCNEST_MAX_SCAN_MB` | `2000` | Maximum size of all files of one scanner upload together (several page images or a [scan session](scanner-api.md#upload-page-by-page--scan-sessions)). |
 
-Advanced variables (set under `environment:` in `compose.yml` if needed): `DOCNEST_SESSION_IDLE_TIMEOUT_MINUTES` (30), `DOCNEST_SESSION_ABSOLUTE_TIMEOUT_MINUTES` (720), `DOCNEST_LOGIN_MAX_FAILURES` (5), `DOCNEST_LOGIN_LOCKOUT_SECONDS` (900), `DOCNEST_OCR_JOBS` (2), `DOCNEST_OCR_TIMEOUT_SECONDS` (900; OCRmyPDF only—Docling has no wall-clock timeout), `DOCNEST_DOCLING_DEVICE` (`cpu`), `DOCNEST_DOCLING_ARTIFACTS_PATH` (`/var/lib/docnest/models`), `DOCNEST_JOB_LEASE_SECONDS` (1800; renewed automatically while a job runs), `DOCNEST_JOB_HISTORY_HOURS` (24; completed queue entries are transient), `DOCNEST_WORKER_STOP_GRACE_PERIOD` (`24h`), `DOCNEST_MAX_PAGES` (500), `DOCNEST_SCAN_SESSION_HOURS` (24; scan sessions expire this long after their last page), `DOCNEST_MAX_OPEN_SCAN_SESSIONS` (10 per scanner token), `DOCNEST_WEB_WORKERS` (2), `DOCNEST_LOG_LEVEL` (INFO), `DOCNEST_AUDIT_RETENTION_DAYS` (365).
+Advanced variables (set under `environment:` in `compose.yml` if needed): `DOCNEST_SESSION_IDLE_TIMEOUT_MINUTES` (30), `DOCNEST_SESSION_ABSOLUTE_TIMEOUT_MINUTES` (720), `DOCNEST_LOGIN_MAX_FAILURES` (5), `DOCNEST_LOGIN_LOCKOUT_SECONDS` (900), `DOCNEST_OCR_JOBS` (2), `DOCNEST_OCR_TIMEOUT_SECONDS` (900; OCRmyPDF only—Docling has no wall-clock timeout), `DOCNEST_DOCLING_DEVICE` (`cpu`), `DOCNEST_DOCLING_ARTIFACTS_PATH` (`/var/lib/docnest/models`), `DOCNEST_JOB_LEASE_SECONDS` (1800; renewed automatically while a job runs), `DOCNEST_JOB_HISTORY_HOURS` (24; completed queue entries are transient), `DOCNEST_WORKER_STOP_GRACE_PERIOD` (`24h`), `DOCNEST_MAX_PAGES` (500), `DOCNEST_SCAN_SESSION_HOURS` (24; scan sessions expire this long after their last page), `DOCNEST_MAX_OPEN_SCAN_SESSIONS` (10 per scanner token), `DOCNEST_WEB_WORKERS` (2), `DOCNEST_LOG_LEVEL` (INFO), `DOCNEST_AUDIT_RETENTION_DAYS` (365), `DOCNEST_BACKUP_TIMEOUT_SECONDS` (3600; for `pg_dump`).
 
 Docling extracts reading order, headings, tables, Markdown, and its lossless JSON document model. Both outputs and the line geometry used for field detection are encrypted in PostgreSQL; the JSON is available from the authenticated document structure API. Layout detection is fast and deterministic. VLM detection always runs the local NuExtract model on page one, while hybrid detection invokes it only when layout confidence is low. The model needs several GB of free memory. VLM work has no wall-clock timeout and falls back to layout detection if it fails. Docling does not generate a searchable PDF/A, so its archive file is the sanitized original. OCRmyPDF remains the choice when a searchable PDF/A is required.
 
@@ -117,6 +119,7 @@ docker compose exec app docnest createuser <name>       # new user with a genera
 docker compose exec app docnest resetmfa <name>         # lost all second factors (ends all sessions)
 docker compose exec app docnest proton-login            # renew the Proton session
 docker compose exec app docnest proton fs list /my-files/DocNest
+docker compose exec app docnest backup                  # back up the database to Proton Drive now
 docker compose logs -f app
 ```
 
@@ -127,11 +130,23 @@ What to back up:
 | What | Why | How |
 |---|---|---|
 | `secrets/master_key` (+ other secrets) | Decrypts the database contents and the Proton session | Once, offline (password manager). Keep it **separate** from database backups. |
-| PostgreSQL database | Metadata, encrypted text, search index, users | `docker compose exec -T db pg_dump -U postgres -Fc docnest > docnest-$(date +%F).dump` |
+| PostgreSQL database | Metadata, encrypted text, search index, users | **Automatic**: the worker uploads a dump to Proton Drive every day (see below). Manually: `docker compose exec -T db pg_dump -U postgres -Fc docnest > docnest-$(date +%F).dump` |
 | `data` volume | Documents not yet stored in Proton Drive (normally empty) | Only needed if the overview shows documents *waiting for storage*. |
 | Proton Drive | The documents themselves | Managed by Proton; DocNest never deletes there except when you delete a document. |
 
-Restore:
+### Automatic database backups
+
+Every `DOCNEST_BACKUP_INTERVAL_HOURS` (default 24) the worker runs `pg_dump` and uploads the dump to `<DOCNEST_PROTON_ROOT>/backups/docnest-<UTC time>.dump` (e.g. `/my-files/DocNest/backups/docnest-2026-10-08T031500Z.dump`). The first backup runs shortly after the worker starts. The dump is PostgreSQL's compressed custom format; DocNest checks that it is readable before uploading and verifies size and SHA-1 after the upload. The plaintext dump only exists in the RAM-backed `/tmp` while it is uploaded.
+
+Only the newest `DOCNEST_BACKUP_KEEP` (default 14) backups are kept; DocNest deletes older ones it uploaded itself. Files you put into the folder by hand are never touched.
+
+**Settings → System** shows the last backup and has a *Back up now* button; a failed backup is also shown in the warning banner. A failed backup is retried with backoff and, after that, at most once an hour. While Proton Drive needs a new login, backups wait like document uploads.
+
+The dump contains the same data as the database: document text, titles and other sensitive values stay encrypted with keys derived from the master key (see [security.md](security.md)), and Proton Drive encrypts the file end-to-end. The master key is **not** in the backup — keep your offline copy.
+
+### Restore
+
+Download the dump you want from Proton Drive (web or desktop app), then:
 
 ```bash
 docker compose up -d db
@@ -140,6 +155,8 @@ docker compose up -d
 ```
 
 Use the same `secrets/master_key` as the backup — a different key cannot decrypt the data.
+
+The list of backups to prune is stored in the database itself, so after restoring an older dump DocNest no longer knows about backups uploaded after it. Delete those by hand in Proton Drive if you want to clean them up.
 
 ## Upgrades
 

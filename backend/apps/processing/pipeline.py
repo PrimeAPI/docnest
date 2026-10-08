@@ -22,10 +22,12 @@ from django.utils import timezone
 from apps.analysis import docling_fields
 from apps.analysis.analyze import analyze
 from apps.crypto.aead import decrypt_file, encrypt_file
-from apps.documents import crypto_fields
+from apps.documents import crypto_fields, files
 from apps.documents.intake import (
     archive_aad,
     archive_intake_path_for,
+    enhanced_aad,
+    enhanced_intake_path_for,
     intake_aad,
     intake_path_for,
     part_aad,
@@ -36,8 +38,13 @@ from apps.documents.intake import (
 )
 from apps.documents.models import Document, ProcessingEvent
 from apps.processing import assemble, docling_backend, pdf
+from apps.processing.enhance_settings import EnhanceSettings
 from apps.processing.models import SystemState
-from apps.processing.preferences import get_default_ocr_backend, get_docling_field_detection
+from apps.processing.preferences import (
+    get_default_ocr_backend,
+    get_docling_field_detection,
+    get_enhance_settings,
+)
 from apps.search.index import IndexInput, index_document
 from apps.storage.backends import StorageAuthError, StoredObject, get_backend
 
@@ -48,6 +55,7 @@ ORDER: list[str] = [
     Stage.RECEIVED,
     Stage.ASSEMBLE,
     Stage.VALIDATE,
+    Stage.ENHANCE,
     Stage.OCR,
     Stage.ANALYZE,
     Stage.STORE,
@@ -134,6 +142,33 @@ def _archive_local(document: Document, work: Path) -> Path:
     return target
 
 
+def _enhanced_local(document: Document, work: Path) -> Path | None:
+    """Plaintext enhanced version, if the enhance stage produced one."""
+    target = work / "enhanced.pdf"
+    if target.exists():
+        return target
+    intake = enhanced_intake_path_for(str(document.uuid))
+    if intake.exists():
+        decrypt_file(intake, target, aad=enhanced_aad(str(document.uuid)))
+        return target
+    return None
+
+
+def _ocr_source(document: Document, work: Path) -> Path:
+    """Input for OCR / Docling: the enhanced version, else the original."""
+    return _enhanced_local(document, work) or _original_local(document, work)
+
+
+def _processed_local(document: Document, work: Path) -> Path:
+    """The processed document as shown to the user (for later stages such as the VLM)."""
+    enhanced = _enhanced_local(document, work)
+    if enhanced:
+        return enhanced
+    if (work / "archive.pdf").exists() or archive_intake_path(document).exists() or document.storage_archive:
+        return _archive_local(document, work)
+    return _original_local(document, work)
+
+
 def _download(document: Document, ref: StoredObject, target: Path) -> None:
     try:
         get_backend().get(ref, target)
@@ -174,14 +209,12 @@ def stage_assemble(document: Document, work: Path) -> None:
     encrypt_file(original, intake_path_for(doc_uuid), aad=intake_aad(doc_uuid))
     remove_parts(doc_uuid)
     document.size = original.stat().st_size
-    document.save(update_fields=["size"])
-    if result.skipped_blank:
-        ProcessingEvent.objects.create(
-            document=document,
-            stage=Stage.ASSEMBLE,
-            outcome="info",
-            message=f"Removed {result.skipped_blank} blank page(s)",
-        )
+    fields = ["size"]
+    if manifest["options"].get("skip_blank_pages"):
+        document.enhancement = {**document.enhancement, "scanner_remove_blank": True}
+        fields.append("enhancement")
+    document.save(update_fields=fields)
+    logger.debug("assembled scan", extra={"document": doc_uuid, "pages": result.page_count})
 
 
 def stage_validate(document: Document, work: Path) -> None:
@@ -196,18 +229,55 @@ def stage_validate(document: Document, work: Path) -> None:
     if not document.storage_original:
         encrypt_file(src, intake_path_for(str(document.uuid)), aad=intake_aad(str(document.uuid)))
     document.page_count = result.page_count
-    document.save(update_fields=["page_count"])
+    document.original_page_count = result.page_count
+    document.save(update_fields=["page_count", "original_page_count"])
+
+
+def enhancement_settings(document: Document) -> EnhanceSettings:
+    """Settings for the next enhance run: a one-off override, else the system settings."""
+    override = document.enhancement.get("override")
+    options = EnhanceSettings.from_json(override, base=get_enhance_settings()) if override else None
+    options = options or get_enhance_settings()
+    if document.enhancement.get("scanner_remove_blank") and not options.remove_blank:
+        options = EnhanceSettings.from_json({"remove_blank": True}, base=options)
+    return options
+
+
+def stage_enhance(document: Document, work: Path) -> None:
+    from apps.processing import enhance  # image libraries are only needed in the worker
+
+    uuid = str(document.uuid)
+    src = _original_local(document, work)
+    target = work / "enhanced.pdf"
+    target.unlink(missing_ok=True)
+    enhanced_intake_path_for(uuid).unlink(missing_ok=True)
+    options = enhancement_settings(document)
+    if options.enabled:
+        result = enhance.enhance(src, target, options, work)
+        summary: dict[str, object] = dict(result.summary())
+        message = result.describe()
+        if result.changed:
+            encrypt_file(target, enhanced_intake_path_for(uuid), aad=enhanced_aad(uuid))
+        page_count = result.page_count
+    else:
+        summary, message = {}, "Scan enhancement is switched off"
+        page_count = document.original_page_count or document.page_count
+    state = {k: v for k, v in document.enhancement.items() if k != "override"}
+    document.enhancement = {**state, "settings": options.to_json(), "summary": summary}
+    document.page_count = page_count
+    document.save(update_fields=["enhancement", "page_count"])
+    ProcessingEvent.objects.create(document=document, stage=Stage.ENHANCE, outcome="info", message=message)
 
 
 def stage_ocr(document: Document, work: Path) -> None:
-    src = _original_local(document, work)
+    src = _ocr_source(document, work)
     archive = work / "archive.pdf"
     archive.unlink(missing_ok=True)
     backend = document.ocr_backend or get_default_ocr_backend()
     if backend == Document.OcrBackend.DOCLING:
         result = docling_backend.convert(src)
         # Docling produces a structured document rather than a searchable PDF.
-        # Keep the sanitized original as the archive and expose its richer output separately.
+        # Keep the (enhanced) input as the archive and expose its richer output separately.
         shutil.copyfile(src, archive)
         crypto_fields.set_content(
             document,
@@ -227,8 +297,12 @@ def stage_ocr(document: Document, work: Path) -> None:
         raise PermanentError(f"Unknown OCR backend: {backend}")
 
     message = ""
+    # OCRmyPDF straightens and rotates on its own only where DocNest's enhancement did not.
+    used = EnhanceSettings.from_json(document.enhancement.get("settings") or {"enabled": False})
     try:
-        pdf.ocr(src, archive)
+        pdf.ocr(
+            src, archive, deskew=not (used.enabled and used.deskew), rotate=not (used.enabled and used.rotate)
+        )
     except pdf.OcrFailed as exc:
         # Keep the document usable: archive = original, text from any existing text layer.
         logger.warning("OCR failed, continuing without text layer", extra={"document": str(document.uuid)})
@@ -266,7 +340,7 @@ def stage_analyze(document: Document, work: Path) -> None:
     mode = get_docling_field_detection()
     if mode == "vlm" or (mode == "hybrid" and detected.low_confidence):
         try:
-            vlm = docling_backend.extract_fields(_original_local(document, work))
+            vlm = docling_backend.extract_fields(_processed_local(document, work))
             detected = docling_fields.merge_vlm(detected, vlm.sender, vlm.title, evidence)
         except docling_backend.DoclingFailed:
             logger.warning(
@@ -294,6 +368,7 @@ def stage_store(document: Document, work: Path) -> None:
             document.storage_original = ref_original.to_json()
             document.storage_archive = ref_archive.to_json()
             document.save(update_fields=["storage_original", "storage_archive"])
+            files.evict(document)  # a reprocessed archive must not be served from the view cache
     except StorageAuthError as exc:
         SystemState.objects.update_or_create(
             key=STORAGE_STATE_KEY,
@@ -303,6 +378,7 @@ def stage_store(document: Document, work: Path) -> None:
     # Verified in permanent storage: the intake copies can go.
     intake_path_for(str(document.uuid)).unlink(missing_ok=True)
     archive_intake_path(document).unlink(missing_ok=True)
+    enhanced_intake_path_for(str(document.uuid)).unlink(missing_ok=True)
     document.intake_path = ""
     document.save(update_fields=["intake_path"])
 
@@ -335,6 +411,7 @@ def reindex(document: Document) -> None:
 STAGES: dict[str, Callable[[Document, Path], None]] = {
     Stage.ASSEMBLE: stage_assemble,
     Stage.VALIDATE: stage_validate,
+    Stage.ENHANCE: stage_enhance,
     Stage.OCR: stage_ocr,
     Stage.ANALYZE: stage_analyze,
     Stage.STORE: stage_store,

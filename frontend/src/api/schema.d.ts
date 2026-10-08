@@ -58,6 +58,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/system/backup": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Start Backup
+         * @description Queue a database backup now (the worker uploads it to storage).
+         */
+        post: operations["apps_core_api_start_backup"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/settings/processing": {
         parameters: {
             query?: never;
@@ -68,6 +88,23 @@ export interface paths {
         get?: never;
         /** Update Processing Settings */
         put: operations["apps_core_api_update_processing_settings"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/settings/enhancement": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /** Update Enhancement Settings */
+        put: operations["apps_core_api_update_enhancement_settings"];
         post?: never;
         delete?: never;
         options?: never;
@@ -877,6 +914,96 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/paper/locations": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Locations */
+        get: operations["apps_paper_api_list_locations"];
+        put?: never;
+        /** Create Location */
+        post: operations["apps_paper_api_create_location"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/paper/locations/{location_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Delete Location */
+        delete: operations["apps_paper_api_delete_location"];
+        options?: never;
+        head?: never;
+        /** Update Location */
+        patch: operations["apps_paper_api_update_location"];
+        trace?: never;
+    };
+    "/api/v1/paper/pending": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Pending */
+        get: operations["apps_paper_api_pending"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/paper/locations/{location_id}/stack": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Location Stack */
+        get: operations["apps_paper_api_location_stack"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/paper/locations/{location_id}/place": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Place
+         * @description Put the given (not yet placed) documents away in this location, in scan order.
+         */
+        post: operations["apps_paper_api_place"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/scanners": {
         parameters: {
             query?: never;
@@ -972,6 +1099,65 @@ export interface components {
             series_suggestions: number;
             /** Suggested Tags */
             suggested_tags: number;
+            /** Paper Pending */
+            paper_pending: number;
+        };
+        /** BackupStatus */
+        BackupStatus: {
+            /** Enabled */
+            enabled: boolean;
+            /** Interval Hours */
+            interval_hours: number;
+            /** Keep */
+            keep: number;
+            /** Last Success At */
+            last_success_at: string | null;
+            /** Last Attempt At */
+            last_attempt_at: string | null;
+            /** Last Error */
+            last_error: string;
+            /** Last Size */
+            last_size: number | null;
+            /** Count */
+            count: number;
+            /** Pending */
+            pending: boolean;
+        };
+        /** EnhanceSettingsOut */
+        EnhanceSettingsOut: {
+            /** Enabled */
+            enabled: boolean;
+            /** Rotate */
+            rotate: boolean;
+            /** Rotate Min Confidence */
+            rotate_min_confidence: number;
+            /** Deskew */
+            deskew: boolean;
+            /** Deskew Min Angle */
+            deskew_min_angle: number;
+            /** Deskew Max Angle */
+            deskew_max_angle: number;
+            /** Crop */
+            crop: boolean;
+            /** Crop Max Fraction */
+            crop_max_fraction: number;
+            /** Cleanup */
+            cleanup: boolean;
+            /** Cleanup Background */
+            cleanup_background: boolean;
+            /** Cleanup Contrast */
+            cleanup_contrast: boolean;
+            /** Cleanup Despeckle */
+            cleanup_despeckle: boolean;
+            /**
+             * Cleanup Strength
+             * @enum {string}
+             */
+            cleanup_strength: "low" | "medium" | "high";
+            /** Remove Blank */
+            remove_blank: boolean;
+            /** Blank Threshold */
+            blank_threshold: number;
         };
         /** StorageStatus */
         StorageStatus: {
@@ -1001,12 +1187,14 @@ export interface components {
              */
             docling_field_detection: "layout" | "vlm" | "hybrid";
             storage: components["schemas"]["StorageStatus"];
+            backup: components["schemas"]["BackupStatus"];
             /** Worker Online */
             worker_online: boolean;
             /** Worker Last Seen */
             worker_last_seen: string | null;
             /** Processing Concurrency */
             processing_concurrency: number;
+            scan_enhancement: components["schemas"]["EnhanceSettingsOut"];
             /** Queued Jobs */
             queued_jobs: number;
             /** Running Jobs */
@@ -1037,6 +1225,42 @@ export interface components {
             docling_field_detection?: ("layout" | "vlm" | "hybrid") | null;
             /** Processing Concurrency */
             processing_concurrency?: number | null;
+        };
+        /**
+         * EnhanceSettingsIn
+         * @description Partial update: omitted fields keep their current value.
+         */
+        EnhanceSettingsIn: {
+            /** Enabled */
+            enabled?: boolean | null;
+            /** Rotate */
+            rotate?: boolean | null;
+            /** Rotate Min Confidence */
+            rotate_min_confidence?: number | null;
+            /** Deskew */
+            deskew?: boolean | null;
+            /** Deskew Min Angle */
+            deskew_min_angle?: number | null;
+            /** Deskew Max Angle */
+            deskew_max_angle?: number | null;
+            /** Crop */
+            crop?: boolean | null;
+            /** Crop Max Fraction */
+            crop_max_fraction?: number | null;
+            /** Cleanup */
+            cleanup?: boolean | null;
+            /** Cleanup Background */
+            cleanup_background?: boolean | null;
+            /** Cleanup Contrast */
+            cleanup_contrast?: boolean | null;
+            /** Cleanup Despeckle */
+            cleanup_despeckle?: boolean | null;
+            /** Cleanup Strength */
+            cleanup_strength?: ("low" | "medium" | "high") | null;
+            /** Remove Blank */
+            remove_blank?: boolean | null;
+            /** Blank Threshold */
+            blank_threshold?: number | null;
         };
         /** ProcessingQueueItem */
         ProcessingQueueItem: {
@@ -1329,6 +1553,13 @@ export interface components {
             date_from?: string | null;
             /** Date To */
             date_to?: string | null;
+            /** Paper Location */
+            paper_location?: number | null;
+            /**
+             * Paper Pending
+             * @default false
+             */
+            paper_pending: boolean;
             /**
              * Sort
              * @default relevance
@@ -1456,9 +1687,22 @@ export interface components {
              * Action
              * @enum {string}
              */
-            action: "mark_read" | "mark_unread" | "status_done" | "status_todo" | "status_new" | "important" | "unimportant" | "move";
+            action: "mark_read" | "mark_unread" | "status_done" | "status_todo" | "status_new" | "important" | "unimportant" | "move" | "reprocess" | "paper_yes" | "paper_no";
             /** Folder Id */
             folder_id?: number | null;
+            reprocess?: components["schemas"]["ReprocessIn"] | null;
+        };
+        /** ReprocessIn */
+        ReprocessIn: {
+            /**
+             * Stage
+             * @default ocr
+             * @enum {string}
+             */
+            stage: "ocr" | "analyze";
+            /** Backend */
+            backend?: ("ocrmypdf" | "docling") | null;
+            enhancement?: components["schemas"]["EnhanceSettingsIn"] | null;
         };
         /** DocumentDetail */
         DocumentDetail: {
@@ -1526,6 +1770,15 @@ export interface components {
             ocr_backend: string;
             /** Stored */
             stored: boolean;
+            /** Original Page Count */
+            original_page_count: number;
+            /** Enhanced */
+            enhanced: boolean;
+            /** Enhancement */
+            enhancement: {
+                [key: string]: unknown;
+            };
+            paper: components["schemas"]["PaperOut"];
             /** Events */
             events: components["schemas"]["EventOut"][];
         };
@@ -1544,6 +1797,51 @@ export interface components {
              * Format: date-time
              */
             created_at: string;
+        };
+        /** NeighbourOut */
+        NeighbourOut: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Title */
+            title: string;
+        };
+        /** PaperOut */
+        PaperOut: {
+            /** Has Paper */
+            has_paper: boolean;
+            /** Location Id */
+            location_id: number | null;
+            /** Location Path */
+            location_path: string | null;
+            /** Placed At */
+            placed_at: string | null;
+            position: components["schemas"]["PaperPositionOut"] | null;
+        };
+        /** PaperPositionOut */
+        PaperPositionOut: {
+            /** Index From Top */
+            index_from_top: number;
+            /** Count */
+            count: number;
+            /** Sheets */
+            sheets: number;
+            /** Sheets Above */
+            sheets_above: number;
+            /** Sheets Below */
+            sheets_below: number;
+            /** Total Sheets */
+            total_sheets: number;
+            /** Capacity */
+            capacity: number;
+            /** Mm From Top */
+            mm_from_top: number;
+            /** Mm From Bottom */
+            mm_from_bottom: number;
+            above: components["schemas"]["NeighbourOut"] | null;
+            below: components["schemas"]["NeighbourOut"] | null;
         };
         /** DocumentPatch */
         DocumentPatch: {
@@ -1599,6 +1897,15 @@ export interface components {
              * @default false
              */
             reject_series_suggestion: boolean;
+            /** Has Paper */
+            has_paper?: boolean | null;
+            /** Paper Location Id */
+            paper_location_id?: number | null;
+            /**
+             * Clear Paper Location
+             * @default false
+             */
+            clear_paper_location: boolean;
         };
         /** TextOut */
         TextOut: {
@@ -1617,17 +1924,6 @@ export interface components {
             data: {
                 [key: string]: unknown;
             };
-        };
-        /** ReprocessIn */
-        ReprocessIn: {
-            /**
-             * Stage
-             * @default ocr
-             * @enum {string}
-             */
-            stage: "ocr" | "analyze";
-            /** Backend */
-            backend?: ("ocrmypdf" | "docling") | null;
         };
         /** FolderOut */
         FolderOut: {
@@ -1843,6 +2139,126 @@ export interface components {
              */
             tag_ids: number[];
         };
+        /** LocationOut */
+        LocationOut: {
+            /** Id */
+            id: number;
+            /** Name */
+            name: string;
+            /** Parent Id */
+            parent_id: number | null;
+            /** Path */
+            path: string;
+            /** Capacity */
+            capacity: number;
+            /** Document Count */
+            document_count: number;
+            /** Sheets */
+            sheets: number;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+        };
+        /** LocationIn */
+        LocationIn: {
+            /** Name */
+            name: string;
+            /** Parent Id */
+            parent_id?: number | null;
+            /**
+             * Capacity
+             * @default 500
+             */
+            capacity: number;
+        };
+        /** LocationPatch */
+        LocationPatch: {
+            /** Name */
+            name?: string | null;
+            /** Capacity */
+            capacity?: number | null;
+            /** Parent Id */
+            parent_id?: number | null;
+            /**
+             * Move To Root
+             * @default false
+             */
+            move_to_root: boolean;
+        };
+        /** PendingItemOut */
+        PendingItemOut: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Title */
+            title: string;
+            /**
+             * Uploaded At
+             * Format: date-time
+             */
+            uploaded_at: string;
+            /** Document Date */
+            document_date: string | null;
+            /** Correspondent */
+            correspondent: string | null;
+            /** Sheets */
+            sheets: number;
+            /** Folder Id */
+            folder_id: number | null;
+            /** Folder */
+            folder: string | null;
+        };
+        /** PendingOut */
+        PendingOut: {
+            /** Documents */
+            documents: components["schemas"]["PendingItemOut"][];
+            /** Sheets */
+            sheets: number;
+        };
+        /** StackItemOut */
+        StackItemOut: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Title */
+            title: string;
+            /**
+             * Uploaded At
+             * Format: date-time
+             */
+            uploaded_at: string;
+            /** Document Date */
+            document_date: string | null;
+            /** Correspondent */
+            correspondent: string | null;
+            /** Sheets */
+            sheets: number;
+            /** Sheets Above */
+            sheets_above: number;
+        };
+        /** StackOut */
+        StackOut: {
+            location: components["schemas"]["LocationOut"];
+            /** Documents */
+            documents: components["schemas"]["StackItemOut"][];
+        };
+        /** PlaceOut */
+        PlaceOut: {
+            /** Placed */
+            placed: number;
+            location: components["schemas"]["LocationOut"];
+        };
+        /** PlaceIn */
+        PlaceIn: {
+            /** Ids */
+            ids: string[];
+        };
         /** ScannerOut */
         ScannerOut: {
             /** Id */
@@ -1963,6 +2379,26 @@ export interface operations {
             };
         };
     };
+    apps_core_api_start_backup: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BackupStatus"];
+                };
+            };
+        };
+    };
     apps_core_api_update_processing_settings: {
         parameters: {
             query?: never;
@@ -1983,6 +2419,30 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ProcessingSettingsOut"];
+                };
+            };
+        };
+    };
+    apps_core_api_update_enhancement_settings: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["EnhanceSettingsIn"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EnhanceSettingsOut"];
                 };
             };
         };
@@ -2476,6 +2936,8 @@ export interface operations {
                 uploaded_to?: string | null;
                 date_from?: string | null;
                 date_to?: string | null;
+                paper_location?: number | null;
+                paper_pending?: boolean;
                 sort?: "relevance" | "uploaded" | "-uploaded" | "date" | "-date";
                 page?: number;
                 page_size?: number;
@@ -3363,6 +3825,164 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+        };
+    };
+    apps_paper_api_list_locations: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LocationOut"][];
+                };
+            };
+        };
+    };
+    apps_paper_api_create_location: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["LocationIn"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LocationOut"];
+                };
+            };
+        };
+    };
+    apps_paper_api_delete_location: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                location_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    apps_paper_api_update_location: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                location_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["LocationPatch"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LocationOut"];
+                };
+            };
+        };
+    };
+    apps_paper_api_pending: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PendingOut"];
+                };
+            };
+        };
+    };
+    apps_paper_api_location_stack: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                location_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["StackOut"];
+                };
+            };
+        };
+    };
+    apps_paper_api_place: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                location_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PlaceIn"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PlaceOut"];
+                };
             };
         };
     };

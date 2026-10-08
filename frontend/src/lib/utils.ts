@@ -28,11 +28,11 @@ export function formatDateInput(value?: string | null): string {
   const match = value.match(/^(\d{4})-(\d{2})-(\d{2})/);
   if (!match) return value;
   const [, year, month, day] = match;
-  return validDate(Number(year), Number(month), Number(day)) ? `${day}/${month}/${year}` : value;
+  return validDate(Number(year), Number(month), Number(day)) ? `${day}.${month}.${year}` : value;
 }
 
 function localDate(date: Date): string {
-  return `${pad(date.getDate())}/${pad(date.getMonth() + 1)}/${date.getFullYear()}`;
+  return `${pad(date.getDate())}.${pad(date.getMonth() + 1)}.${date.getFullYear()}`;
 }
 
 export function formatDate(value?: string | null): string {

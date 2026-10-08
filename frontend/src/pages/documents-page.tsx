@@ -17,6 +17,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Input, Label, Select } from "@/components/ui/input";
 import { EmptyState, ErrorNote, PageHeader, Spinner } from "@/components/ui/misc";
 import { BulkBar, DocumentRow } from "@/features/documents/document-row";
+import { usePaperLocations } from "@/features/paper/paper";
 import { buildTree, flatten } from "@/features/folders/tree";
 import { cn, dotClass } from "@/lib/utils";
 
@@ -39,11 +40,13 @@ function parseQuery(params: URLSearchParams): DocumentQuery {
   }
   const series = params.get("series");
   if (series) q.series = Number(series);
+  const paperLocation = params.get("paper_location");
+  if (paperLocation) q.paper_location = Number(paperLocation);
   const status = params.getAll("status") as DocumentQuery["status"];
   if (status?.length) q.status = status;
   const processing = params.getAll("processing") as DocumentQuery["processing"];
   if (processing?.length) q.processing = processing;
-  for (const key of ["important", "unread", "unfiled", "subfolders"] as const) {
+  for (const key of ["important", "unread", "unfiled", "subfolders", "paper_pending"] as const) {
     const v = params.get(key);
     if (v === "true" || v === "false") q[key] = v === "true";
   }
@@ -196,6 +199,7 @@ function Filters({ params, update }: { params: URLSearchParams; update: (fn: (p:
   const folders = useFolders();
   const folderOptions = useMemo(() => flatten(buildTree(folders.data ?? [])), [folders.data]);
   const types = useTypes();
+  const paperLocations = usePaperLocations();
   const tags = useTags();
   const correspondents = useCorrespondents();
   const series = useSeriesList();
@@ -292,6 +296,33 @@ function Filters({ params, update }: { params: URLSearchParams; update: (fn: (p:
             onChange={(v) => setOne("subfolders", v ? "true" : "")}
           />
         )}
+      </Section>
+      <Section title="Paper original">
+        <CheckOption
+          label="Not put away yet"
+          checked={params.get("paper_pending") === "true"}
+          onChange={(v) =>
+            update((p) => {
+              if (v) {
+                p.set("paper_pending", "true");
+                p.delete("paper_location");
+              } else p.delete("paper_pending");
+            })
+          }
+        />
+        <Select
+          aria-label="Paper location"
+          value={params.get("paper_location") ?? ""}
+          disabled={params.get("paper_pending") === "true"}
+          onChange={(e) => setOne("paper_location", e.target.value)}
+        >
+          <option value="">Any location</option>
+          {paperLocations.data?.map((l) => (
+            <option key={l.id} value={l.id}>
+              {l.path} ({l.document_count})
+            </option>
+          ))}
+        </Select>
       </Section>
       <Section title="Type">
         {types.data

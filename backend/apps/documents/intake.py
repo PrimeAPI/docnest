@@ -128,6 +128,14 @@ def archive_aad(doc_uuid: str) -> bytes:
     return f"intake-archive:{doc_uuid}".encode()
 
 
+def enhanced_intake_path_for(doc_uuid: str) -> Path:
+    return settings.INTAKE_DIR / f"{doc_uuid}.enhanced.pdf.enc"
+
+
+def enhanced_aad(doc_uuid: str) -> bytes:
+    return f"intake-enhanced:{doc_uuid}".encode()
+
+
 def ensure_dirs() -> None:
     for path in (settings.INTAKE_DIR, settings.WORK_DIR, Path(settings.FILE_UPLOAD_TEMP_DIR)):
         path.mkdir(parents=True, exist_ok=True, mode=0o700)
@@ -318,6 +326,7 @@ def register(
         is_important=req.important,
         ocr_backend=get_default_ocr_backend(),
         received_from=scanner,  # type: ignore[misc]
+        has_paper=scanner is not None,  # scanned = there is a sheet of paper; web uploads are often digital
         scanner_metadata_enc=encrypt_bytes(metadata_json.encode()) if req.metadata else None,
         original_filename_enc=encrypt_text(req.filename[:200]) if req.filename else None,
     )
@@ -362,6 +371,7 @@ def register(
 
 def remove_intake(document: Document) -> None:
     remove_parts(str(document.uuid))
+    enhanced_intake_path_for(str(document.uuid)).unlink(missing_ok=True)
     if document.intake_path:
         path = settings.INTAKE_DIR / Path(document.intake_path).name
         with contextlib.suppress(FileNotFoundError):
