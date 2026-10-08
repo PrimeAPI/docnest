@@ -508,10 +508,10 @@ Decisions (from the user):
 - Document page: location path + a binder pictogram with a marker at the document's height, computed from the sheets of the documents above and below it.
 
 Implementation:
-- [ ] Models `StorageLocation` (name, parent, capacity, created) and on `Document`: `storage_location`, `storage_batch`/`placed_at`, `has_paper` (default: true for scanner uploads, false for manual uploads).
-- [ ] API: CRUD, "place pending" preview + confirm, position of a document, move/unplace.
-- [ ] UI: locations page (tree, fill level), place-pending dialog, location card with pictogram on the document page, filter by location.
-- [ ] Tests + docs.
+- [x] App `apps/paper`: model `Location` (name, parent, capacity in sheets); on `Document`: `paper_location`, `paper_placed_at` (batch), `has_paper` (true for scanner uploads, false for web uploads; existing scanned documents migrated to true). Named "paper" to avoid confusion with the Proton storage backend.
+- [x] API `/api/v1/paper`: location CRUD, `pending` (preview), `place` (one batch), `stack`; document detail `paper` with position (documents/sheets above and below, neighbours, depth in mm); document PATCH `has_paper` / `paper_location_id`; filters `paper_location` / `paper_pending`; bulk `paper_yes` / `paper_no`; overview count `paper_pending`.
+- [x] UI: *Paper* page (tree with fill level, stack view top → bottom, put-away dialog with deselectable preview and new-location option), paper card with binder pictogram on the document page, document filters, nav badge.
+- [x] Tests + docs.
 
 ### 12.4 Learning from corrections (exploration only)
 

@@ -53,6 +53,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { StatusBadge, TagChip } from "@/features/documents/document-row";
 import { DocumentViewer } from "@/features/documents/document-viewer";
 import { FolderSelect } from "@/features/folders/folder-ui";
+import { PaperCard } from "@/features/paper/paper";
 import { ReprocessDialog, describeEnhancement } from "@/features/processing/enhancement";
 import { cn, formatBytes, formatDate, formatDateTime } from "@/lib/utils";
 
@@ -410,6 +411,8 @@ function Details({ doc }: { doc: DocumentDetail }) {
           ))}
         </Select>
       </Field>
+
+      <PaperCard doc={doc} />
 
       <Card className="p-3 text-sm">
         <h4 className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Detected data</h4>

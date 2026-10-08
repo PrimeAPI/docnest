@@ -16,6 +16,7 @@ from apps.audit.models import AuditLog
 from apps.audit.service import audit
 from apps.documents import crypto_fields
 from apps.documents.models import Document
+from apps.paper.services import pending as pending_paper
 from apps.processing.models import Job, SystemState, WorkerHeartbeat
 from apps.processing.preferences import (
     DoclingFieldDetection,
@@ -45,6 +46,7 @@ class OverviewOut(Schema):
     waiting_for_storage: int
     series_suggestions: int
     suggested_tags: int
+    paper_pending: int  # paper originals not put away yet
 
 
 class StorageStatus(Schema):
@@ -160,6 +162,7 @@ def overview(request: HttpRequest) -> OverviewOut:
         waiting_for_storage=agg["waiting"],
         series_suggestions=agg["suggestions"],
         suggested_tags=Tag.objects.filter(is_suggested=True).count(),
+        paper_pending=pending_paper().count(),
     )
 
 

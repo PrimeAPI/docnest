@@ -1,6 +1,7 @@
 import { useQueryClient } from "@tanstack/react-query";
 import {
   AlertTriangle,
+  Archive,
   CheckSquare,
   FileText,
   FolderTree,
@@ -42,6 +43,7 @@ const NAV = [
   { to: "/filing", label: "Filing", icon: FolderTree },
   { to: "/todos", label: "Todos", icon: CheckSquare, count: "todo" },
   { to: "/series", label: "Series", icon: Layers },
+  { to: "/paper", label: "Paper", icon: Archive, count: "paper" },
   { to: "/organize", label: "Tags & more", icon: Tags, count: "suggested" },
   { to: "/settings", label: "Settings", icon: Settings },
 ] as const;
@@ -87,6 +89,7 @@ function Sidebar() {
     inbox: o ? o.new + o.failed : undefined,
     todo: o?.todo,
     suggested: o?.suggested_tags,
+    paper: o?.paper_pending,
   };
   return (
     <>

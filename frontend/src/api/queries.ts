@@ -81,6 +81,8 @@ export type DocumentQuery = {
   uploaded_to?: string;
   date_from?: string;
   date_to?: string;
+  paper_location?: number;
+  paper_pending?: boolean;
   sort?: "relevance" | "uploaded" | "-uploaded" | "date" | "-date";
   page?: number;
   page_size?: number;

@@ -8,6 +8,7 @@ import { DocumentsPage } from "@/pages/documents-page";
 import { FilingPage } from "@/pages/filing-page";
 import { InboxPage } from "@/pages/inbox-page";
 import { OrganizePage } from "@/pages/organize-page";
+import { PaperPage } from "@/pages/paper-page";
 import { ReviewPage } from "@/pages/review-page";
 import { SeriesDetailPage, SeriesPage } from "@/pages/series-page";
 import { SettingsPage } from "@/pages/settings-page";
@@ -34,6 +35,7 @@ export const router = createBrowserRouter([
       { path: "series", element: <SeriesPage /> },
       { path: "series/:id", element: <SeriesDetailPage /> },
       { path: "organize", element: <OrganizePage /> },
+      { path: "paper", element: <PaperPage /> },
       { path: "settings", element: <SettingsPage /> },
       { path: "*", element: <Navigate to="/inbox" replace /> },
     ],

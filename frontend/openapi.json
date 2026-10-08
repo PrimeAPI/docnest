@@ -1067,6 +1067,32 @@
      },
      {
       "in": "query",
+      "name": "paper_location",
+      "schema": {
+       "anyOf": [
+        {
+         "type": "integer"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "title": "Paper Location"
+      },
+      "required": false
+     },
+     {
+      "in": "query",
+      "name": "paper_pending",
+      "schema": {
+       "default": false,
+       "title": "Paper Pending",
+       "type": "boolean"
+      },
+      "required": false
+     },
+     {
+      "in": "query",
       "name": "sort",
       "schema": {
        "default": "relevance",
@@ -2534,6 +2560,259 @@
     ]
    }
   },
+  "/api/v1/paper/locations": {
+   "get": {
+    "operationId": "apps_paper_api_list_locations",
+    "summary": "List Locations",
+    "parameters": [],
+    "responses": {
+     "200": {
+      "description": "OK",
+      "content": {
+       "application/json": {
+        "schema": {
+         "items": {
+          "$ref": "#/components/schemas/LocationOut"
+         },
+         "title": "Response",
+         "type": "array"
+        }
+       }
+      }
+     }
+    },
+    "tags": [
+     "paper"
+    ],
+    "security": [
+     {
+      "MfaSessionAuth": []
+     }
+    ]
+   },
+   "post": {
+    "operationId": "apps_paper_api_create_location",
+    "summary": "Create Location",
+    "parameters": [],
+    "responses": {
+     "200": {
+      "description": "OK",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/LocationOut"
+        }
+       }
+      }
+     }
+    },
+    "tags": [
+     "paper"
+    ],
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/LocationIn"
+       }
+      }
+     },
+     "required": true
+    },
+    "security": [
+     {
+      "MfaSessionAuth": []
+     }
+    ]
+   }
+  },
+  "/api/v1/paper/locations/{location_id}": {
+   "patch": {
+    "operationId": "apps_paper_api_update_location",
+    "summary": "Update Location",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "location_id",
+      "schema": {
+       "title": "Location Id",
+       "type": "integer"
+      },
+      "required": true
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "OK",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/LocationOut"
+        }
+       }
+      }
+     }
+    },
+    "tags": [
+     "paper"
+    ],
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/LocationPatch"
+       }
+      }
+     },
+     "required": true
+    },
+    "security": [
+     {
+      "MfaSessionAuth": []
+     }
+    ]
+   },
+   "delete": {
+    "operationId": "apps_paper_api_delete_location",
+    "summary": "Delete Location",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "location_id",
+      "schema": {
+       "title": "Location Id",
+       "type": "integer"
+      },
+      "required": true
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "OK"
+     }
+    },
+    "tags": [
+     "paper"
+    ],
+    "security": [
+     {
+      "MfaSessionAuth": []
+     }
+    ]
+   }
+  },
+  "/api/v1/paper/pending": {
+   "get": {
+    "operationId": "apps_paper_api_pending",
+    "summary": "Pending",
+    "parameters": [],
+    "responses": {
+     "200": {
+      "description": "OK",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/PendingOut"
+        }
+       }
+      }
+     }
+    },
+    "tags": [
+     "paper"
+    ],
+    "security": [
+     {
+      "MfaSessionAuth": []
+     }
+    ]
+   }
+  },
+  "/api/v1/paper/locations/{location_id}/stack": {
+   "get": {
+    "operationId": "apps_paper_api_location_stack",
+    "summary": "Location Stack",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "location_id",
+      "schema": {
+       "title": "Location Id",
+       "type": "integer"
+      },
+      "required": true
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "OK",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/StackOut"
+        }
+       }
+      }
+     }
+    },
+    "tags": [
+     "paper"
+    ],
+    "security": [
+     {
+      "MfaSessionAuth": []
+     }
+    ]
+   }
+  },
+  "/api/v1/paper/locations/{location_id}/place": {
+   "post": {
+    "operationId": "apps_paper_api_place",
+    "summary": "Place",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "location_id",
+      "schema": {
+       "title": "Location Id",
+       "type": "integer"
+      },
+      "required": true
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "OK",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/PlaceOut"
+        }
+       }
+      }
+     }
+    },
+    "description": "Put the given (not yet placed) documents away in this location, in scan order.",
+    "tags": [
+     "paper"
+    ],
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/PlaceIn"
+       }
+      }
+     },
+     "required": true
+    },
+    "security": [
+     {
+      "MfaSessionAuth": []
+     }
+    ]
+   }
+  },
   "/api/v1/scanners": {
    "get": {
     "operationId": "apps_scanners_api_list_scanners",
@@ -2748,6 +3027,10 @@
      "suggested_tags": {
       "title": "Suggested Tags",
       "type": "integer"
+     },
+     "paper_pending": {
+      "title": "Paper Pending",
+      "type": "integer"
      }
     },
     "required": [
@@ -2760,7 +3043,8 @@
      "processing",
      "waiting_for_storage",
      "series_suggestions",
-     "suggested_tags"
+     "suggested_tags",
+     "paper_pending"
     ],
     "title": "OverviewOut",
     "type": "object"
@@ -4042,6 +4326,22 @@
       ],
       "title": "Date To"
      },
+     "paper_location": {
+      "anyOf": [
+       {
+        "type": "integer"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Paper Location"
+     },
+     "paper_pending": {
+      "default": false,
+      "title": "Paper Pending",
+      "type": "boolean"
+     },
      "sort": {
       "default": "relevance",
       "enum": [
@@ -4398,7 +4698,9 @@
        "important",
        "unimportant",
        "move",
-       "reprocess"
+       "reprocess",
+       "paper_yes",
+       "paper_no"
       ],
       "title": "Action",
       "type": "string"
@@ -4669,6 +4971,9 @@
       "title": "Enhancement",
       "type": "object"
      },
+     "paper": {
+      "$ref": "#/components/schemas/PaperOut"
+     },
      "events": {
       "items": {
        "$ref": "#/components/schemas/EventOut"
@@ -4708,6 +5013,7 @@
      "original_page_count",
      "enhanced",
      "enhancement",
+     "paper",
      "events"
     ],
     "title": "DocumentDetail",
@@ -4745,6 +5051,161 @@
      "created_at"
     ],
     "title": "EventOut",
+    "type": "object"
+   },
+   "NeighbourOut": {
+    "properties": {
+     "id": {
+      "format": "uuid",
+      "title": "Id",
+      "type": "string"
+     },
+     "title": {
+      "title": "Title",
+      "type": "string"
+     }
+    },
+    "required": [
+     "id",
+     "title"
+    ],
+    "title": "NeighbourOut",
+    "type": "object"
+   },
+   "PaperOut": {
+    "properties": {
+     "has_paper": {
+      "title": "Has Paper",
+      "type": "boolean"
+     },
+     "location_id": {
+      "anyOf": [
+       {
+        "type": "integer"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Location Id"
+     },
+     "location_path": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Location Path"
+     },
+     "placed_at": {
+      "anyOf": [
+       {
+        "format": "date-time",
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Placed At"
+     },
+     "position": {
+      "anyOf": [
+       {
+        "$ref": "#/components/schemas/PaperPositionOut"
+       },
+       {
+        "type": "null"
+       }
+      ]
+     }
+    },
+    "required": [
+     "has_paper",
+     "location_id",
+     "location_path",
+     "placed_at",
+     "position"
+    ],
+    "title": "PaperOut",
+    "type": "object"
+   },
+   "PaperPositionOut": {
+    "properties": {
+     "index_from_top": {
+      "title": "Index From Top",
+      "type": "integer"
+     },
+     "count": {
+      "title": "Count",
+      "type": "integer"
+     },
+     "sheets": {
+      "title": "Sheets",
+      "type": "integer"
+     },
+     "sheets_above": {
+      "title": "Sheets Above",
+      "type": "integer"
+     },
+     "sheets_below": {
+      "title": "Sheets Below",
+      "type": "integer"
+     },
+     "total_sheets": {
+      "title": "Total Sheets",
+      "type": "integer"
+     },
+     "capacity": {
+      "title": "Capacity",
+      "type": "integer"
+     },
+     "mm_from_top": {
+      "title": "Mm From Top",
+      "type": "number"
+     },
+     "mm_from_bottom": {
+      "title": "Mm From Bottom",
+      "type": "number"
+     },
+     "above": {
+      "anyOf": [
+       {
+        "$ref": "#/components/schemas/NeighbourOut"
+       },
+       {
+        "type": "null"
+       }
+      ]
+     },
+     "below": {
+      "anyOf": [
+       {
+        "$ref": "#/components/schemas/NeighbourOut"
+       },
+       {
+        "type": "null"
+       }
+      ]
+     }
+    },
+    "required": [
+     "index_from_top",
+     "count",
+     "sheets",
+     "sheets_above",
+     "sheets_below",
+     "total_sheets",
+     "capacity",
+     "mm_from_top",
+     "mm_from_bottom",
+     "above",
+     "below"
+    ],
+    "title": "PaperPositionOut",
     "type": "object"
    },
    "DocumentPatch": {
@@ -4910,6 +5371,33 @@
      "reject_series_suggestion": {
       "default": false,
       "title": "Reject Series Suggestion",
+      "type": "boolean"
+     },
+     "has_paper": {
+      "anyOf": [
+       {
+        "type": "boolean"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Has Paper"
+     },
+     "paper_location_id": {
+      "anyOf": [
+       {
+        "type": "integer"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Paper Location Id"
+     },
+     "clear_paper_location": {
+      "default": false,
+      "title": "Clear Paper Location",
       "type": "boolean"
      }
     },
@@ -5654,6 +6142,330 @@
      "phrase"
     ],
     "title": "RuleIn",
+    "type": "object"
+   },
+   "LocationOut": {
+    "properties": {
+     "id": {
+      "title": "Id",
+      "type": "integer"
+     },
+     "name": {
+      "title": "Name",
+      "type": "string"
+     },
+     "parent_id": {
+      "anyOf": [
+       {
+        "type": "integer"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Parent Id"
+     },
+     "path": {
+      "title": "Path",
+      "type": "string"
+     },
+     "capacity": {
+      "title": "Capacity",
+      "type": "integer"
+     },
+     "document_count": {
+      "title": "Document Count",
+      "type": "integer"
+     },
+     "sheets": {
+      "title": "Sheets",
+      "type": "integer"
+     },
+     "created_at": {
+      "format": "date-time",
+      "title": "Created At",
+      "type": "string"
+     }
+    },
+    "required": [
+     "id",
+     "name",
+     "parent_id",
+     "path",
+     "capacity",
+     "document_count",
+     "sheets",
+     "created_at"
+    ],
+    "title": "LocationOut",
+    "type": "object"
+   },
+   "LocationIn": {
+    "properties": {
+     "name": {
+      "title": "Name",
+      "type": "string"
+     },
+     "parent_id": {
+      "anyOf": [
+       {
+        "type": "integer"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Parent Id"
+     },
+     "capacity": {
+      "default": 500,
+      "maximum": 100000,
+      "minimum": 1,
+      "title": "Capacity",
+      "type": "integer"
+     }
+    },
+    "required": [
+     "name"
+    ],
+    "title": "LocationIn",
+    "type": "object"
+   },
+   "LocationPatch": {
+    "properties": {
+     "name": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Name"
+     },
+     "capacity": {
+      "anyOf": [
+       {
+        "maximum": 100000,
+        "minimum": 1,
+        "type": "integer"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Capacity"
+     },
+     "parent_id": {
+      "anyOf": [
+       {
+        "type": "integer"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Parent Id"
+     },
+     "move_to_root": {
+      "default": false,
+      "title": "Move To Root",
+      "type": "boolean"
+     }
+    },
+    "title": "LocationPatch",
+    "type": "object"
+   },
+   "PaperDocumentOut": {
+    "properties": {
+     "id": {
+      "format": "uuid",
+      "title": "Id",
+      "type": "string"
+     },
+     "title": {
+      "title": "Title",
+      "type": "string"
+     },
+     "uploaded_at": {
+      "format": "date-time",
+      "title": "Uploaded At",
+      "type": "string"
+     },
+     "document_date": {
+      "anyOf": [
+       {
+        "format": "date",
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Document Date"
+     },
+     "correspondent": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Correspondent"
+     },
+     "sheets": {
+      "title": "Sheets",
+      "type": "integer"
+     }
+    },
+    "required": [
+     "id",
+     "title",
+     "uploaded_at",
+     "document_date",
+     "correspondent",
+     "sheets"
+    ],
+    "title": "PaperDocumentOut",
+    "type": "object"
+   },
+   "PendingOut": {
+    "properties": {
+     "documents": {
+      "items": {
+       "$ref": "#/components/schemas/PaperDocumentOut"
+      },
+      "title": "Documents",
+      "type": "array"
+     },
+     "sheets": {
+      "title": "Sheets",
+      "type": "integer"
+     }
+    },
+    "required": [
+     "documents",
+     "sheets"
+    ],
+    "title": "PendingOut",
+    "type": "object"
+   },
+   "StackItemOut": {
+    "properties": {
+     "id": {
+      "format": "uuid",
+      "title": "Id",
+      "type": "string"
+     },
+     "title": {
+      "title": "Title",
+      "type": "string"
+     },
+     "uploaded_at": {
+      "format": "date-time",
+      "title": "Uploaded At",
+      "type": "string"
+     },
+     "document_date": {
+      "anyOf": [
+       {
+        "format": "date",
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Document Date"
+     },
+     "correspondent": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Correspondent"
+     },
+     "sheets": {
+      "title": "Sheets",
+      "type": "integer"
+     },
+     "sheets_above": {
+      "title": "Sheets Above",
+      "type": "integer"
+     }
+    },
+    "required": [
+     "id",
+     "title",
+     "uploaded_at",
+     "document_date",
+     "correspondent",
+     "sheets",
+     "sheets_above"
+    ],
+    "title": "StackItemOut",
+    "type": "object"
+   },
+   "StackOut": {
+    "properties": {
+     "location": {
+      "$ref": "#/components/schemas/LocationOut"
+     },
+     "documents": {
+      "items": {
+       "$ref": "#/components/schemas/StackItemOut"
+      },
+      "title": "Documents",
+      "type": "array"
+     }
+    },
+    "required": [
+     "location",
+     "documents"
+    ],
+    "title": "StackOut",
+    "type": "object"
+   },
+   "PlaceOut": {
+    "properties": {
+     "placed": {
+      "title": "Placed",
+      "type": "integer"
+     },
+     "location": {
+      "$ref": "#/components/schemas/LocationOut"
+     }
+    },
+    "required": [
+     "placed",
+     "location"
+    ],
+    "title": "PlaceOut",
+    "type": "object"
+   },
+   "PlaceIn": {
+    "properties": {
+     "ids": {
+      "items": {
+       "format": "uuid",
+       "type": "string"
+      },
+      "maxItems": 2000,
+      "title": "Ids",
+      "type": "array"
+     }
+    },
+    "required": [
+     "ids"
+    ],
+    "title": "PlaceIn",
     "type": "object"
    },
    "ScannerOut": {

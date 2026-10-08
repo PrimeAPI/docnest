@@ -94,6 +94,13 @@ class Document(models.Model):
     field_sources = models.JSONField(default=dict, blank=True)  # field -> auto|scanner|user
     scanner_metadata_enc = models.BinaryField(null=True)
 
+    # Paper original: whether one exists and where it was put away
+    has_paper = models.BooleanField(default=False)
+    paper_location = models.ForeignKey(
+        "paper.Location", null=True, blank=True, on_delete=models.SET_NULL, related_name="documents"
+    )
+    paper_placed_at = models.DateTimeField(null=True, blank=True)  # the batch it was put away with
+
     deleted_at = models.DateTimeField(null=True, blank=True, db_index=True)
     updated_at = models.DateTimeField(auto_now=True)
 

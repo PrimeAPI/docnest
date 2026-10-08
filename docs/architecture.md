@@ -29,6 +29,7 @@ DocNest is a modular monolith: a Django backend and a React frontend in one repo
 | `apps/taxonomy` | Folders (nested filing tree), types, tags + aliases, correspondents, series, rules; their API |
 | `apps/processing` | Job queue, worker, pipeline stages, image-to-PDF assembly, PDF sanitizing/OCR/text/thumbnail tools |
 | `apps/analysis` | Metadata extraction, keyword knowledge, Naive Bayes classifiers, series detection, titles |
+| `apps/paper` | Physical locations of paper originals (cabinet → binder), putting scanned documents away in batches, stack position of a document |
 | `apps/search` | Tokenizer, blind index, BM25 ranking, snippets |
 | `apps/storage` | Storage interface; Proton Drive CLI and local filesystem backends |
 | `apps/audit` | Audit log |
@@ -49,6 +50,10 @@ DocNest is a modular monolith: a Django backend and a React frontend in one repo
 8. **index**: blind-index title, content and metadata.
 
 Each stage is idempotent; `processing_stage` records where to resume. Failures retry with exponential backoff; permanent failures (invalid PDF) are shown in the UI. If Proton Drive needs a new login, storage jobs are deferred without consuming retries. A background heartbeat renews every active job lease throughout long OCR/model inference, so slow Docling work is not mistaken for a crashed worker. The worker runs up to the live concurrency limit from Settings; the bottom-left queue popup shows waiting, active and recent jobs with elapsed time. Finished queue history is operational data and expires after 24 hours by default.
+
+## Paper originals
+
+Scanner uploads are marked as having a paper original (web uploads can be marked by hand). Under *Paper* the user creates physical locations (nested, each with a capacity in sheets) and periodically puts away everything not yet placed: the batch goes on top of the location's stack, inside the batch in scan order with the newest on top. A document's position (documents/sheets above and below, its neighbours, ≈ depth at 0.1 mm per sheet, one sheet per page of the original) is computed from that order and shown with a binder pictogram on the document page.
 
 ## Design decisions
 
