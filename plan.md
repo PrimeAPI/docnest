@@ -453,3 +453,68 @@ S3 storage backend, e-mail import, mobile upload, webhooks, additional OCR engin
 
 - Scanner device capabilities (needed for M2).
 - Whether Proton's terms allow bundling the CLI binary in a public image.
+
+---
+
+## 12. Feature plan 2026-10
+
+Requested on 2026-10-08. Worked on branch `feature/scan-quality-learning-storage`, one commit per feature.
+
+### 12.1 Date format `dd.mm.yyyy`
+
+- [x] All dates in the UI (display and the date input) use `dd.mm.yyyy` instead of `dd/mm/yyyy`; the input also accepts `/` and `-` as separators.
+
+### 12.2 Scan enhancement (stage `enhance`)
+
+Goal: crooked, rotated, too long scans and blank pages are fixed before OCR/Docling, while the untouched original is always kept.
+
+Research and library choice:
+
+| Step | Choice | Why / alternatives |
+|---|---|---|
+| Fine skew | `jdeskew` (MIT) — Adaptive Radial Projection on the Fourier spectrum | Best on DISE 2021 (≈0.07° mean deviation); needs only numpy + OpenCV (already installed). `deskew` (Hough) adds scikit-image; unpaper only handles small angles |
+| 90/180/270° | Tesseract OSD (`--psm 0`) with a confidence threshold | `osd.traineddata` already in the image (same as OCRmyPDF `--rotate-pages`). PP-LCNet ONNX (`docorient`, PaddleOCR) would need onnxruntime + a model download — possible later |
+| Paper too long / scanner background | Own OpenCV paper detection (background colour from the edges, crop to the paper) | unpaper (in the image) only paints borders white and targets b/w book pages |
+| Gentle cleanup | Own: background flattening (paper → white), despeckle, mild contrast stretch | Off-the-shelf tools (unpaper, scantailor) are tuned for b/w text and damage colour letters, stamps, signatures |
+| Blank pages | Existing `assemble.is_blank()`, run after cropping | Cropped borders no longer count as ink |
+
+Decisions (from the user):
+- Runs for **all** uploads; only pages that are a single raster image (scans) are touched, pages with real text/vector content stay unchanged.
+- Cropped pages keep their **cropped size** (no snapping to A4).
+- Blank pages are **always** removed from the enhanced version (the original keeps them). `skip_blank_pages` in the scanner API no longer removes pages from the original.
+- Gentle cleanup is included.
+- Everything is configurable under Settings → System (master switch + each step + its parameters), and can be overridden once per document when reprocessing from the original.
+- Viewer toggle **Enhanced / Original** on the document and review page; both downloadable.
+- Existing documents are never changed automatically; they can be reprocessed (single or as a **bulk action**).
+
+Implementation:
+- [ ] Pipeline: `assemble → validate → enhance → ocr → analyze → store → index`. `enhance` writes `enhanced.pdf` (encrypted in the intake); OCR/Docling/VLM/thumbnail/page count use it. The archive (`archive.pdf`) is built from it, so storage keeps two files: untouched `original.pdf` and processed `archive.pdf`.
+- [ ] `apps/processing/enhance.py`: per page extract the embedded image at native resolution, orientation → deskew → crop → cleanup → blank check, re-encode (G4 for bilevel, JPEG 90 otherwise; untouched pages are copied as-is).
+- [ ] Settings stored in `SystemState` (`scan_enhancement`), API + Settings → System UI.
+- [ ] Reprocess "from original" with one-off overrides (stored on the job/document for that run only); bulk "reprocess" action.
+- [ ] Processing event with a summary ("rotated 1, deskewed 3, cropped 2, removed 1 blank page").
+- [ ] Tests with synthetic skewed / rotated / too long / blank scans; docs (`architecture.md`, `scanner-api.md`).
+
+### 12.3 Physical storage locations
+
+Goal: know where the paper original of a document lies.
+
+Decisions (from the user):
+- Separate from the digital filing folders: **storage locations** (e.g. cabinet → binder), nested.
+- Action "file everything not yet placed here": takes all scanner uploads without a location, plus manual uploads marked "paper original exists"; preview list where single documents can be deselected before confirming.
+- Documents are placed in scan (upload) order, **newest on top**.
+- Thickness: **simplex**, one sheet per page of the original.
+- Each location has a capacity in sheets (default 500 ≈ 8 cm binder) used for the fill level.
+- Document page: location path + a binder pictogram with a marker at the document's height, computed from the sheets of the documents above and below it.
+
+Implementation:
+- [ ] Models `StorageLocation` (name, parent, capacity, created) and on `Document`: `storage_location`, `storage_batch`/`placed_at`, `has_paper` (default: true for scanner uploads, false for manual uploads).
+- [ ] API: CRUD, "place pending" preview + confirm, position of a document, move/unplace.
+- [ ] UI: locations page (tree, fill level), place-pending dialog, location card with pictogram on the document page, filter by location.
+- [ ] Tests + docs.
+
+### 12.4 Learning from corrections (exploration only)
+
+The user wants the existing models to learn better from corrections of title, sender, labels — **no** replacement rules ("word a → word b"). If that is not feasible, nothing is built yet; only explore and propose.
+
+- [ ] Explore and write the findings + proposal below (no implementation).

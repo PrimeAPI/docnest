@@ -33,10 +33,10 @@ export const DateInput = React.forwardRef<HTMLInputElement, DateInputProps>(
         inputMode="numeric"
         autoComplete="off"
         maxLength={10}
-        placeholder="DD/MM/YYYY"
+        placeholder="DD.MM.YYYY"
         value={text}
         aria-invalid={invalid || undefined}
-        title={invalid ? "Enter a valid date as DD/MM/YYYY" : props.title}
+        title={invalid ? "Enter a valid date as DD.MM.YYYY" : props.title}
         className={cn(invalid && "border-destructive focus-visible:ring-destructive", className)}
         onChange={(event) => {
           const next = event.target.value;
