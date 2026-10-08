@@ -517,4 +517,38 @@ Implementation:
 
 The user wants the existing models to learn better from corrections of title, sender, labels — **no** replacement rules ("word a → word b"). If that is not feasible, nothing is built yet; only explore and propose.
 
-- [ ] Explore and write the findings + proposal below (no implementation).
+- [x] Explore and write the findings + proposal below (no implementation). **Nothing of this is built yet — waiting for a decision.**
+
+#### How it learns today
+
+| Field | How it is chosen (strongest first) | Learns from corrections? |
+|---|---|---|
+| Sender | user rules → a *known* sender name found in the text → Naive Bayes classifier (≥ 0.8) → Docling layout / VLM / regex sender (creates a new sender) | Partly: the classifier is retrained (≤ 2 min after a change) on all processed documents |
+| Type | rules → classifier (≥ 0.7) → keyword knowledge → "Other" | Partly (same classifier) |
+| Tags | rules → per-tag classifiers (≥ 0.75) → keyword knowledge; removed tags are never re-added to that document | Partly |
+| Title | user title pattern of the same series → Docling/regex subject → "Type Sender Period" | No (only the series pattern) |
+| Docling sender/title candidates | hand-tuned scores over first-page lines (`docling_fields._sender/_title`), optional local VLM | No — fixed weights |
+
+The classifiers' features are the document's 300 most frequent stem hashes (blind index), so models contain no plaintext.
+
+#### Why corrections do not stick well
+
+1. **Self-confirmation.** Every processed document is a training sample with its *current* labels, whether a human checked them or not. An automatic mistake that nobody corrects becomes training data; a handful of those outvote the user's corrections, which count no more than an unchecked guess.
+2. **The classifier is only a fallback.** If any known sender's name appears in the text (e.g. the bank named in an insurance letter), that match wins and the classifier — which learned the correction — is never asked. The same holds for rules vs. type.
+3. **Position-blind features.** The letterhead (the strongest sender/type signal) weighs the same as a word in the body.
+4. **Nothing to train for titles.** Docling title/sender selection is a fixed scoring function; user edits are not fed back.
+
+#### Proposal (statistical learning, no "replace A with B" rules)
+
+| # | Change | Effort | Effect |
+|---|---|---|---|
+| A | **Measure first:** `manage.py evaluate_analysis` — leave-one-out over user-confirmed documents, accuracy per field. Without real data it is guesswork which of B–E matters most. | S | Makes progress visible (could also be shown in Settings) |
+| B | **Weighted training on confirmed labels:** sample weight 3 for user-set fields, 1 for reviewed/confirmed documents, 0 for untouched automatic guesses (weighted Naive Bayes = counts × weight). | S | Corrections dominate; errors stop reinforcing themselves |
+| C | **Let evidence compete:** combine "name found in text", classifier probability and layout candidate into one calibrated score instead of a fixed precedence, so a sender corrected several times wins even if another known name appears. | M | Fixes the "known name in text" trap |
+| D | **Header features:** an extra feature namespace with the hashed words of the letterhead / first lines (still keyed hashes). | S | Sharper sender/type predictions |
+| E | **Learned ranker for Docling titles and senders:** each first-page line is a candidate with numeric features (layout label, position, relative font size, keyword hit, explicit "Betreff", length, repeated in footer …). When the user edits title/sender, the most similar candidate (fuzzy ≥ 85) is the positive example, the others negatives → a small logistic regression (≈ 15 weights, pure Python), initialised with today's hand-tuned weights as prior. Stores only weights, no text; gets better with each correction; falls back to today's behaviour with few examples. Titles the user writes freely (not on the page) are covered by generalising the existing series title pattern to sender + type. | M–L | Titles and senders adapt to the user's documents |
+| F | Optional: **VLM few-shot** — give the local VLM the 2–3 most similar corrected documents (sender/title) as examples in the prompt. | M | Better VLM output; slower |
+
+Not recommended: fine-tuning Docling's layout model or the VLM itself — needs a GPU, many labelled pages and keeping training images; risky on a home server.
+
+Suggested order if wanted: A → B → D → E (C together with B if A shows the "known name" problem).
