@@ -460,6 +460,8 @@ S3 storage backend, e-mail import, mobile upload, webhooks, additional OCR engin
 
 Requested on 2026-10-08. Worked on branch `feature/scan-quality-learning-storage`, one commit per feature.
 
+**Status (2026-10-08):** 12.1–12.3 implemented; 12.4 explored, proposal below, not implemented. Verification: 157 backend tests (incl. real OCR/Docling), 21 frontend tests, 12 Playwright e2e tests against the production image (incl. a crooked, too long scan being enhanced and paper being put away).
+
 ### 12.1 Date format `dd.mm.yyyy`
 
 - [x] All dates in the UI (display and the date input) use `dd.mm.yyyy` instead of `dd/mm/yyyy`; the input also accepts `/` and `-` as separators.
