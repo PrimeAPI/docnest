@@ -2,6 +2,12 @@ import django.db.models.deletion
 from django.db import migrations, models
 
 
+def _flush_constraint_checks(schema_editor):
+    """Run deferred FK checks now: PostgreSQL refuses ALTER TABLE while row updates have pending checks."""
+    if schema_editor.connection.vendor == "postgresql":
+        schema_editor.execute("SET CONSTRAINTS ALL IMMEDIATE")
+
+
 def buckets_to_folders(apps, schema_editor):
     """Every bucket becomes a top-level folder; documents keep their place."""
     Bucket = apps.get_model("taxonomy", "Bucket")
@@ -17,6 +23,7 @@ def buckets_to_folders(apps, schema_editor):
         if "bucket" in sources:
             sources["folder"] = sources.pop("bucket")
             Document.objects.filter(pk=document.pk).update(field_sources=sources)
+    _flush_constraint_checks(schema_editor)
 
 
 def folders_to_buckets(apps, schema_editor):
@@ -38,6 +45,7 @@ def folders_to_buckets(apps, schema_editor):
         if fallback is None:
             fallback = Bucket.objects.create(name="Private", slug="private")
         Document.objects.filter(bucket=None).update(bucket=fallback)
+    _flush_constraint_checks(schema_editor)
 
 
 class Migration(migrations.Migration):
