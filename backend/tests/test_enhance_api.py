@@ -141,3 +141,20 @@ def test_bulk_reprocess(scanner, api, no_ocr):
         assert doc.processing_state == "done", doc.processing_error
         assert doc.enhancement["settings"]["deskew"] is False
         assert doc.enhancement["summary"]["deskewed"] == 0
+
+
+def test_reprocessed_archive_is_not_served_from_the_view_cache(scanner, api, no_ocr, settings):
+    settings.VIEW_CACHE_MB = 50
+    _, token = scanner
+    doc_id = upload(Client(), token, skewed_scan(INVOICE_LINES)).json()["id"]
+    Worker().run_until_empty()
+    doc = Document.objects.get(uuid=doc_id)
+    enhanced = fetch(doc, "archive")  # now cached
+    api.post(
+        f"/api/v1/documents/{doc_id}/reprocess",
+        {"stage": "ocr", "enhancement": {"enabled": False}},
+        content_type=J,
+    )
+    Worker().run_until_empty()
+    doc.refresh_from_db()
+    assert fetch(doc, "archive") != enhanced

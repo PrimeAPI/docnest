@@ -22,7 +22,7 @@ from django.utils import timezone
 from apps.analysis import docling_fields
 from apps.analysis.analyze import analyze
 from apps.crypto.aead import decrypt_file, encrypt_file
-from apps.documents import crypto_fields
+from apps.documents import crypto_fields, files
 from apps.documents.intake import (
     archive_aad,
     archive_intake_path_for,
@@ -368,6 +368,7 @@ def stage_store(document: Document, work: Path) -> None:
             document.storage_original = ref_original.to_json()
             document.storage_archive = ref_archive.to_json()
             document.save(update_fields=["storage_original", "storage_archive"])
+            files.evict(document)  # a reprocessed archive must not be served from the view cache
     except StorageAuthError as exc:
         SystemState.objects.update_or_create(
             key=STORAGE_STATE_KEY,
