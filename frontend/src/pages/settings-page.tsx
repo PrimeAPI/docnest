@@ -33,7 +33,7 @@ import { Input, Label, Select } from "@/components/ui/input";
 import { EmptyState, ErrorNote, PageHeader, Spinner } from "@/components/ui/misc";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { KeyEnroll, RecoveryCodes, TotpEnroll } from "@/features/auth/enroll";
-import { AiModelCard } from "@/features/processing/ai-model";
+import { AiModelCard, ReprocessAllCard } from "@/features/processing/ai-model";
 import { EnhancementCard } from "@/features/processing/enhancement";
 import { Link } from "react-router";
 import { describeAction, describeAgent, describeMethod } from "@/lib/agent";
@@ -67,6 +67,7 @@ export function SettingsPage() {
         <TabsContent value="system" className="flex flex-col gap-6">
           <ProcessingCard />
           <AiModelCard />
+          <ReprocessAllCard />
           <EnhancementCard />
           <SystemCard />
           <AuditLog />

@@ -1366,6 +1366,44 @@
     ]
    }
   },
+  "/api/v1/documents/reprocess-all": {
+   "post": {
+    "operationId": "apps_documents_api_reprocess_all",
+    "summary": "Reprocess All",
+    "parameters": [],
+    "responses": {
+     "200": {
+      "description": "OK",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/BulkOut"
+        }
+       }
+      }
+     }
+    },
+    "description": "Queue every document (e.g. overnight, after choosing a new AI model); busy ones are skipped.",
+    "tags": [
+     "documents"
+    ],
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/ReprocessAllIn"
+       }
+      }
+     },
+     "required": true
+    },
+    "security": [
+     {
+      "MfaSessionAuth": []
+     }
+    ]
+   }
+  },
   "/api/v1/documents/bulk": {
    "post": {
     "operationId": "apps_documents_api_bulk_update",
@@ -5065,6 +5103,21 @@
      "updated"
     ],
     "title": "BulkOut",
+    "type": "object"
+   },
+   "ReprocessAllIn": {
+    "properties": {
+     "stage": {
+      "default": "analyze",
+      "enum": [
+       "ocr",
+       "analyze"
+      ],
+      "title": "Stage",
+      "type": "string"
+     }
+    },
+    "title": "ReprocessAllIn",
     "type": "object"
    },
    "BulkAction": {

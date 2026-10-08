@@ -1,11 +1,20 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Download, Sparkles } from "lucide-react";
+import { Download, RefreshCw, Sparkles } from "lucide-react";
 import { type FormEvent, useState } from "react";
 import { toast } from "sonner";
 import { call, client, type Schemas } from "@/api/client";
+import { keys, useInvalidateDocuments, useOverview } from "@/api/queries";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { Input, Label, Select } from "@/components/ui/input";
 import { Spinner } from "@/components/ui/misc";
 import { formatBytes } from "@/lib/utils";
@@ -221,5 +230,75 @@ function PullProgress({ pull }: { pull: NonNullable<AiSettings["pull"]> }) {
       {failed && <p className="mt-1 text-xs text-destructive">{pull.error}</p>}
       {done && <p className="mt-1 text-xs text-muted-foreground">Choose it above to use it.</p>}
     </div>
+  );
+}
+
+/** Settings → System: queue every document again, e.g. overnight after choosing a new AI model. */
+export function ReprocessAllCard() {
+  const qc = useQueryClient();
+  const invalidate = useInvalidateDocuments();
+  const total = useOverview().data?.total;
+  const [stage, setStage] = useState<"analyze" | "ocr">("analyze");
+  const [confirming, setConfirming] = useState(false);
+  const start = useMutation({
+    mutationFn: () => call(() => client.POST("/api/v1/documents/reprocess-all", { body: { stage } })),
+    onSuccess: (data) => {
+      setConfirming(false);
+      toast.success(`${data.updated} documents queued — they are worked through one after another.`);
+      invalidate();
+      qc.invalidateQueries({ queryKey: keys.processingQueue });
+    },
+    onError: (e) => toast.error(e.message),
+  });
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>Reprocess all documents</CardTitle>
+        <CardDescription>
+          Have every document read again, for example overnight after choosing a new AI model. Documents stay
+          readable throughout, and everything you set yourself (titles, senders, tags, folders) is kept.
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="flex max-w-xl flex-col gap-3">
+        <div className="flex flex-col gap-1.5">
+          <Label htmlFor="reprocess-all-stage">What runs again</Label>
+          <Select
+            id="reprocess-all-stage"
+            value={stage}
+            onChange={(e) => setStage(e.target.value as "analyze" | "ocr")}
+          >
+            <option value="analyze">Analysis only — AI model and rules on the existing text (recommended)</option>
+            <option value="ocr">Everything — scan enhancement, text recognition and analysis</option>
+          </Select>
+        </div>
+        <div>
+          <Button variant="outline" onClick={() => setConfirming(true)} disabled={total === 0}>
+            <RefreshCw /> Reprocess {total ?? "all"} documents
+          </Button>
+        </div>
+      </CardContent>
+      <Dialog open={confirming} onOpenChange={setConfirming}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Reprocess {total ?? "all"} documents?</DialogTitle>
+            <DialogDescription>
+              {stage === "analyze"
+                ? "Every document is analysed again. With an AI model this takes a few minutes per document on a CPU."
+                : "Every document is enhanced, recognised and analysed again from its original. This takes the longest."}{" "}
+              Documents already in the queue are skipped.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setConfirming(false)}>
+              Cancel
+            </Button>
+            <Button onClick={() => start.mutate()} disabled={start.isPending}>
+              Reprocess
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </Card>
   );
 }

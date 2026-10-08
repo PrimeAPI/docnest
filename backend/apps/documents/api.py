@@ -499,6 +499,24 @@ def web_upload(
     return Status(202 if result.created else 200, out)
 
 
+class ReprocessAllIn(Schema):
+    stage: Literal["ocr", "analyze"] = "analyze"
+
+
+@router.post("/reprocess-all", response=BulkOut)
+def reprocess_all(request: HttpRequest, data: ReprocessAllIn) -> dict[str, int]:
+    """Queue every document (e.g. overnight, after choosing a new AI model); busy ones are skipped."""
+    n = 0
+    for document in Document.objects.filter(deleted_at__isnull=True).order_by("uploaded_at", "id").iterator():
+        try:
+            start_reprocess(request, document, ReprocessIn(stage=data.stage), quiet=True)
+        except AlreadyProcessing:
+            continue
+        n += 1
+    audit("document.reprocess_all", request=request, stage=data.stage, count=n)
+    return {"updated": n}
+
+
 @router.post("/bulk", response=BulkOut)
 def bulk_update(request: HttpRequest, data: BulkAction) -> dict[str, int]:
     qs = Document.objects.filter(uuid__in=data.ids[:500], deleted_at__isnull=True)
@@ -776,7 +794,9 @@ class AlreadyProcessing(Exception):
     pass
 
 
-def start_reprocess(request: HttpRequest, document: Document, data: ReprocessIn) -> str:
+def start_reprocess(
+    request: HttpRequest, document: Document, data: ReprocessIn, *, quiet: bool = False
+) -> str:
     """Queue a document for reprocessing; returns the stage it restarts from."""
     if Job.objects.filter(
         document=document,
@@ -815,7 +835,8 @@ def start_reprocess(request: HttpRequest, document: Document, data: ReprocessIn)
             stage = failed  # retry where it failed
     pipeline.restart_from(document, stage)
     pipeline.enqueue(document)
-    audit("document.reprocess", request=request, target=str(document.uuid), stage=stage)
+    if not quiet:
+        audit("document.reprocess", request=request, target=str(document.uuid), stage=stage)
     return stage
 
 

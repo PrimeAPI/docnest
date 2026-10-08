@@ -314,3 +314,19 @@ def test_thinking_model_that_never_answers_is_explained(settings, monkeypatch):
     )
     with pytest.raises(ai.ModelFailed, match="instruct"):
         ai.analyze("qwen3-vl:8b", images=[], text="x", types=[])
+
+
+def test_every_document_can_be_reprocessed_at_once(scanner, api, monkeypatch, model):
+    _, token = scanner
+    fake_model(monkeypatch, ai.ModelFields(sender="Wrong Sender GmbH"))
+    for month in ("Januar", "Februar"):
+        upload(Client(), token, text_pdf([*INVOICE_LINES, f"Abrechnung {month}"]))
+    process_all()
+
+    fake_model(monkeypatch, ai.ModelFields(sender="Energie Nord AG"))
+    r = api.post("/api/v1/documents/reprocess-all", {"stage": "analyze"}, content_type="application/json")
+    assert r.status_code == 200 and r.json()["updated"] == 2
+    r = api.post("/api/v1/documents/reprocess-all", {"stage": "analyze"}, content_type="application/json")
+    assert r.json()["updated"] == 0  # already queued
+    process_all()
+    assert {d.correspondent.name for d in Document.objects.all()} == {"Energie Nord AG"}

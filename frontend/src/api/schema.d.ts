@@ -561,6 +561,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/documents/reprocess-all": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Reprocess All
+         * @description Queue every document (e.g. overnight, after choosing a new AI model); busy ones are skipped.
+         */
+        post: operations["apps_documents_api_reprocess_all"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/documents/bulk": {
         parameters: {
             query?: never;
@@ -1778,6 +1798,15 @@ export interface components {
         BulkOut: {
             /** Updated */
             updated: number;
+        };
+        /** ReprocessAllIn */
+        ReprocessAllIn: {
+            /**
+             * Stage
+             * @default analyze
+             * @enum {string}
+             */
+            stage: "ocr" | "analyze";
         };
         /** BulkAction */
         BulkAction: {
@@ -3181,6 +3210,30 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["WebUploadOut"];
+                };
+            };
+        };
+    };
+    apps_documents_api_reprocess_all: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ReprocessAllIn"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BulkOut"];
                 };
             };
         };
