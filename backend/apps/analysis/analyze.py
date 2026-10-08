@@ -1,9 +1,13 @@
 """Automatic document analysis (UC05–UC07).
 
-Combines, in order of strength: user match rules, known correspondents found
-in the text, the classifiers trained on the user's own corrections, and the
-built-in keyword knowledge. Fields the user (or the scanner) set explicitly are
-never overwritten — automatic results are always only a proposal.
+Combines, in order of strength: user match rules, the AI model's reading of
+the document (when switched on), known correspondents and the sender found in
+the text, the classifiers trained on the user's own corrections, and the
+built-in keyword knowledge. The classifiers come last for the correspondent:
+they compare words with other documents (the recipient's own address included),
+so they only decide when the document itself names no sender. Fields the user
+(or the scanner) set explicitly are never overwritten — automatic results are
+always only a proposal.
 """
 
 from __future__ import annotations
@@ -17,6 +21,7 @@ from django.db import transaction
 from rapidfuzz import fuzz
 
 from apps.analysis import classifier, extraction, series, titles
+from apps.analysis.ai import ModelFields
 from apps.analysis.docling_fields import DetectedFields
 from apps.analysis.keywords import MIN_KEYWORD_HITS, TAG_KEYWORDS, TYPE_KEYWORDS
 from apps.documents import crypto_fields
@@ -63,9 +68,9 @@ def _can_set(document: Document, name: str) -> bool:
 # --- Correspondent -------------------------------------------------------------
 
 
-def _match_known_correspondent(text: str) -> Correspondent | None:
+def _match_known_correspondent(text: str, *, header_only: bool = False) -> Correspondent | None:
     header = _folded_text("\n".join(text.splitlines()[:HEADER_LINES]))
-    body = _folded_text(text)
+    body = "" if header_only else _folded_text(text)
     best: tuple[int, Correspondent] | None = None
     for corr in Correspondent.objects.all():
         for name in [corr.name, *corr.aliases]:
@@ -91,9 +96,27 @@ def _correspondent_from_sender(sender: str) -> Correspondent:
         return existing
     folded = fold(sender)
     for corr in Correspondent.objects.all():
-        if fuzz.ratio(folded, fold(corr.name)) >= 88:
+        if any(fuzz.ratio(folded, fold(name)) >= 88 for name in [corr.name, *corr.aliases]):
             return corr
     return Correspondent.objects.create(name=sender[:150])
+
+
+def _choose_correspondent(
+    analysis_text: str, signature: list[int], read_sender: str | None, model_sender: str | None
+) -> Correspondent | None:
+    """The sender the document itself names wins over guesses from similar documents."""
+    if model_sender:
+        return _correspondent_from_sender(model_sender)
+    corr = _match_known_correspondent(analysis_text, header_only=True)
+    if corr is None and read_sender:
+        corr = _correspondent_from_sender(read_sender)
+    if corr is None:
+        corr = _match_known_correspondent(analysis_text)
+    if corr is None:
+        pred = classifier.predict("correspondent", signature, min_probability=0.9)
+        if pred:
+            corr = Correspondent.objects.filter(pk=int(pred.label)).first()
+    return corr
 
 
 # --- Main ---------------------------------------------------------------------
@@ -105,6 +128,7 @@ def analyze(
     *,
     detected_fields: DetectedFields | None = None,
     context_text: str | None = None,
+    model_fields: ModelFields | None = None,
 ) -> AnalysisResult:
     extracted = extraction.extract(text)
     if detected_fields:
@@ -112,6 +136,12 @@ def analyze(
             extracted.sender = detected_fields.sender
         if detected_fields.title:
             extracted.subject = detected_fields.title
+    model_sender = None
+    if model_fields:
+        model_sender = model_fields.sender
+        extracted.sender = model_fields.sender or extracted.sender
+        extracted.subject = model_fields.title or extracted.subject
+        extracted.document_date = model_fields.document_date or extracted.document_date
     analysis_text = context_text or text
     signature = compute_signature(analysis_text)
     counts = _word_counts(analysis_text)
@@ -122,35 +152,35 @@ def analyze(
         document = Document.objects.select_for_update().get(pk=document.pk)
 
         # Rules defined by the user win over everything automatic.
+        # Automatic values are recomputed on every run, so reprocessing can correct them.
         rule_tags: list[Tag] = []
+        ruled: set[str] = set()
         for rule in MatchRule.objects.prefetch_related("tags"):
             phrase = " ".join(tokenizer.fold(w) for w in tokenizer.words(rule.phrase))
             if phrase and phrase in folded:
                 if rule.correspondent_id and _can_set(document, "correspondent"):
                     document.correspondent_id = rule.correspondent_id
+                    ruled.add("correspondent")
                 if rule.document_type_id and _can_set(document, "document_type"):
                     document.document_type_id = rule.document_type_id
+                    ruled.add("document_type")
                 rule_tags.extend(rule.tags.all())
 
         # Document date
         if _can_set(document, "document_date") and extracted.document_date:
             document.document_date = extracted.document_date
 
-        # Correspondent: known name in text > classifier > extracted sender
-        if _can_set(document, "correspondent") and document.correspondent_id is None:
-            corr = _match_known_correspondent(analysis_text)
-            if corr is None:
-                pred = classifier.predict("correspondent", signature, min_probability=0.8)
-                if pred:
-                    corr = Correspondent.objects.filter(pk=int(pred.label)).first()
-            if corr is None and extracted.sender:
-                corr = _correspondent_from_sender(extracted.sender)
-            document.correspondent = corr
+        if _can_set(document, "correspondent") and "correspondent" not in ruled:
+            document.correspondent = _choose_correspondent(
+                analysis_text, signature, extracted.sender, model_sender
+            )
 
-        # Document type: classifier > keywords > "other"
-        if _can_set(document, "document_type") and document.document_type_id is None:
+        # Document type: AI model > classifier > keywords > "other"
+        if _can_set(document, "document_type") and "document_type" not in ruled:
             doc_type = None
-            pred = classifier.predict("document_type", signature, min_probability=0.7)
+            if model_fields and model_fields.document_type:
+                doc_type = DocumentType.objects.filter(slug=model_fields.document_type).first()
+            pred = None if doc_type else classifier.predict("document_type", signature, min_probability=0.7)
             if pred:
                 doc_type = DocumentType.objects.filter(pk=int(pred.label)).first()
             if doc_type is None:

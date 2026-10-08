@@ -131,6 +131,38 @@ def extract_text(pdf_path: Path) -> str:
     return proc.stdout.decode("utf-8", errors="replace").replace("\f", "\n\n")
 
 
+def render_page(pdf_path: Path, page: int, *, long_edge: int = 1600) -> bytes | None:
+    """One page as PNG, scaled so its longer side is `long_edge` pixels (for the AI model)."""
+    root = pdf_path.with_name(f"{pdf_path.stem}-page{page}")
+    png = root.with_suffix(".png")
+    try:
+        proc = subprocess.run(
+            [
+                "pdftoppm",
+                "-f",
+                str(page),
+                "-l",
+                str(page),
+                "-png",
+                "-scale-to",
+                str(long_edge),
+                "-singlefile",
+                str(pdf_path),
+                str(root),
+            ],
+            capture_output=True,
+            timeout=120,
+            check=False,
+        )
+        if proc.returncode != 0 or not png.exists():
+            return None
+        return png.read_bytes()
+    except subprocess.TimeoutExpired:
+        return None
+    finally:
+        png.unlink(missing_ok=True)
+
+
 def thumbnail(pdf_path: Path, *, width: int = 480) -> bytes | None:
     root = pdf_path.with_name(pdf_path.stem + "-thumb")
     png = root.with_suffix(".png")

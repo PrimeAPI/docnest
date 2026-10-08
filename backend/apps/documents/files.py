@@ -13,7 +13,14 @@ from pathlib import Path
 from django.conf import settings
 
 from apps.crypto.aead import decrypt_file, encrypt_file
-from apps.documents.intake import archive_aad, archive_intake_path_for, intake_aad, intake_path_for
+from apps.documents.intake import (
+    archive_aad,
+    archive_intake_path_for,
+    enhanced_aad,
+    enhanced_intake_path_for,
+    intake_aad,
+    intake_path_for,
+)
 from apps.documents.models import Document
 from apps.storage.backends import StoredObject, get_backend
 
@@ -75,6 +82,10 @@ def _materialize(document: Document, variant: str, target: Path) -> None:
         return
     if variant == "archive" and archive_intake_path_for(uuid).exists():
         decrypt_file(archive_intake_path_for(uuid), target, aad=archive_aad(uuid))
+        return
+    # Enhanced but not yet recognised: readable while the analysis is still running.
+    if variant == "archive" and enhanced_intake_path_for(uuid).exists():
+        decrypt_file(enhanced_intake_path_for(uuid), target, aad=enhanced_aad(uuid))
         return
     ref_json = document.storage_archive if variant == "archive" else document.storage_original
     if not ref_json:

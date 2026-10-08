@@ -779,7 +779,9 @@ class AlreadyProcessing(Exception):
 def start_reprocess(request: HttpRequest, document: Document, data: ReprocessIn) -> str:
     """Queue a document for reprocessing; returns the stage it restarts from."""
     if Job.objects.filter(
-        document=document, kind=Job.Kind.PROCESS_DOCUMENT, state__in=[Job.State.QUEUED, Job.State.RUNNING]
+        document=document,
+        kind__in=pipeline.DOCUMENT_JOB_KINDS,
+        state__in=[Job.State.QUEUED, Job.State.RUNNING],
     ).exists():
         raise AlreadyProcessing
     if data.stage != "ocr" and (data.backend is not None or data.enhancement is not None):
@@ -812,7 +814,7 @@ def start_reprocess(request: HttpRequest, document: Document, data: ReprocessIn)
         ):
             stage = failed  # retry where it failed
     pipeline.restart_from(document, stage)
-    queue.enqueue(Job.Kind.PROCESS_DOCUMENT, document=document)
+    pipeline.enqueue(document)
     audit("document.reprocess", request=request, target=str(document.uuid), stage=stage)
     return stage
 

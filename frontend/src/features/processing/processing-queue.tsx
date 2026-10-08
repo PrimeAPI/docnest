@@ -15,7 +15,7 @@ const STAGES: Record<string, string> = {
   validate: "Validating",
   enhance: "Improving scan",
   ocr: "Reading document",
-  analyze: "Detecting fields",
+  analyze: "AI analysis / detecting fields",
   store: "Storing",
   index: "Indexing",
   done: "Complete",

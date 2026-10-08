@@ -33,6 +33,7 @@ import { Input, Label, Select } from "@/components/ui/input";
 import { EmptyState, ErrorNote, PageHeader, Spinner } from "@/components/ui/misc";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { KeyEnroll, RecoveryCodes, TotpEnroll } from "@/features/auth/enroll";
+import { AiModelCard } from "@/features/processing/ai-model";
 import { EnhancementCard } from "@/features/processing/enhancement";
 import { Link } from "react-router";
 import { describeAction, describeAgent, describeMethod } from "@/lib/agent";
@@ -65,6 +66,7 @@ export function SettingsPage() {
         </TabsContent>
         <TabsContent value="system" className="flex flex-col gap-6">
           <ProcessingCard />
+          <AiModelCard />
           <EnhancementCard />
           <SystemCard />
           <AuditLog />
@@ -658,7 +660,8 @@ function ProcessingCard() {
               <p className="text-xs text-muted-foreground">
                 Layout uses reading order and page geometry. VLM always runs a local vision model. Hybrid uses that
                 model only when layout confidence is low. The VLM needs several GB of free memory; slow servers may
-                take a long time, but extraction has no wall-clock timeout.
+                take a long time, but extraction has no wall-clock timeout. When AI analysis (below) is on, it takes
+                the place of this VLM.
               </p>
             </div>
             <div className="flex flex-col gap-1.5">

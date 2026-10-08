@@ -11,6 +11,8 @@ DEFAULT_OCR_BACKEND_KEY = "default_ocr_backend"
 DOCLING_FIELD_DETECTION_KEY = "docling_field_detection"
 PROCESSING_CONCURRENCY_KEY = "processing_concurrency"
 SCAN_ENHANCEMENT_KEY = "scan_enhancement"
+AI_MODEL_KEY = "ai_model"
+AI_MODEL_PULL_KEY = "ai_model_pull"
 OCR_BACKENDS = {"ocrmypdf", "docling"}
 DOCLING_FIELD_DETECTION_MODES = {"layout", "vlm", "hybrid"}
 OcrBackend = Literal["ocrmypdf", "docling"]
@@ -98,3 +100,19 @@ def set_enhance_settings(data: dict[str, object]) -> EnhanceSettings:
     merged = EnhanceSettings.from_json(data, base=get_enhance_settings())
     SystemState.objects.update_or_create(key=SCAN_ENHANCEMENT_KEY, defaults={"value": merged.to_json()})
     return merged
+
+
+def get_ai_model() -> str:
+    """The Ollama model used for AI analysis; "" means AI analysis is off."""
+    value = SystemState.objects.filter(key=AI_MODEL_KEY).values_list("value", flat=True).first()
+    if isinstance(value, dict) and isinstance(value.get("model"), str):
+        return value["model"]
+    return str(settings.AI_MODEL or "")
+
+
+def set_ai_model(model: str) -> str:
+    model = model.strip()
+    if len(model) > 200 or any(c.isspace() for c in model):
+        raise ValueError("Invalid model name")
+    SystemState.objects.update_or_create(key=AI_MODEL_KEY, defaults={"value": {"model": model}})
+    return model

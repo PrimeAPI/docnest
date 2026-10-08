@@ -364,7 +364,7 @@ def test_storage_outage_defers_without_loss(scanner, monkeypatch, isolated_dirs)
     doc = Document.objects.get()
     assert doc.processing_state == "pending"
     assert doc.processing_error.startswith("Waiting for storage")
-    job = Job.objects.get(document=doc)
+    job = Job.objects.get(document=doc, kind=Job.Kind.ANALYZE_DOCUMENT)
     assert job.state == "queued" and job.attempts == 0  # attempt not consumed
     assert list((isolated_dirs / "intake").iterdir())
 

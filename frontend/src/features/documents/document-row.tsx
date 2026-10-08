@@ -53,7 +53,11 @@ export function Thumbnail({ doc, className }: { doc: DocumentListItem; className
   );
 }
 
-export function StatusBadge({ doc }: { doc: Pick<DocumentListItem, "status" | "processing_state"> }) {
+export function StatusBadge({
+  doc,
+}: {
+  doc: Pick<DocumentListItem, "status" | "processing_state" | "page_count">;
+}) {
   if (doc.processing_state === "failed")
     return (
       <Badge variant="danger">
@@ -62,8 +66,8 @@ export function StatusBadge({ doc }: { doc: Pick<DocumentListItem, "status" | "p
     );
   if (doc.processing_state === "pending" || doc.processing_state === "running")
     return (
-      <Badge variant="muted">
-        <Loader2 className="animate-spin" /> Processing
+      <Badge variant="muted" title={doc.page_count > 0 ? "Readable already; details follow" : undefined}>
+        <Loader2 className="animate-spin" /> {doc.page_count > 0 ? "Analyzing" : "Processing"}
       </Badge>
     );
   if (doc.status === "todo") return <Badge variant="warning">Todo</Badge>;

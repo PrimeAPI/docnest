@@ -27,6 +27,7 @@ x-dev: &dev
     DOCNEST_OCR_BACKEND: ${DOCNEST_OCR_BACKEND:-ocrmypdf}
     DOCNEST_DOCLING_THREADS: ${DOCNEST_DOCLING_THREADS:-2}
     DOCNEST_DOCLING_FIELD_DETECTION: ${DOCNEST_DOCLING_FIELD_DETECTION:-layout}
+    DOCNEST_OLLAMA_URL: ${DOCNEST_OLLAMA_URL:-http://ollama:11434}  # docker compose --profile ai up -d ollama
     DOCNEST_PROCESSING_CONCURRENCY: ${DOCNEST_PROCESSING_CONCURRENCY:-1}
     DOCNEST_DOCLING_ARTIFACTS_PATH: /app/backend/.data/models
     HF_HOME: /app/backend/.data/models/.cache/huggingface
@@ -68,3 +69,12 @@ services:
     <<: *dev
     command: python manage.py worker
     stop_grace_period: ${DOCNEST_WORKER_STOP_GRACE_PERIOD:-24h}
+
+  ollama:
+    image: ollama/ollama:0.40.1
+    profiles: [ai]
+    volumes:
+      - ollama:/root/.ollama
+
+volumes:
+  ollama:

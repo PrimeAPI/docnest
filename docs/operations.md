@@ -40,6 +40,8 @@ Check **Settings → System**: storage should show *Connected* and the worker *R
 | `DOCNEST_OCR_LANGUAGES` | `deu+eng` | Tesseract languages used by OCRmyPDF and Docling (the image contains `deu` and `eng`). |
 | `DOCNEST_DOCLING_THREADS` | `2` | CPU threads used by Docling. Set to `1` on a very small server. |
 | `DOCNEST_DOCLING_FIELD_DETECTION` | `layout` | Initial sender/title detector: `layout`, `vlm`, or `hybrid`. It can be changed under Settings → System. |
+| `DOCNEST_OLLAMA_URL` | `http://ollama:11434` | Ollama server for AI analysis (see below). Empty switches the feature off. |
+| `DOCNEST_AI_MODEL` | *(empty)* | Initial AI model, e.g. `qwen3-vl:8b-instruct`. Normally chosen under Settings → System instead. |
 | `DOCNEST_PROCESSING_CONCURRENCY` | `1` | Initial maximum number of documents processed at once (1–8). It can be changed live under Settings → System. Keep this low for Docling because each parallel job uses additional CPU and memory. |
 | `DOCNEST_TIME_ZONE` | `Europe/Berlin` | |
 | `DOCNEST_VIEW_CACHE_MB` | `0` | Encrypted cache of recently viewed PDFs (faster viewing; 0 = off). |
@@ -49,7 +51,7 @@ Check **Settings → System**: storage should show *Connected* and the worker *R
 | `DOCNEST_MAX_UPLOAD_MB` | `100` | Maximum size of one uploaded file (a PDF or one page image). |
 | `DOCNEST_MAX_SCAN_MB` | `2000` | Maximum size of all files of one scanner upload together (several page images or a [scan session](scanner-api.md#upload-page-by-page--scan-sessions)). |
 
-Advanced variables (set under `environment:` in `compose.yml` if needed): `DOCNEST_SESSION_IDLE_TIMEOUT_MINUTES` (30), `DOCNEST_SESSION_ABSOLUTE_TIMEOUT_MINUTES` (720), `DOCNEST_LOGIN_MAX_FAILURES` (5), `DOCNEST_LOGIN_LOCKOUT_SECONDS` (900), `DOCNEST_OCR_JOBS` (2), `DOCNEST_OCR_TIMEOUT_SECONDS` (900; OCRmyPDF only—Docling has no wall-clock timeout), `DOCNEST_DOCLING_DEVICE` (`cpu`), `DOCNEST_DOCLING_ARTIFACTS_PATH` (`/var/lib/docnest/models`), `DOCNEST_JOB_LEASE_SECONDS` (1800; renewed automatically while a job runs), `DOCNEST_JOB_HISTORY_HOURS` (24; completed queue entries are transient), `DOCNEST_WORKER_STOP_GRACE_PERIOD` (`24h`), `DOCNEST_MAX_PAGES` (500), `DOCNEST_SCAN_SESSION_HOURS` (24; scan sessions expire this long after their last page), `DOCNEST_MAX_OPEN_SCAN_SESSIONS` (10 per scanner token), `DOCNEST_WEB_WORKERS` (2), `DOCNEST_LOG_LEVEL` (INFO), `DOCNEST_AUDIT_RETENTION_DAYS` (365), `DOCNEST_BACKUP_TIMEOUT_SECONDS` (3600; for `pg_dump`).
+Advanced variables (set under `environment:` in `compose.yml` if needed): `DOCNEST_SESSION_IDLE_TIMEOUT_MINUTES` (30), `DOCNEST_SESSION_ABSOLUTE_TIMEOUT_MINUTES` (720), `DOCNEST_LOGIN_MAX_FAILURES` (5), `DOCNEST_LOGIN_LOCKOUT_SECONDS` (900), `DOCNEST_OCR_JOBS` (2), `DOCNEST_OCR_TIMEOUT_SECONDS` (900; OCRmyPDF only—Docling has no wall-clock timeout), `DOCNEST_DOCLING_DEVICE` (`cpu`), `DOCNEST_DOCLING_ARTIFACTS_PATH` (`/var/lib/docnest/models`), `DOCNEST_JOB_LEASE_SECONDS` (1800; renewed automatically while a job runs), `DOCNEST_JOB_HISTORY_HOURS` (24; completed queue entries are transient), `DOCNEST_WORKER_STOP_GRACE_PERIOD` (`24h`), `DOCNEST_MAX_PAGES` (500), `DOCNEST_SCAN_SESSION_HOURS` (24; scan sessions expire this long after their last page), `DOCNEST_MAX_OPEN_SCAN_SESSIONS` (10 per scanner token), `DOCNEST_WEB_WORKERS` (2), `DOCNEST_LOG_LEVEL` (INFO), `DOCNEST_AUDIT_RETENTION_DAYS` (365), `DOCNEST_BACKUP_TIMEOUT_SECONDS` (3600; for `pg_dump`), `DOCNEST_AI_TIMEOUT_SECONDS` (3600; per document), `DOCNEST_AI_PAGES` (2; page images the AI model looks at), `DOCNEST_AI_CONTEXT_TOKENS` (16384).
 
 Docling extracts reading order, headings, tables, Markdown, and its lossless JSON document model. Both outputs and the line geometry used for field detection are encrypted in PostgreSQL; the JSON is available from the authenticated document structure API. Layout detection is fast and deterministic. VLM detection always runs the local NuExtract model on page one, while hybrid detection invokes it only when layout confidence is low. The model needs several GB of free memory. VLM work has no wall-clock timeout and falls back to layout detection if it fails. Docling does not generate a searchable PDF/A, so its archive file is the sanitized original. OCRmyPDF remains the choice when a searchable PDF/A is required.
 
@@ -60,6 +62,20 @@ docker compose exec app docnest models
 ```
 
 Use `docnest models --layout-only` to fetch only the standard models or `docnest models --force` to repair/refresh the pinned cache. The cache can be deleted and recreated; it contains no documents and does not need to be backed up.
+
+## AI analysis
+
+Rules and the small Docling model misjudge many real letters: they take the recipient's town for the sender, pick the payroll service's return address over the employer's letterhead, and the classifier copies senders from documents with similar words. With AI analysis switched on, a vision-language model running on your own server looks at the first pages and the OCR text of each document and names the sender, a title, the document date and the type. Its sender wins over the classifier and over names merely mentioned in the text; fields you set yourself are never changed.
+
+1. Start the bundled Ollama container: `docker compose --profile ai up -d`
+2. Under Settings → System → *AI analysis*, download a model (the recommended `qwen3-vl:8b-instruct` is about 6 GB) and select it.
+3. To have existing documents read again, select them in the document list and choose *Reprocess*.
+
+Processing is split in two so that a slow model never delays reading: as soon as a scan is assembled, validated and enhanced (seconds), the enhanced PDF and its thumbnail are available. OCR, AI analysis, storage and indexing then run in a separate worker lane, one document after another; new scans keep becoming readable meanwhile. On a CPU, expect one to five minutes per document with an 8B model; an NVIDIA GPU (see the commented `deploy` block in `compose.yml`) brings that down to seconds. Prefer `-instruct` models: reasoning ("thinking") variants deliberate for minutes before answering.
+
+If Ollama is unreachable or the chosen model is not installed, documents wait (shown as *Waiting for the AI model*) and are retried every ten minutes instead of falling back to guesses; switch AI analysis off to finish them with the rules. If the model answers with something unusable, the document is analysed with the rules and the history notes it.
+
+Document images and text go only to `DOCNEST_OLLAMA_URL` — by default the Ollama container on the same host, which publishes no ports. Pointing it at another machine sends document contents there over plain HTTP; only do that inside a network you trust.
 
 ## Reverse proxy
 

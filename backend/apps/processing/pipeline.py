@@ -4,6 +4,12 @@ Stages run in order and each is idempotent. `Document.processing_stage` is the
 next stage to run, so a retry resumes where the previous attempt stopped.
 Until the storage stage succeeded, the (encrypted) files live in the intake
 volume; after it, the storage backend holds them and the intake is cleared.
+
+Two jobs share the work. `process_document` prepares the file (assemble,
+validate, enhance) within seconds, so the enhanced document can be read right
+away; it then hands over to `analyze_document` for text recognition, AI
+analysis, storage and indexing, which may take minutes and runs in its own
+worker lane, so it never holds up the next scan.
 """
 
 from __future__ import annotations
@@ -19,7 +25,7 @@ from django.conf import settings
 from django.db import transaction
 from django.utils import timezone
 
-from apps.analysis import docling_fields
+from apps.analysis import ai, docling_fields
 from apps.analysis.analyze import analyze
 from apps.crypto.aead import decrypt_file, encrypt_file
 from apps.documents import crypto_fields, files
@@ -37,16 +43,18 @@ from apps.documents.intake import (
     remove_parts,
 )
 from apps.documents.models import Document, ProcessingEvent
-from apps.processing import assemble, docling_backend, pdf
+from apps.processing import assemble, docling_backend, pdf, queue
 from apps.processing.enhance_settings import EnhanceSettings
-from apps.processing.models import SystemState
+from apps.processing.models import Job, SystemState
 from apps.processing.preferences import (
+    get_ai_model,
     get_default_ocr_backend,
     get_docling_field_detection,
     get_enhance_settings,
 )
 from apps.search.index import IndexInput, index_document
 from apps.storage.backends import StorageAuthError, StoredObject, get_backend
+from apps.taxonomy.models import DocumentType
 
 logger = logging.getLogger(__name__)
 
@@ -62,6 +70,9 @@ ORDER: list[str] = [
     Stage.INDEX,
     Stage.DONE,
 ]
+# Stages of the fast `process_document` job; the rest run in `analyze_document`.
+PREPARE_STAGES = frozenset({Stage.RECEIVED, Stage.ASSEMBLE, Stage.VALIDATE, Stage.ENHANCE})
+DOCUMENT_JOB_KINDS = (Job.Kind.PROCESS_DOCUMENT, Job.Kind.ANALYZE_DOCUMENT)
 STORAGE_STATE_KEY = "storage_status"
 
 
@@ -71,6 +82,10 @@ class PermanentError(Exception):
 
 class StorageUnavailable(Exception):
     """Storage needs operator action (re-login); retry later without using attempts."""
+
+
+class AnalysisModelUnavailable(Exception):
+    """The AI model cannot be reached or is not installed; retry later without using attempts."""
 
 
 @contextmanager
@@ -266,6 +281,10 @@ def stage_enhance(document: Document, work: Path) -> None:
     document.enhancement = {**state, "settings": options.to_json(), "summary": summary}
     document.page_count = page_count
     document.save(update_fields=["enhancement", "page_count"])
+    # The document can be read from now on; show its (enhanced) first page in lists too.
+    thumb = pdf.thumbnail(_ocr_source(document, work))
+    if thumb:
+        crypto_fields.set_thumbnail(document, thumb)
     ProcessingEvent.objects.create(document=document, stage=Stage.ENHANCE, outcome="info", message=message)
 
 
@@ -322,8 +341,9 @@ def stage_ocr(document: Document, work: Path) -> None:
 
 def stage_analyze(document: Document, work: Path) -> None:
     text = crypto_fields.get_content(document)
+    model_fields = _model_fields(document, work, text)
     if document.ocr_backend != Document.OcrBackend.DOCLING:
-        analyze(document, text)
+        analyze(document, text, model_fields=model_fields)
         return
 
     structure = crypto_fields.get_structure(document)
@@ -338,7 +358,8 @@ def stage_analyze(document: Document, work: Path) -> None:
     ]
     evidence = "\n".join([*evidence_lines, text])
     mode = get_docling_field_detection()
-    if mode == "vlm" or (mode == "hybrid" and detected.low_confidence):
+    # The AI model reads more than Docling's small extraction model; never run both.
+    if model_fields is None and (mode == "vlm" or (mode == "hybrid" and detected.low_confidence)):
         try:
             vlm = docling_backend.extract_fields(_processed_local(document, work))
             detected = docling_fields.merge_vlm(detected, vlm.sender, vlm.title, evidence)
@@ -353,7 +374,42 @@ def stage_analyze(document: Document, work: Path) -> None:
                 outcome="warning",
                 message="VLM field extraction failed; layout detection was used",
             )
-    analyze(document, text, detected_fields=detected, context_text=evidence)
+    analyze(document, text, detected_fields=detected, context_text=evidence, model_fields=model_fields)
+
+
+def _model_fields(document: Document, work: Path, text: str) -> ai.ModelFields | None:
+    """Ask the AI model, when one is chosen, to read the document's first pages."""
+    model = get_ai_model()
+    if not model or not ai.configured():
+        return None
+    src = _processed_local(document, work)
+    pages = range(1, min(document.page_count or 1, max(1, settings.AI_PAGES)) + 1)
+    images = [image for page in pages if (image := pdf.render_page(src, page))]
+    types = [ai.DocumentType(slug=t.slug, name=t.name) for t in DocumentType.objects.all()]
+    started = time.monotonic()
+    try:
+        fields = ai.analyze(model, images=images, text=text, types=types)
+    except ai.ModelUnavailable as exc:
+        raise AnalysisModelUnavailable(str(exc)) from exc
+    except ai.ModelFailed as exc:
+        logger.warning(
+            "AI analysis failed; using rule-based detection", extra={"document": str(document.uuid)}
+        )
+        ProcessingEvent.objects.create(
+            document=document,
+            stage=Stage.ANALYZE,
+            outcome="warning",
+            message=f"AI analysis with {model} failed, rule-based detection was used: {exc}"[:500],
+        )
+        return None
+    seconds = time.monotonic() - started
+    ProcessingEvent.objects.create(
+        document=document,
+        stage=Stage.ANALYZE,
+        outcome="info",
+        message=f"Read by the AI model {model} in {seconds:.0f} s",
+    )
+    return fields
 
 
 def stage_store(document: Document, work: Path) -> None:
@@ -419,8 +475,21 @@ STAGES: dict[str, Callable[[Document, Path], None]] = {
 }
 
 
-def run(document_id: int) -> None:
-    """Run all outstanding stages of a document."""
+def enqueue(document: Document) -> Job | None:
+    """Queue the job that runs the document's next stage."""
+    kind = (
+        Job.Kind.PROCESS_DOCUMENT
+        if document.processing_stage in PREPARE_STAGES
+        else Job.Kind.ANALYZE_DOCUMENT
+    )
+    return queue.enqueue(kind, document=document)
+
+
+def run(document_id: int, *, prepare_only: bool = False) -> None:
+    """Run the outstanding stages of a document.
+
+    With `prepare_only`, stop once the document is readable and queue the rest.
+    """
     document = Document.objects.get(pk=document_id)
     if document.deleted_at is not None:
         return
@@ -433,9 +502,16 @@ def run(document_id: int) -> None:
     with workspace(document) as work:
         while document.processing_stage != Stage.DONE:
             stage = document.processing_stage
+            if prepare_only and stage not in PREPARE_STAGES:
+                with transaction.atomic():
+                    Document.objects.filter(pk=document.pk).update(processing_state=Document.State.PENDING)
+                    enqueue(document)
+                return
             started = time.monotonic()
             try:
                 STAGES[stage](document, work)
+            except AnalysisModelUnavailable:
+                raise  # waiting, not failing: the worker retries later
             except Exception as exc:
                 _event(document, stage, "failed", started, _describe(exc))
                 raise

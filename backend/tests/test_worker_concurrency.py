@@ -90,3 +90,41 @@ def test_worker_finishes_maintenance_before_parallel_document_jobs(monkeypatch):
     worker.run_forever()
 
     assert completed_documents == 2
+
+
+def test_new_scans_become_readable_while_a_slow_analysis_runs(monkeypatch):
+    worker = Worker()
+    jobs = [
+        SimpleNamespace(pk=1, kind=Job.Kind.ANALYZE_DOCUMENT),
+        SimpleNamespace(pk=2, kind=Job.Kind.PROCESS_DOCUMENT),
+    ]
+    prepared = threading.Event()
+    order: list[int] = []
+
+    def claim(_worker_id: str, *, kinds: Sequence[str] | None = None):
+        for index, job in enumerate(jobs):
+            if kinds is None or job.kind in kinds:
+                return jobs.pop(index)
+        return None
+
+    def execute(job: SimpleNamespace) -> None:
+        if job.kind == Job.Kind.ANALYZE_DOCUMENT:
+            # A minutes-long AI analysis: it only finishes once the new scan was prepared.
+            assert prepared.wait(timeout=5)
+            order.append(job.pk)
+            worker.stopping = True
+        else:
+            order.append(job.pk)
+            prepared.set()
+
+    monkeypatch.setattr("apps.processing.worker.signal.signal", lambda *_args: None)
+    monkeypatch.setattr("apps.processing.worker.ensure_dirs", lambda: None)
+    monkeypatch.setattr("apps.processing.worker.get_processing_concurrency", lambda: 1)
+    monkeypatch.setattr("apps.processing.worker.queue.claim", claim)
+    monkeypatch.setattr(worker, "sweep_workspace", lambda: None)
+    monkeypatch.setattr(worker, "periodic", lambda: None)
+    monkeypatch.setattr(worker, "execute", execute)
+
+    worker.run_forever()
+
+    assert order == [2, 1]

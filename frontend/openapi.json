@@ -178,6 +178,105 @@
     ]
    }
   },
+  "/api/v1/settings/ai": {
+   "get": {
+    "operationId": "apps_core_api_ai_settings",
+    "summary": "Ai Settings",
+    "parameters": [],
+    "responses": {
+     "200": {
+      "description": "OK",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/AiSettingsOut"
+        }
+       }
+      }
+     }
+    },
+    "tags": [
+     "system"
+    ],
+    "security": [
+     {
+      "MfaSessionAuth": []
+     }
+    ]
+   },
+   "put": {
+    "operationId": "apps_core_api_update_ai_settings",
+    "summary": "Update Ai Settings",
+    "parameters": [],
+    "responses": {
+     "200": {
+      "description": "OK",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/AiSettingsOut"
+        }
+       }
+      }
+     }
+    },
+    "tags": [
+     "system"
+    ],
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/AiSettingsIn"
+       }
+      }
+     },
+     "required": true
+    },
+    "security": [
+     {
+      "MfaSessionAuth": []
+     }
+    ]
+   }
+  },
+  "/api/v1/settings/ai/pull": {
+   "post": {
+    "operationId": "apps_core_api_pull_ai_model",
+    "summary": "Pull Ai Model",
+    "parameters": [],
+    "responses": {
+     "200": {
+      "description": "OK",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/AiSettingsOut"
+        }
+       }
+      }
+     }
+    },
+    "tags": [
+     "system"
+    ],
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/AiPullIn"
+       }
+      }
+     },
+     "required": true
+    },
+    "security": [
+     {
+      "MfaSessionAuth": []
+     }
+    ]
+   }
+  },
   "/api/v1/processing/queue": {
    "get": {
     "operationId": "apps_core_api_processing_queue",
@@ -3637,6 +3736,188 @@
      }
     },
     "title": "EnhanceSettingsIn",
+    "type": "object"
+   },
+   "AiModelOut": {
+    "properties": {
+     "name": {
+      "title": "Name",
+      "type": "string"
+     },
+     "size": {
+      "title": "Size",
+      "type": "integer"
+     },
+     "parameter_size": {
+      "title": "Parameter Size",
+      "type": "string"
+     },
+     "vision": {
+      "title": "Vision",
+      "type": "boolean"
+     },
+     "thinking": {
+      "title": "Thinking",
+      "type": "boolean"
+     }
+    },
+    "required": [
+     "name",
+     "size",
+     "parameter_size",
+     "vision",
+     "thinking"
+    ],
+    "title": "AiModelOut",
+    "type": "object"
+   },
+   "AiPullOut": {
+    "properties": {
+     "model": {
+      "title": "Model",
+      "type": "string"
+     },
+     "status": {
+      "title": "Status",
+      "type": "string"
+     },
+     "completed": {
+      "title": "Completed",
+      "type": "integer"
+     },
+     "total": {
+      "title": "Total",
+      "type": "integer"
+     },
+     "error": {
+      "title": "Error",
+      "type": "string"
+     },
+     "active": {
+      "title": "Active",
+      "type": "boolean"
+     }
+    },
+    "required": [
+     "model",
+     "status",
+     "completed",
+     "total",
+     "error",
+     "active"
+    ],
+    "title": "AiPullOut",
+    "type": "object"
+   },
+   "AiSettingsOut": {
+    "properties": {
+     "configured": {
+      "title": "Configured",
+      "type": "boolean"
+     },
+     "url": {
+      "title": "Url",
+      "type": "string"
+     },
+     "reachable": {
+      "title": "Reachable",
+      "type": "boolean"
+     },
+     "error": {
+      "title": "Error",
+      "type": "string"
+     },
+     "model": {
+      "title": "Model",
+      "type": "string"
+     },
+     "models": {
+      "items": {
+       "$ref": "#/components/schemas/AiModelOut"
+      },
+      "title": "Models",
+      "type": "array"
+     },
+     "suggestions": {
+      "items": {
+       "$ref": "#/components/schemas/AiSuggestionOut"
+      },
+      "title": "Suggestions",
+      "type": "array"
+     },
+     "pull": {
+      "anyOf": [
+       {
+        "$ref": "#/components/schemas/AiPullOut"
+       },
+       {
+        "type": "null"
+       }
+      ]
+     }
+    },
+    "required": [
+     "configured",
+     "url",
+     "reachable",
+     "error",
+     "model",
+     "models",
+     "suggestions",
+     "pull"
+    ],
+    "title": "AiSettingsOut",
+    "type": "object"
+   },
+   "AiSuggestionOut": {
+    "properties": {
+     "name": {
+      "title": "Name",
+      "type": "string"
+     },
+     "description": {
+      "title": "Description",
+      "type": "string"
+     },
+     "installed": {
+      "title": "Installed",
+      "type": "boolean"
+     }
+    },
+    "required": [
+     "name",
+     "description",
+     "installed"
+    ],
+    "title": "AiSuggestionOut",
+    "type": "object"
+   },
+   "AiSettingsIn": {
+    "properties": {
+     "model": {
+      "maxLength": 200,
+      "title": "Model",
+      "type": "string"
+     }
+    },
+    "required": [
+     "model"
+    ],
+    "title": "AiSettingsIn",
+    "type": "object"
+   },
+   "AiPullIn": {
+    "properties": {
+     "model": {
+      "maxLength": 200,
+      "title": "Model",
+      "type": "string"
+     }
+    },
+    "required": [
+     "model"
+    ],
+    "title": "AiPullIn",
     "type": "object"
    },
    "ProcessingQueueItem": {

@@ -20,12 +20,16 @@ from django.db import close_old_connections, connection
 from django.db.models import Q
 from django.utils import timezone
 
-from apps.analysis import classifier
+from apps.analysis import ai, classifier
 from apps.documents.intake import ensure_dirs
 from apps.documents.models import Document
 from apps.processing import pipeline, queue
 from apps.processing.models import Job, SystemState, WorkerHeartbeat
-from apps.processing.preferences import MAX_PROCESSING_CONCURRENCY, get_processing_concurrency
+from apps.processing.preferences import (
+    AI_MODEL_PULL_KEY,
+    MAX_PROCESSING_CONCURRENCY,
+    get_processing_concurrency,
+)
 from apps.storage import backup
 from apps.storage.backends import StorageAuthError, get_backend
 
@@ -35,7 +39,15 @@ HEALTHCHECK_INTERVAL = 600
 TRAIN_INTERVAL = 120
 CLEANUP_INTERVAL = 3600
 HEARTBEAT_INTERVAL = 30
-CONCURRENT_JOB_KINDS = [Job.Kind.PROCESS_DOCUMENT, Job.Kind.REINDEX_DOCUMENT]
+# Each lane has its own slots, so a slow AI analysis never delays making the next scan readable.
+LANES: dict[str, list[str]] = {
+    "prepare": [Job.Kind.PROCESS_DOCUMENT, Job.Kind.REINDEX_DOCUMENT],
+    "analyze": [Job.Kind.ANALYZE_DOCUMENT],
+    "download": [Job.Kind.PULL_MODEL],
+}
+LANE_OF = {kind: lane for lane, kinds in LANES.items() for kind in kinds}
+CONCURRENT_JOB_KINDS = list(LANE_OF)
+MODEL_RETRY_SECONDS = 600
 
 
 class Worker:
@@ -60,42 +72,45 @@ class Worker:
         ensure_dirs()
         self.sweep_workspace()
         logger.info("worker started", extra={"worker": self.worker_id})
-        active: set[Future[None]] = set()
+        active: dict[str, set[Future[None]]] = {lane: set() for lane in LANES}
         executor = ThreadPoolExecutor(
-            max_workers=MAX_PROCESSING_CONCURRENCY,
+            max_workers=MAX_PROCESSING_CONCURRENCY * 2 + 1,
             thread_name_prefix="docnest-job",
         )
         try:
             while not self.stopping:
                 close_old_connections()
                 self.periodic()
-                active = self._reap(active)
+                active = {lane: self._reap(futures) for lane, futures in active.items()}
                 concurrency = get_processing_concurrency()
                 claimed = False
 
                 # Start the oldest job first whenever no document work is active.
                 # Maintenance jobs remain exclusive because classifier/storage
                 # operations were designed for serial execution.
-                if not active:
+                if not any(active.values()):
                     job = queue.claim(self.worker_id)
                     if job is not None:
-                        if job.kind in CONCURRENT_JOB_KINDS:
-                            active.add(executor.submit(self._execute_in_thread, job))
+                        if job.kind in LANE_OF:
+                            active[LANE_OF[job.kind]].add(executor.submit(self._execute_in_thread, job))
                         else:
                             self.execute(job)
                         claimed = True
 
-                while not self.stopping and len(active) < concurrency:
-                    job = queue.claim(self.worker_id, kinds=CONCURRENT_JOB_KINDS)
-                    if job is None:
-                        break
-                    active.add(executor.submit(self._execute_in_thread, job))
-                    claimed = True
+                for lane, kinds in LANES.items():
+                    limit = 1 if lane == "download" else concurrency
+                    while not self.stopping and len(active[lane]) < limit:
+                        job = queue.claim(self.worker_id, kinds=kinds)
+                        if job is None:
+                            break
+                        active[lane].add(executor.submit(self._execute_in_thread, job))
+                        claimed = True
                 if self.stopping or claimed:
                     continue
-                if active:
+                running = set().union(*active.values())
+                if running:
                     # Re-read the live concurrency setting promptly and fill slots as jobs finish.
-                    wait(active, timeout=1, return_when=FIRST_COMPLETED)
+                    wait(running, timeout=1, return_when=FIRST_COMPLETED)
                 else:
                     self.wait_for_jobs(settings.WORKER_POLL_SECONDS)
         finally:
@@ -145,7 +160,11 @@ class Worker:
         try:
             with self.maintain_lease(job):
                 if job.kind == Job.Kind.PROCESS_DOCUMENT:
+                    pipeline.run(job.document_id, prepare_only=True)  # type: ignore[arg-type]
+                elif job.kind == Job.Kind.ANALYZE_DOCUMENT:
                     pipeline.run(job.document_id)  # type: ignore[arg-type]
+                elif job.kind == Job.Kind.PULL_MODEL:
+                    self.pull_model(job)
                 elif job.kind == Job.Kind.DELETE_STORAGE:
                     self.delete_storage(job)
                 elif job.kind == Job.Kind.TRAIN_CLASSIFIER:
@@ -162,6 +181,13 @@ class Worker:
                 return
             self._mark_document(job, Document.State.PENDING, "Waiting for storage: " + str(exc))
             logger.warning("storage unavailable, job deferred", extra={"job": job.pk})
+            return
+        except pipeline.AnalysisModelUnavailable as exc:
+            if not queue.defer(job, MODEL_RETRY_SECONDS, str(exc)):
+                logger.error("job ownership lost before deferral", extra={"job": job.pk})
+                return
+            self._mark_document(job, Document.State.PENDING, "Waiting for the AI model: " + str(exc))
+            logger.warning("AI model unavailable, job deferred", extra={"job": job.pk})
             return
         except pipeline.PermanentError as exc:
             if queue.retry_or_fail(job, str(exc), retryable=False) is None:
@@ -216,7 +242,7 @@ class Worker:
             thread.join(timeout=interval + 1)
 
     def _mark_document(self, job: Job, state: str, message: str) -> None:
-        if job.kind == Job.Kind.PROCESS_DOCUMENT and job.document_id:
+        if job.kind in pipeline.DOCUMENT_JOB_KINDS and job.document_id:
             Document.objects.filter(pk=job.document_id).update(
                 processing_state=state, processing_error=message[:500]
             )
@@ -225,6 +251,31 @@ class Worker:
         folder = job.payload.get("folder")
         if folder:
             get_backend().delete_folder(folder)
+
+    def pull_model(self, job: Job) -> None:
+        """Download an AI model into Ollama; progress is shown under Settings."""
+        name = str(job.payload.get("model", ""))
+        state: dict[str, object] = {"model": name, "status": "starting", "completed": 0, "total": 0}
+        last_saved = 0.0
+
+        def save(**changes: object) -> None:
+            state.update(changes)
+            SystemState.objects.update_or_create(key=AI_MODEL_PULL_KEY, defaults={"value": dict(state)})
+
+        def progress(status: str, completed: object, total: object) -> None:
+            nonlocal last_saved
+            if time.monotonic() - last_saved < 1:
+                return
+            last_saved = time.monotonic()
+            save(status=status, completed=completed or 0, total=total or 0)
+
+        save()
+        try:
+            ai.pull(name, progress)
+        except (ai.ModelUnavailable, ai.ModelFailed) as exc:
+            save(status="failed", error=str(exc))
+            raise pipeline.PermanentError(str(exc)) from exc
+        save(status="done")
 
     def backup_database(self) -> None:
         try:

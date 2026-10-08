@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import re
 from datetime import datetime, timedelta
 from uuid import UUID
 
@@ -11,20 +12,26 @@ from django.http import HttpRequest, HttpResponse, JsonResponse
 from django.middleware.csrf import get_token
 from django.utils import timezone
 from ninja import Field, Router, Schema
+from ninja.errors import HttpError
 
+from apps.analysis import ai
 from apps.audit.models import AuditLog
 from apps.audit.service import audit
 from apps.documents import crypto_fields
 from apps.documents.models import Document
 from apps.paper.services import pending as pending_paper
+from apps.processing import queue
 from apps.processing.models import Job, SystemState, WorkerHeartbeat
 from apps.processing.preferences import (
+    AI_MODEL_PULL_KEY,
     DoclingFieldDetection,
     OcrBackend,
+    get_ai_model,
     get_default_ocr_backend,
     get_docling_field_detection,
     get_enhance_settings,
     get_processing_concurrency,
+    set_ai_model,
     set_default_ocr_backend,
     set_docling_field_detection,
     set_enhance_settings,
@@ -106,6 +113,51 @@ class ProcessingSettingsOut(Schema):
     default_ocr_backend: OcrBackend
     docling_field_detection: DoclingFieldDetection
     processing_concurrency: int
+
+
+class AiModelOut(Schema):
+    name: str
+    size: int
+    parameter_size: str
+    vision: bool
+    thinking: bool
+
+
+class AiSuggestionOut(Schema):
+    name: str
+    description: str
+    installed: bool
+
+
+class AiPullOut(Schema):
+    model: str
+    status: str
+    completed: int
+    total: int
+    error: str
+    active: bool
+
+
+class AiSettingsOut(Schema):
+    configured: bool  # DOCNEST_OLLAMA_URL is set
+    url: str
+    reachable: bool
+    error: str
+    model: str  # "" = AI analysis off
+    models: list[AiModelOut]
+    suggestions: list[AiSuggestionOut]
+    pull: AiPullOut | None
+
+
+class AiSettingsIn(Schema):
+    model: str = Field(..., max_length=200)
+
+
+class AiPullIn(Schema):
+    model: str = Field(..., max_length=200)
+
+
+MODEL_NAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._\-/:]{0,199}$")
 
 
 class ProcessingQueueItem(Schema):
@@ -272,6 +324,81 @@ def update_enhancement_settings(request: HttpRequest, data: EnhanceSettingsIn) -
     return EnhanceSettingsOut(**updated.to_json())
 
 
+def _ai_settings() -> AiSettingsOut:
+    models: list[ai.ModelInfo] = []
+    reachable, error = False, ""
+    if ai.configured():
+        try:
+            models = ai.list_models()
+            reachable = True
+        except (ai.ModelUnavailable, ai.ModelFailed) as exc:
+            error = str(exc)
+    else:
+        error = "No Ollama server is configured. Set DOCNEST_OLLAMA_URL (see docs/operations.md)."
+    installed = {m.name for m in models}
+    pull_state = SystemState.objects.filter(key=AI_MODEL_PULL_KEY).values_list("value", flat=True).first()
+    pull = None
+    if isinstance(pull_state, dict) and pull_state.get("model"):
+        active = Job.objects.filter(kind=Job.Kind.PULL_MODEL, state__in=[Job.State.QUEUED, Job.State.RUNNING])
+        pull = AiPullOut(
+            model=str(pull_state["model"]),
+            status=str(pull_state.get("status", "")),
+            completed=int(pull_state.get("completed") or 0),
+            total=int(pull_state.get("total") or 0),
+            error=str(pull_state.get("error", "")),
+            active=active.exists(),
+        )
+    return AiSettingsOut(
+        configured=ai.configured(),
+        url=str(settings.OLLAMA_URL),
+        reachable=reachable,
+        error=error,
+        model=get_ai_model(),
+        models=[AiModelOut(**vars(m)) for m in models],
+        suggestions=[
+            AiSuggestionOut(name=name, description=description, installed=_installed(name, installed))
+            for name, description in ai.SUGGESTED_MODELS
+        ],
+        pull=pull,
+    )
+
+
+def _installed(name: str, installed: set[str]) -> bool:
+    return name in installed or (":" not in name and f"{name}:latest" in installed)
+
+
+@router.get("/settings/ai", response=AiSettingsOut)
+def ai_settings(request: HttpRequest) -> AiSettingsOut:
+    return _ai_settings()
+
+
+@router.put("/settings/ai", response=AiSettingsOut)
+def update_ai_settings(request: HttpRequest, data: AiSettingsIn) -> AiSettingsOut:
+    model = data.model.strip()
+    if model and not MODEL_NAME.match(model):
+        raise HttpError(422, "Invalid model name")
+    set_ai_model(model)
+    audit("settings.ai_updated", request=request, model=model)
+    return _ai_settings()
+
+
+@router.post("/settings/ai/pull", response=AiSettingsOut)
+def pull_ai_model(request: HttpRequest, data: AiPullIn) -> AiSettingsOut:
+    model = data.model.strip()
+    if not MODEL_NAME.match(model):
+        raise HttpError(422, "Invalid model name")
+    if not ai.configured():
+        raise HttpError(409, "No Ollama server is configured")
+    if Job.objects.filter(kind=Job.Kind.PULL_MODEL, state__in=[Job.State.QUEUED, Job.State.RUNNING]).exists():
+        raise HttpError(409, "A model is already being downloaded")
+    SystemState.objects.update_or_create(
+        key=AI_MODEL_PULL_KEY, defaults={"value": {"model": model, "status": "queued"}}
+    )
+    queue.enqueue(Job.Kind.PULL_MODEL, payload={"model": model})
+    audit("settings.ai_model_pull", request=request, model=model)
+    return _ai_settings()
+
+
 def _queue_item(job: Job, now: datetime) -> ProcessingQueueItem:
     document = job.document
     if document is None:
@@ -298,7 +425,7 @@ def _queue_item(job: Job, now: datetime) -> ProcessingQueueItem:
 @router.get("/processing/queue", response=ProcessingQueueOut)
 def processing_queue(request: HttpRequest) -> ProcessingQueueOut:
     document_jobs = Job.objects.filter(
-        kind__in=[Job.Kind.PROCESS_DOCUMENT, Job.Kind.REINDEX_DOCUMENT],
+        kind__in=[Job.Kind.PROCESS_DOCUMENT, Job.Kind.ANALYZE_DOCUMENT, Job.Kind.REINDEX_DOCUMENT],
         document__isnull=False,
     ).select_related("document")
     now = timezone.now()

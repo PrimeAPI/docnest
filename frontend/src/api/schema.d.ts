@@ -112,6 +112,41 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/settings/ai": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Ai Settings */
+        get: operations["apps_core_api_ai_settings"];
+        /** Update Ai Settings */
+        put: operations["apps_core_api_update_ai_settings"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/settings/ai/pull": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Pull Ai Model */
+        post: operations["apps_core_api_pull_ai_model"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/processing/queue": {
         parameters: {
             query?: never;
@@ -1261,6 +1296,71 @@ export interface components {
             remove_blank?: boolean | null;
             /** Blank Threshold */
             blank_threshold?: number | null;
+        };
+        /** AiModelOut */
+        AiModelOut: {
+            /** Name */
+            name: string;
+            /** Size */
+            size: number;
+            /** Parameter Size */
+            parameter_size: string;
+            /** Vision */
+            vision: boolean;
+            /** Thinking */
+            thinking: boolean;
+        };
+        /** AiPullOut */
+        AiPullOut: {
+            /** Model */
+            model: string;
+            /** Status */
+            status: string;
+            /** Completed */
+            completed: number;
+            /** Total */
+            total: number;
+            /** Error */
+            error: string;
+            /** Active */
+            active: boolean;
+        };
+        /** AiSettingsOut */
+        AiSettingsOut: {
+            /** Configured */
+            configured: boolean;
+            /** Url */
+            url: string;
+            /** Reachable */
+            reachable: boolean;
+            /** Error */
+            error: string;
+            /** Model */
+            model: string;
+            /** Models */
+            models: components["schemas"]["AiModelOut"][];
+            /** Suggestions */
+            suggestions: components["schemas"]["AiSuggestionOut"][];
+            pull: components["schemas"]["AiPullOut"] | null;
+        };
+        /** AiSuggestionOut */
+        AiSuggestionOut: {
+            /** Name */
+            name: string;
+            /** Description */
+            description: string;
+            /** Installed */
+            installed: boolean;
+        };
+        /** AiSettingsIn */
+        AiSettingsIn: {
+            /** Model */
+            model: string;
+        };
+        /** AiPullIn */
+        AiPullIn: {
+            /** Model */
+            model: string;
         };
         /** ProcessingQueueItem */
         ProcessingQueueItem: {
@@ -2445,6 +2545,74 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["EnhanceSettingsOut"];
+                };
+            };
+        };
+    };
+    apps_core_api_ai_settings: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AiSettingsOut"];
+                };
+            };
+        };
+    };
+    apps_core_api_update_ai_settings: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AiSettingsIn"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AiSettingsOut"];
+                };
+            };
+        };
+    };
+    apps_core_api_pull_ai_model: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AiPullIn"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AiSettingsOut"];
                 };
             };
         };

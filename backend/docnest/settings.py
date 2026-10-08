@@ -203,6 +203,12 @@ DOCLING_ARTIFACTS_PATH = Path(env("DOCNEST_DOCLING_ARTIFACTS_PATH", "/var/lib/do
 DOCLING_FIELD_DETECTION = env("DOCNEST_DOCLING_FIELD_DETECTION", "layout").lower()
 if DOCLING_FIELD_DETECTION not in {"layout", "vlm", "hybrid"}:
     raise ConfigError("DOCNEST_DOCLING_FIELD_DETECTION must be 'layout', 'vlm', or 'hybrid'")
+# AI analysis: a local vision-language model served by Ollama (see docs/operations.md)
+OLLAMA_URL = env("DOCNEST_OLLAMA_URL", "").rstrip("/")
+AI_MODEL = env("DOCNEST_AI_MODEL", "")
+AI_TIMEOUT_SECONDS = env_int("DOCNEST_AI_TIMEOUT_SECONDS", 3600)
+AI_CONTEXT_TOKENS = env_int("DOCNEST_AI_CONTEXT_TOKENS", 16384)
+AI_PAGES = env_int("DOCNEST_AI_PAGES", 2)  # page images the model looks at
 MAX_PAGES = env_int("DOCNEST_MAX_PAGES", 500)
 # Scanner uploads of page images / multi-part scans (see docs/scanner-api.md)
 MAX_SCAN_BYTES = env_int("DOCNEST_MAX_SCAN_MB", 2000) * 1024 * 1024
