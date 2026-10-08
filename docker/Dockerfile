@@ -115,11 +115,17 @@ ENV DOCNEST_DATA_DIR=/var/lib/docnest/data \
     HOME=/var/lib/docnest
 
 ARG VERSION=dev
-ENV DOCNEST_VERSION=${VERSION}
+ARG COMMIT=""
+ARG BUILD_DATE=""
+ENV DOCNEST_VERSION=${VERSION} \
+    DOCNEST_COMMIT=${COMMIT} \
+    DOCNEST_BUILD_DATE=${BUILD_DATE}
 LABEL org.opencontainers.image.source="https://github.com/PrimeAPI/docnest" \
       org.opencontainers.image.description="Secure self-hosted document management" \
       org.opencontainers.image.licenses="Apache-2.0" \
-      org.opencontainers.image.version="${VERSION}"
+      org.opencontainers.image.version="${VERSION}" \
+      org.opencontainers.image.revision="${COMMIT}" \
+      org.opencontainers.image.created="${BUILD_DATE}"
 
 USER docnest
 EXPOSE 8000

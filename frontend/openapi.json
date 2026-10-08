@@ -3496,6 +3496,14 @@
       "title": "Version",
       "type": "string"
      },
+     "commit": {
+      "title": "Commit",
+      "type": "string"
+     },
+     "build_date": {
+      "title": "Build Date",
+      "type": "string"
+     },
      "default_ocr_backend": {
       "enum": [
        "ocrmypdf",
@@ -3557,6 +3565,8 @@
     },
     "required": [
      "version",
+     "commit",
+     "build_date",
      "default_ocr_backend",
      "docling_field_detection",
      "storage",

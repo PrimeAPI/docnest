@@ -2,6 +2,8 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   Activity,
   BarChart3,
+  Cog,
+  GitCommitHorizontal,
   ChevronDown,
   Copy,
   DatabaseBackup,
@@ -45,21 +47,38 @@ export function SettingsPage() {
   return (
     <>
       <PageHeader title="Settings" />
-      <Tabs defaultValue="security">
+      <Tabs defaultValue="stats">
         <TabsList className="flex-wrap">
+          <TabsTrigger value="stats">
+            <BarChart3 /> Statistics
+          </TabsTrigger>
+          <TabsTrigger value="processing">
+            <Cog /> Processing
+          </TabsTrigger>
+          <TabsTrigger value="system">
+            <Activity /> System
+          </TabsTrigger>
           <TabsTrigger value="security">
             <Shield /> Security
           </TabsTrigger>
           <TabsTrigger value="scanners">
             <ScanLine /> Scanners
           </TabsTrigger>
-          <TabsTrigger value="system">
-            <Activity /> System
-          </TabsTrigger>
-          <TabsTrigger value="stats">
-            <BarChart3 /> Statistics
-          </TabsTrigger>
         </TabsList>
+        <TabsContent value="stats">
+          <StatsPanel />
+        </TabsContent>
+        <TabsContent value="processing" className="flex flex-col gap-6">
+          <ProcessingCard />
+          <AiModelCard />
+          <ReprocessAllCard />
+          <EnhancementCard />
+        </TabsContent>
+        <TabsContent value="system" className="flex flex-col gap-6">
+          <VersionCard />
+          <SystemCard />
+          <AuditLog />
+        </TabsContent>
         <TabsContent value="security" className="flex flex-col gap-6">
           <SignInActivity />
           <SecondFactors />
@@ -68,17 +87,6 @@ export function SettingsPage() {
         </TabsContent>
         <TabsContent value="scanners">
           <Scanners />
-        </TabsContent>
-        <TabsContent value="system" className="flex flex-col gap-6">
-          <ProcessingCard />
-          <AiModelCard />
-          <ReprocessAllCard />
-          <EnhancementCard />
-          <SystemCard />
-          <AuditLog />
-        </TabsContent>
-        <TabsContent value="stats">
-          <StatsPanel />
         </TabsContent>
       </Tabs>
     </>
@@ -709,6 +717,56 @@ function ProcessingCard() {
   );
 }
 
+const REPOSITORY = "https://github.com/PrimeAPI/docnest";
+
+function VersionCard() {
+  const s = useSystem().data;
+  if (!s) return <Spinner />;
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>Version</CardTitle>
+        <CardDescription>The DocNest build this server is running.</CardDescription>
+      </CardHeader>
+      <CardContent className="flex flex-col gap-4">
+        <dl className="grid gap-3 text-sm sm:grid-cols-3">
+          <div>
+            <dt className="text-xs text-muted-foreground">Version</dt>
+            <dd className="mt-0.5 font-medium">{s.version}</dd>
+          </div>
+          <div>
+            <dt className="text-xs text-muted-foreground">Commit</dt>
+            <dd className="mt-0.5">
+              {s.commit ? (
+                <a
+                  href={`${REPOSITORY}/commit/${s.commit}`}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="inline-flex items-center gap-1 font-mono text-primary hover:underline"
+                  title={s.commit}
+                >
+                  <GitCommitHorizontal className="size-3.5" /> {s.commit.slice(0, 7)}
+                </a>
+              ) : (
+                <span className="text-muted-foreground">local build</span>
+              )}
+            </dd>
+          </div>
+          <div>
+            <dt className="text-xs text-muted-foreground">Built</dt>
+            <dd className="mt-0.5 font-medium">{s.build_date ? formatDateTime(s.build_date) : "—"}</dd>
+          </div>
+        </dl>
+        <p className="text-xs text-muted-foreground">
+          To install the newest version, run{" "}
+          <code className="rounded bg-muted px-1 py-0.5">docker compose pull && docker compose up -d</code> in the
+          DocNest folder on the server.
+        </p>
+      </CardContent>
+    </Card>
+  );
+}
+
 function SystemCard() {
   const qc = useQueryClient();
   const system = useSystem();
@@ -727,7 +785,6 @@ function SystemCard() {
     <Card>
       <CardHeader>
         <CardTitle>System status</CardTitle>
-        <CardDescription>Version {s.version}</CardDescription>
       </CardHeader>
       <CardContent className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
         <div className="rounded-md border p-3">

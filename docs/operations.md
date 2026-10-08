@@ -187,7 +187,7 @@ docker compose pull
 docker compose up -d        # migrations run automatically on start
 ```
 
-Read the release notes first; pin `DOCNEST_VERSION` if you want to control upgrades.
+Read the release notes first; pin `DOCNEST_VERSION` if you want to control upgrades. Settings → System → *Version* shows the running version, the commit it was built from (linked to GitHub) and the build time, so you can check that an upgrade took effect.
 
 To try an unreleased version, set `DOCNEST_VERSION=edge` (newest tested `main`) or `DOCNEST_VERSION=sha-<commit>` and run the two commands above. Switch back to a release tag the same way. Migrations only move forward, so back up the database before trying previews on real data.
 

@@ -48,6 +48,7 @@ jobs:
         run: |
           if [ "${{ inputs.kind }}" = release ]; then echo "VERSION=${GITHUB_REF_NAME#v}" >> "$GITHUB_ENV";
           else echo "VERSION=${GITHUB_REF_NAME}-${GITHUB_SHA::7}" >> "$GITHUB_ENV"; fi
+          echo "BUILD_DATE=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_ENV"
       - name: Build and push
         id: push
         uses: docker/build-push-action@v6
@@ -60,7 +61,11 @@ jobs:
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
-          build-args: VERSION=${{ env.VERSION }}
+          # Shown under Settings → System (version, commit, build time).
+          build-args: |
+            VERSION=${{ env.VERSION }}
+            COMMIT=${{ github.sha }}
+            BUILD_DATE=${{ env.BUILD_DATE }}
           provenance: mode=max
           sbom: true
           cache-from: type=gha,scope=runtime

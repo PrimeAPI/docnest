@@ -1,12 +1,11 @@
 import * as Popover from "@radix-ui/react-popover";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { CheckCircle2, ChevronUp, CircleAlert, Clock3, Loader2, Rows3, X } from "lucide-react";
+import { CheckCircle2, ChevronRight, CircleAlert, Clock3, Loader2, Rows3, X } from "lucide-react";
 import { useState } from "react";
 import { Link } from "react-router";
 import { toast } from "sonner";
 import { call, client, type Schemas } from "@/api/client";
 import { keys, useInvalidateDocuments, useProcessingQueue } from "@/api/queries";
-import { Button } from "@/components/ui/button";
 import { Spinner } from "@/components/ui/misc";
 import { cn, formatDateTime, formatDuration } from "@/lib/utils";
 
@@ -159,31 +158,44 @@ function QueueSection({
   );
 }
 
-export function ProcessingQueueWidget() {
+/** The last entry of the sidebar: shows what is being processed and opens the queue beside it. */
+export function ProcessingQueueButton() {
   const queue = useProcessingQueue();
   const running = queue.data?.running.length ?? 0;
   const queued = queue.data?.queued_total ?? 0;
   const active = running + queued;
 
   return (
-    <div className="fixed bottom-3 left-3 z-40">
+    <div className="border-t px-3 py-2">
       <Popover.Root>
         <Popover.Trigger asChild>
-          <Button
-            variant="outline"
-            className="gap-2 bg-card shadow-lg"
+          <button
+            type="button"
+            className="flex w-full cursor-pointer items-center gap-3 rounded-md px-3 py-2 text-left text-sm font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground data-[state=open]:bg-accent data-[state=open]:text-accent-foreground"
             aria-label={`Processing queue: ${running} running, ${queued} queued`}
           >
-            <Rows3 className={cn("size-4", running > 0 && "text-primary")} />
-            <span>{active > 0 ? `${running} running · ${queued} queued` : "Processing queue"}</span>
-            <ChevronUp className="size-3.5 text-muted-foreground" />
-          </Button>
+            {running > 0 ? (
+              <Loader2 className="size-4 animate-spin text-primary" />
+            ) : (
+              <Rows3 className="size-4" />
+            )}
+            <span className="min-w-0 flex-1">
+              <span className="block">Processing queue</span>
+              {active > 0 && (
+                <span className="block text-xs font-normal tabular-nums">
+                  {running} running · {queued} queued
+                </span>
+              )}
+            </span>
+            <ChevronRight className="size-3.5" />
+          </button>
         </Popover.Trigger>
         <Popover.Portal>
           <Popover.Content
-            side="top"
-            align="start"
-            sideOffset={8}
+            side="right"
+            align="end"
+            sideOffset={12}
+            collisionPadding={12}
             className="z-50 flex max-h-[min(70vh,680px)] w-[calc(100vw-1.5rem)] max-w-md flex-col overflow-hidden rounded-lg border bg-card shadow-2xl outline-none"
           >
             <div className="border-b px-4 py-3">

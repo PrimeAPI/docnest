@@ -159,6 +159,7 @@ test("a passkey can be added and used to sign in", async ({ page }) => {
   await expect(page).toHaveURL(/\/inbox/);
 
   await page.getByRole("link", { name: "Settings" }).click();
+  await page.getByRole("tab", { name: "Security" }).click();
   await page.getByRole("button", { name: "Add security key" }).click();
   await page.getByLabel("Name").fill("Virtual passkey");
   await page.getByRole("button", { name: "Register security key" }).click();
@@ -315,7 +316,8 @@ test("sign-ins are logged with device, failures and per-session actions", async 
   await expect(page.getByText(/Last sign-in .* from /)).toBeVisible();
 
   await page.getByRole("link", { name: "Settings" }).click();
-  await expect(page.getByText("Sign-in activity")).toBeVisible();
+  await page.getByRole("tab", { name: "Security" }).click();
+  await expect(page.getByRole("heading", { name: "Sign-in activity" })).toBeVisible();
   await expect(page.getByText("This session")).toBeVisible();
   await expect(page.getByText("Wrong password").first()).toBeVisible();
   await expect(page.getByText(/Chrome on \w+ · /).first()).toBeVisible();
@@ -472,7 +474,7 @@ test("screenshots of the main pages", async ({ page }) => {
   await shot("organize");
   await page.goto("/settings");
   await shot("settings");
-  await page.getByRole("tab", { name: "System" }).click();
+  await page.getByRole("tab", { name: "Processing" }).click();
   await page.getByText("Scan enhancement").first().scrollIntoViewIfNeeded();
   await shot("settings-enhancement");
   await page.goto("/paper");

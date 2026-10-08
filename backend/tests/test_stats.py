@@ -42,3 +42,15 @@ def test_statistics_of_an_empty_archive(api):
     s = api.get("/api/v1/stats").json()
     assert s["documents"] == 0 and s["processing"]["readable_median_seconds"] is None
     assert all(m["documents"] == 0 for m in s["months"])
+
+
+def test_system_status_names_the_running_build(api, monkeypatch):
+    monkeypatch.setenv("DOCNEST_VERSION", "main-1a2b3c4")
+    monkeypatch.setenv("DOCNEST_COMMIT", "1a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6d7e8f9a0b")
+    monkeypatch.setenv("DOCNEST_BUILD_DATE", "2026-10-09T06:12:00Z")
+    s = api.get("/api/v1/system").json()
+    assert (s["version"], s["commit"][:7], s["build_date"]) == (
+        "main-1a2b3c4",
+        "1a2b3c4",
+        "2026-10-09T06:12:00Z",
+    )

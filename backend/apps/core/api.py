@@ -79,6 +79,8 @@ class BackupStatus(Schema):
 
 class SystemStatus(Schema):
     version: str
+    commit: str  # git commit the image was built from ("" for local builds)
+    build_date: str  # ISO timestamp of the image build ("" for local builds)
     default_ocr_backend: OcrBackend
     docling_field_detection: DoclingFieldDetection
     storage: StorageStatus
@@ -238,6 +240,8 @@ def system_status(request: HttpRequest) -> SystemStatus:
     last_seen = heartbeat.last_seen_at if heartbeat else None
     return SystemStatus(
         version=os.environ.get("DOCNEST_VERSION", "dev"),
+        commit=os.environ.get("DOCNEST_COMMIT", ""),
+        build_date=os.environ.get("DOCNEST_BUILD_DATE", ""),
         default_ocr_backend=get_default_ocr_backend(),
         docling_field_detection=get_docling_field_detection(),
         storage=StorageStatus(

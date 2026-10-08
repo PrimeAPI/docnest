@@ -1268,6 +1268,10 @@ export interface components {
         SystemStatus: {
             /** Version */
             version: string;
+            /** Commit */
+            commit: string;
+            /** Build Date */
+            build_date: string;
             /**
              * Default Ocr Backend
              * @enum {string}
