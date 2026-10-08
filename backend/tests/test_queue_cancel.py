@@ -21,7 +21,7 @@ def process_all() -> None:
 def test_a_new_scan_can_be_cancelled_and_finished_later(scanner, api):
     _, token = scanner
     doc_id = upload(Client(), token, text_pdf(INVOICE_LINES)).json()["id"]
-    job = Job.objects.get(kind=Job.Kind.PROCESS_DOCUMENT)
+    job = Job.objects.get(kind=Job.Kind.INTAKE_DOCUMENT)
     queue_view = api.get("/api/v1/processing/queue").json()
     assert queue_view["queued_total"] == 1
 

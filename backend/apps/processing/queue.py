@@ -83,6 +83,26 @@ def claim(worker_id: str, *, kinds: Sequence[str] | None = None) -> Job | None:
         return job
 
 
+WORKER_SILENT_SECONDS = 120  # workers report every 30 s, also while a job runs
+
+
+def release_orphans() -> int:
+    """Make jobs claimable again whose worker died (e.g. killed for lack of memory).
+
+    Their lease would hold them for up to JOB_LEASE_SECONDS, shown as running although
+    nobody works on them; a worker that stopped reporting is not coming back for them.
+    """
+    from apps.processing.models import WorkerHeartbeat
+
+    now = timezone.now()
+    alive = WorkerHeartbeat.objects.filter(last_seen_at__gte=now - timedelta(seconds=WORKER_SILENT_SECONDS))
+    return (
+        Job.objects.filter(state=Job.State.RUNNING, locked_until__gt=now)
+        .exclude(locked_by__in=alive.values("worker_id"))
+        .update(locked_until=now, updated_at=now)
+    )
+
+
 def complete(job: Job) -> bool:
     now = timezone.now()
     updated = Job.objects.filter(pk=job.pk, state=Job.State.RUNNING, locked_by=job.locked_by).update(

@@ -47,14 +47,19 @@ def from_series_pattern(document: Document) -> str | None:
     return None
 
 
-def generate(document: Document, subject: str | None) -> str:
+def generate(document: Document, subject: str | None, *, name_sender: bool = True) -> str:
+    """`name_sender`: append the correspondent to a subject (rule-based subjects are often bare)."""
     learned = from_series_pattern(document)
     if learned:
         return learned[:200]
     period = document.period_label or (document.document_date.isoformat() if document.document_date else "")
     if subject and len(subject) >= 6:
         title = subject
-        if document.correspondent and document.correspondent.name.lower() not in subject.lower():
+        if (
+            name_sender
+            and document.correspondent
+            and document.correspondent.name.lower() not in subject.lower()
+        ):
             title = f"{subject} – {document.correspondent.name}"
         return title[:200]
     parts = []
@@ -65,3 +70,14 @@ def generate(document: Document, subject: str | None) -> str:
     if period:
         parts.append(period)
     return (" ".join(parts) or "Untitled document")[:200]
+
+
+def without_sender(title: str, *senders: str | None) -> str:
+    """Drop the sender from a title the AI model wrote: it has a field of its own."""
+    cleaned = title
+    for sender in senders:
+        if sender and len(sender) >= 3:
+            cleaned = re.sub(re.escape(sender), "", cleaned, flags=re.I)
+    cleaned = re.sub(r"\s{2,}", " ", cleaned).strip(" -–—:,|/")
+    cleaned = re.sub(r"^(?:von|vom|der|des|from)\s+|\s+(?:von|vom|der|des|from)$", "", cleaned, flags=re.I)
+    return cleaned if len(cleaned) >= 6 else title

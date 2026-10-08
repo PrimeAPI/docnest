@@ -23,6 +23,7 @@ TOP = 10
 READABLE_STAGE = "enhance"
 DONE_STAGE = "index"
 AI_MESSAGE = "Read by the AI model"  # written by pipeline._model_fields
+AI_FALLBACK = "AI analysis with "  # "… failed, rule-based detection was used"
 AI_SECONDS = re.compile(r" in (\d+(?:\.\d+)?) s$")
 
 
@@ -50,6 +51,7 @@ class Processing(Schema):
     stages: list[StageTime] = Field(default_factory=list)
     ai_documents: int = 0
     ai_average_seconds: float | None = None
+    ai_fallbacks: int = 0  # analyses where the AI model failed and the rules stepped in
 
 
 class Stats(Schema):
@@ -191,4 +193,7 @@ def _processing(now: datetime) -> Processing:
         ],
         ai_documents=len(ai),
         ai_average_seconds=round(statistics.fmean(ai), 1) if ai else None,
+        ai_fallbacks=ProcessingEvent.objects.filter(
+            stage="analyze", outcome="warning", created_at__gte=since, message__startswith=AI_FALLBACK
+        ).count(),
     )

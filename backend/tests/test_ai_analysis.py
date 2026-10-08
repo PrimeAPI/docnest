@@ -47,11 +47,11 @@ def test_document_is_readable_before_the_analysis_runs(scanner, api):
     _, token = scanner
     doc_id = upload(Client(), token, text_pdf(INVOICE_LINES)).json()["id"]
 
-    assert Worker().run_once()  # only the fast job: assemble, validate, enhance
+    assert Worker().run_once()  # only the intake: assemble, validate
     doc = Document.objects.get(uuid=doc_id)
-    assert doc.processing_stage == Document.Stage.OCR
+    assert doc.processing_stage == Document.Stage.ENHANCE
     assert doc.processing_state == Document.State.PENDING
-    assert Job.objects.get(document=doc, kind=Job.Kind.ANALYZE_DOCUMENT).state == Job.State.QUEUED
+    assert Job.objects.get(document=doc, kind=Job.Kind.PROCESS_DOCUMENT).state == Job.State.QUEUED
     assert crypto_fields.get_thumbnail(doc)
     r = api.get(f"/api/v1/documents/{doc_id}/file")
     assert r.status_code == 200 and b"".join(r.streaming_content).startswith(b"%PDF")
@@ -109,7 +109,7 @@ def test_unreachable_ai_model_waits_instead_of_guessing(scanner, monkeypatch, mo
     doc = Document.objects.get()
     assert doc.processing_state == Document.State.PENDING
     assert doc.processing_error.startswith("Waiting for the AI model")
-    job = Job.objects.get(document=doc, kind=Job.Kind.ANALYZE_DOCUMENT)
+    job = Job.objects.get(document=doc, kind=Job.Kind.PROCESS_DOCUMENT)
     assert job.state == Job.State.QUEUED and job.attempts == 0
     assert not ProcessingEvent.objects.filter(document=doc, outcome="failed").exists()
 
@@ -445,3 +445,46 @@ def test_model_tags_are_cleaned():
         {"tags": ["Steuer", " steuer ", "", None, "A" * 80, "Auto", "Haus", "Bank"]}, "m", set()
     )
     assert fields.tags == ["Steuer", "A" * 40, "Auto", "Haus"]
+
+
+def test_a_crashed_model_is_retried_instead_of_guessing_with_rules(scanner, monkeypatch, model):
+    _, token = scanner
+    fake_model(monkeypatch, ai.ModelCrashed("The AI model stopped while reading (unexpected EOF)"))
+    upload(Client(), token, text_pdf(INVOICE_LINES))
+    process_all()
+
+    doc = Document.objects.get()
+    assert doc.processing_state == Document.State.PENDING  # retried later, not analysed with rules
+    assert "stopped while reading" in doc.processing_error
+    assert doc.correspondent is None
+
+    fake_model(monkeypatch, ai.ModelFields(sender="Energie Nord AG", title="Stromrechnung Februar 2026"))
+    Job.objects.update(run_after=timezone.now())
+    process_all()
+    doc.refresh_from_db()
+    assert doc.processing_state == Document.State.DONE
+    assert crypto_fields.get_extracted(doc)["analysis"] == {"by": "ai", "model": "qwen3-vl:8b"}
+
+
+def test_how_a_document_was_read_is_kept(scanner, monkeypatch, model):
+    _, token = scanner
+    fake_model(monkeypatch, ai.ModelFailed("The model did not answer with JSON"))
+    upload(Client(), token, text_pdf(INVOICE_LINES))
+    process_all()
+    how = crypto_fields.get_extracted(Document.objects.get())["analysis"]
+    assert how == {"by": "rules", "model": "qwen3-vl:8b", "problem": "The model did not answer with JSON"}
+
+
+def test_ai_titles_leave_the_sender_to_its_own_field(scanner, monkeypatch, model):
+    _, token = scanner
+    fake_model(
+        monkeypatch,
+        ai.ModelFields(
+            sender="RME GmbH", title="Verdienstabrechnung RME GmbH Juni 2026", document_date=date(2026, 6, 25)
+        ),
+    )
+    upload(Client(), token, text_pdf(INVOICE_LINES))
+    process_all()
+    doc = Document.objects.get()
+    assert crypto_fields.get_title(doc) == "Verdienstabrechnung Juni 2026"
+    assert doc.correspondent and doc.correspondent.name == "RME GmbH"

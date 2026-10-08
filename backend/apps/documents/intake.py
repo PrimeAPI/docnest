@@ -354,7 +354,7 @@ def register(
                 DocumentTag.objects.get_or_create(
                     document=document, tag=tag, defaults={"source": Source.SCANNER}
                 )
-            enqueue(Job.Kind.PROCESS_DOCUMENT, document=document)
+            enqueue(Job.Kind.INTAKE_DOCUMENT, document=document)
     except IntegrityError:
         # Concurrent upload of the same file: keep the winner, drop our copy.
         discard(doc_uuid)

@@ -1,7 +1,7 @@
 import * as Popover from "@radix-ui/react-popover";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { CheckCircle2, ChevronRight, CircleAlert, Clock3, Loader2, Rows3, X } from "lucide-react";
-import { useState } from "react";
+import { type ReactNode, useState } from "react";
 import { Link } from "react-router";
 import { toast } from "sonner";
 import { call, client, type Schemas } from "@/api/client";
@@ -11,17 +11,66 @@ import { cn, formatDateTime, formatDuration } from "@/lib/utils";
 
 type QueueItem = Schemas["ProcessingQueueItem"];
 
-const STAGES: Record<string, string> = {
+const STEPS: Record<string, string> = {
   received: "Received",
-  assemble: "Building PDF",
-  validate: "Validating",
-  enhance: "Improving scan",
-  ocr: "Reading document",
-  analyze: "AI analysis / detecting fields",
+  assemble: "Building the PDF",
+  validate: "Checking the file",
+  enhance: "Scan enhancement",
+  ocr: "Text recognition",
+  analyze: "Analysis",
   store: "Storing",
   index: "Indexing",
   done: "Complete",
 };
+
+const PHASES: Record<string, string> = { intake: "Intake", processing: "Processing", index: "Search index" };
+
+function Chip({ children, tone = "muted" }: { children: ReactNode; tone?: "muted" | "primary" }) {
+  return (
+    <span
+      className={cn(
+        "shrink-0 rounded px-1.5 py-px text-[11px] font-medium",
+        tone === "primary" ? "bg-primary/10 text-primary" : "bg-muted text-muted-foreground",
+      )}
+    >
+      {children}
+    </span>
+  );
+}
+
+/** What the job is doing, waiting for, or how it ended — one line, no mixed-up labels. */
+function QueueDetail({ item, queued }: { item: QueueItem; queued: boolean }) {
+  const phase = PHASES[item.phase] ?? item.phase;
+  const processor = item.backend === "docling" ? "Docling" : "OCRmyPDF";
+  if (queued)
+    return (
+      <span className="truncate">
+        Waiting for {item.phase === "intake" ? "intake" : item.phase === "processing" ? "processing" : "indexing"}
+      </span>
+    );
+  if (item.state === "running")
+    return (
+      <span className="flex min-w-0 items-center gap-1.5">
+        <Chip tone="primary">{phase}</Chip>
+        <span className="truncate">
+          {item.step > 0 && `${item.step}/${item.steps} · `}
+          {STEPS[item.stage] ?? item.stage}
+        </span>
+        {item.phase === "processing" && <Chip>{processor}</Chip>}
+      </span>
+    );
+  const ended = {
+    done: item.phase === "intake" ? "Taken in" : item.phase === "processing" ? "Processed" : "Indexed",
+    failed: "Failed",
+    cancelled: "Cancelled",
+  }[item.outcome];
+  return (
+    <span className="flex min-w-0 items-center gap-1.5">
+      <Chip>{phase}</Chip>
+      <span className="truncate">{ended ?? item.state}</span>
+    </span>
+  );
+}
 
 /** Cancel waiting jobs: the given ones, or every waiting one. Running jobs finish their step. */
 function useCancel() {
@@ -86,15 +135,27 @@ function QueueRow({ item, queued = false }: { item: QueueItem; queued?: boolean 
         )}
       </div>
       <div className="mt-1 flex items-center justify-between gap-2 pl-6 text-xs text-muted-foreground">
-        <span className="truncate">
-          {queued ? "Waiting" : (STAGES[item.stage] ?? item.stage)} · {item.backend === "docling" ? "Docling" : "OCRmyPDF"}
-          {item.attempts > 1 ? ` · attempt ${item.attempts}` : ""}
-        </span>
+        <QueueDetail item={item} queued={queued} />
         <span className="shrink-0">
           {item.finished_at ? formatDateTime(item.finished_at) : queued ? formatDateTime(item.created_at) : "Now"}
         </span>
       </div>
-      {failed && item.error && <p className="mt-1 line-clamp-2 pl-6 text-xs text-destructive">{item.error}</p>}
+      {running && item.steps > 0 && (
+        <div className="mt-1.5 ml-6 flex gap-0.5" aria-hidden>
+          {Array.from({ length: item.steps }, (_, index) => (
+            <span
+              key={index}
+              className={cn(
+                "h-1 flex-1 rounded-full",
+                index + 1 < item.step ? "bg-primary" : index + 1 === item.step ? "bg-primary/50" : "bg-muted",
+              )}
+            />
+          ))}
+        </div>
+      )}
+      {failed && item.outcome !== "cancelled" && item.error && (
+        <p className="mt-1 line-clamp-2 pl-6 text-xs text-destructive">{item.error}</p>
+      )}
     </Link>
   );
 }
@@ -203,7 +264,8 @@ export function ProcessingQueueButton() {
                 <div>
                   <h2 className="font-semibold">Document processing</h2>
                   <p className="text-xs text-muted-foreground">
-                    Up to {queue.data?.concurrency ?? "—"} document{queue.data?.concurrency === 1 ? "" : "s"} at once
+                    Processing {queue.data?.running.filter((i) => i.phase === "processing").length ?? 0} of{" "}
+                    {queue.data?.concurrency ?? "—"} at once · intake runs alongside
                   </p>
                 </div>
                 {queue.isFetching && <Loader2 className="size-4 animate-spin text-muted-foreground" />}

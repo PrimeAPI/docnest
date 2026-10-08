@@ -39,12 +39,14 @@ HEALTHCHECK_INTERVAL = 600
 TRAIN_INTERVAL = 120
 CLEANUP_INTERVAL = 3600
 HEARTBEAT_INTERVAL = 30
-# Each lane has its own slots, so a slow AI analysis never delays making the next scan readable.
+# Each lane has its own slots. Processing is limited to the configured number of documents;
+# intake (seconds per scan) has a small lane of its own, so new scans are taken in meanwhile.
 LANES: dict[str, list[str]] = {
-    "prepare": [Job.Kind.PROCESS_DOCUMENT, Job.Kind.REINDEX_DOCUMENT],
-    "analyze": [Job.Kind.ANALYZE_DOCUMENT],
+    "intake": [Job.Kind.INTAKE_DOCUMENT, Job.Kind.REINDEX_DOCUMENT],
+    "process": [Job.Kind.PROCESS_DOCUMENT],
     "download": [Job.Kind.PULL_MODEL],
 }
+INTAKE_SLOTS = 1
 LANE_OF = {kind: lane for lane, kinds in LANES.items() for kind in kinds}
 CONCURRENT_JOB_KINDS = list(LANE_OF)
 MODEL_RETRY_SECONDS = 600
@@ -98,7 +100,7 @@ class Worker:
                         claimed = True
 
                 for lane, kinds in LANES.items():
-                    limit = 1 if lane == "download" else concurrency
+                    limit = concurrency if lane == "process" else INTAKE_SLOTS if lane == "intake" else 1
                     while not self.stopping and len(active[lane]) < limit:
                         job = queue.claim(self.worker_id, kinds=kinds)
                         if job is None:
@@ -159,9 +161,9 @@ class Worker:
         logger.info("job started", extra={"job": job.pk, "kind": job.kind, "attempt": job.attempts})
         try:
             with self.maintain_lease(job):
-                if job.kind == Job.Kind.PROCESS_DOCUMENT:
-                    pipeline.run(job.document_id, prepare_only=True)  # type: ignore[arg-type]
-                elif job.kind == Job.Kind.ANALYZE_DOCUMENT:
+                if job.kind == Job.Kind.INTAKE_DOCUMENT:
+                    pipeline.run(job.document_id, intake_only=True)  # type: ignore[arg-type]
+                elif job.kind == Job.Kind.PROCESS_DOCUMENT:
                     pipeline.run(job.document_id)  # type: ignore[arg-type]
                 elif job.kind == Job.Kind.PULL_MODEL:
                     self.pull_model(job)
@@ -293,6 +295,8 @@ class Worker:
             )
             WorkerHeartbeat.objects.filter(last_seen_at__lt=timezone.now() - timedelta(hours=1)).delete()
             self._last_heartbeat = now
+            if released := queue.release_orphans():
+                logger.warning("released jobs of a worker that stopped", extra={"jobs": released})
         if now - self._last_health > HEALTHCHECK_INTERVAL:
             self._last_health = now
             self.check_storage()

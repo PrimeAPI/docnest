@@ -213,7 +213,13 @@ def analyze(
 
         # Title
         if _can_set(document, "title"):
-            crypto_fields.set_title(document, titles.generate(document, extracted.subject))
+            ai_title = bool(model_fields and model_fields.title)
+            subject = extracted.subject
+            if ai_title and subject:
+                corr = document.correspondent.name if document.correspondent else None
+                subject = titles.without_sender(subject, model_sender, corr)
+            # An AI title stands on its own: the sender is shown in its own field.
+            crypto_fields.set_title(document, titles.generate(document, subject, name_sender=not ai_title))
 
         crypto_fields.set_extracted(document, extracted.to_json())
         document.save()

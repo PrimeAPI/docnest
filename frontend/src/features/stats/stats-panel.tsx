@@ -178,7 +178,11 @@ function ProcessingCard({ p }: { p: Stats["processing"] }) {
           <Tile
             label="AI analysis"
             value={formatDuration(p.ai_average_seconds)}
-            hint={p.ai_documents ? `average of ${p.ai_documents} documents` : "not used yet"}
+            hint={
+              p.ai_documents || p.ai_fallbacks
+                ? `average of ${p.ai_documents} documents${p.ai_fallbacks ? ` · failed ${p.ai_fallbacks}×, rules stepped in` : ""}`
+                : "not used yet"
+            }
           />
         </div>
         <div>

@@ -5,11 +5,12 @@ next stage to run, so a retry resumes where the previous attempt stopped.
 Until the storage stage succeeded, the (encrypted) files live in the intake
 volume; after it, the storage backend holds them and the intake is cleared.
 
-Two jobs share the work. `process_document` prepares the file (assemble,
-validate, enhance) within seconds, so the enhanced document can be read right
-away; it then hands over to `analyze_document` for text recognition, AI
-analysis, storage and indexing, which may take minutes and runs in its own
-worker lane, so it never holds up the next scan.
+Two jobs share the work. `intake_document` builds and checks the original
+(assemble, validate) within seconds, so the document can be opened right away;
+it then hands over to `process_document`, which runs everything else in one go
+(enhance, text recognition, analysis, storage, index). Processing takes minutes
+and is limited to the configured number of documents at a time; intake has its
+own small lane, so new scans are taken in meanwhile.
 """
 
 from __future__ import annotations
@@ -73,9 +74,11 @@ ORDER: list[str] = [
 ]
 # Steps a reprocessing run can choose; storage and indexing always follow.
 STEP_STAGES: dict[str, str] = {"enhance": Stage.ENHANCE, "ocr": Stage.OCR, "analyze": Stage.ANALYZE}
-# Stages of the fast `process_document` job; the rest run in `analyze_document`.
-PREPARE_STAGES = frozenset({Stage.RECEIVED, Stage.ASSEMBLE, Stage.VALIDATE, Stage.ENHANCE})
-DOCUMENT_JOB_KINDS = (Job.Kind.PROCESS_DOCUMENT, Job.Kind.ANALYZE_DOCUMENT)
+# Stages of the `intake_document` job; the rest run in `process_document`.
+INTAKE_STAGES = frozenset({Stage.RECEIVED, Stage.ASSEMBLE, Stage.VALIDATE})
+INTAKE_STEPS = [Stage.ASSEMBLE, Stage.VALIDATE]
+PROCESSING_STAGES = [Stage.ENHANCE, Stage.OCR, Stage.ANALYZE, Stage.STORE, Stage.INDEX]
+DOCUMENT_JOB_KINDS = (Job.Kind.INTAKE_DOCUMENT, Job.Kind.PROCESS_DOCUMENT)
 STORAGE_STATE_KEY = "storage_status"
 
 
@@ -273,6 +276,10 @@ def stage_validate(document: Document, work: Path) -> None:
     document.page_count = result.page_count
     document.original_page_count = result.page_count
     document.save(update_fields=["page_count", "original_page_count"])
+    # The original can be opened from now on; the enhancement replaces this preview later.
+    thumb = pdf.thumbnail(src)
+    if thumb:
+        crypto_fields.set_thumbnail(document, thumb)
 
 
 def enhancement_settings(document: Document) -> EnhanceSettings:
@@ -372,9 +379,10 @@ def stage_ocr(document: Document, work: Path) -> None:
 
 def stage_analyze(document: Document, work: Path) -> None:
     text = crypto_fields.get_content(document)
-    model_fields = _model_fields(document, work, text)
+    model_fields, how = _model_fields(document, work, text)
     if document.ocr_backend != Document.OcrBackend.DOCLING:
         analyze(document, text, model_fields=model_fields)
+        _record_analysis(document, how)
         return
 
     structure = crypto_fields.get_structure(document)
@@ -406,14 +414,26 @@ def stage_analyze(document: Document, work: Path) -> None:
                 message="VLM field extraction failed; layout detection was used",
             )
     analyze(document, text, detected_fields=detected, context_text=evidence, model_fields=model_fields)
+    _record_analysis(document, how)
 
 
-def _model_fields(document: Document, work: Path, text: str) -> ai.ModelFields | None:
-    """Ask the AI model, when one is chosen, to read the document's first pages."""
+def _record_analysis(document: Document, how: dict[str, str]) -> None:
+    """Keep with the extracted data how the document was read, shown on the document page."""
+    document.refresh_from_db()
+    extracted = crypto_fields.get_extracted(document)
+    crypto_fields.set_extracted(document, {**extracted, "analysis": how})
+    document.save(update_fields=["extracted_enc"])
+
+
+def _model_fields(document: Document, work: Path, text: str) -> tuple[ai.ModelFields | None, dict[str, str]]:
+    """Ask the AI model, when one is chosen, to read the document's first pages.
+
+    Returns its reading (None: use the rules) and how the document was read.
+    """
     plan = document.processing_plan
     model = plan["ai_model"] if isinstance(plan.get("ai_model"), str) else get_ai_model()
     if not model or not ai.configured():
-        return None
+        return None, {"by": "rules"}
     src = _processed_local(document, work)
     pages = range(1, min(document.page_count or 1, max(1, settings.AI_PAGES)) + 1)
     images = [
@@ -441,7 +461,7 @@ def _model_fields(document: Document, work: Path, text: str) -> ai.ModelFields |
             outcome="warning",
             message=f"AI analysis with {model} failed, rule-based detection was used: {exc}"[:500],
         )
-        return None
+        return None, {"by": "rules", "model": model, "problem": str(exc)[:300]}
     seconds = time.monotonic() - started
     ProcessingEvent.objects.create(
         document=document,
@@ -449,7 +469,7 @@ def _model_fields(document: Document, work: Path, text: str) -> ai.ModelFields |
         outcome="info",
         message=f"Read by the AI model {model} in {seconds:.0f} s",
     )
-    return fields
+    return fields, {"by": "ai", "model": model}
 
 
 def stage_store(document: Document, work: Path) -> None:
@@ -518,18 +538,16 @@ STAGES: dict[str, Callable[[Document, Path], None]] = {
 def enqueue(document: Document) -> Job | None:
     """Queue the job that runs the document's next stage."""
     kind = (
-        Job.Kind.PROCESS_DOCUMENT
-        if document.processing_stage in PREPARE_STAGES
-        else Job.Kind.ANALYZE_DOCUMENT
+        Job.Kind.INTAKE_DOCUMENT if document.processing_stage in INTAKE_STAGES else Job.Kind.PROCESS_DOCUMENT
     )
     priority = queue.BACKGROUND if document.processing_plan.get("background") else 0
     return queue.enqueue(kind, document=document, priority=priority)
 
 
-def run(document_id: int, *, prepare_only: bool = False) -> None:
+def run(document_id: int, *, intake_only: bool = False) -> None:
     """Run the outstanding stages of a document.
 
-    With `prepare_only`, stop once the document is readable and queue the rest.
+    With `intake_only`, stop once the original exists and queue the processing.
     """
     document = Document.objects.get(pk=document_id)
     if document.deleted_at is not None:
@@ -543,7 +561,7 @@ def run(document_id: int, *, prepare_only: bool = False) -> None:
     with workspace(document) as work:
         while document.processing_stage != Stage.DONE:
             stage = document.processing_stage
-            if prepare_only and stage not in PREPARE_STAGES:
+            if intake_only and stage not in INTAKE_STAGES:
                 with transaction.atomic():
                     Document.objects.filter(pk=document.pk).update(processing_state=Document.State.PENDING)
                     enqueue(document)

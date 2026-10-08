@@ -8,8 +8,8 @@ class Job(models.Model):
     """A unit of background work, claimed by workers with SELECT ... FOR UPDATE SKIP LOCKED."""
 
     class Kind(models.TextChoices):
-        PROCESS_DOCUMENT = "process_document"  # assemble, validate, enhance: readable within seconds
-        ANALYZE_DOCUMENT = "analyze_document"  # text recognition, AI analysis, storage, index
+        INTAKE_DOCUMENT = "intake_document"  # assemble and validate: the original exists, seconds
+        PROCESS_DOCUMENT = "process_document"  # enhance, recognise, analyse, store, index: minutes
         PULL_MODEL = "pull_model"  # download an AI model into Ollama
         DELETE_STORAGE = "delete_storage"
         TRAIN_CLASSIFIER = "train_classifier"

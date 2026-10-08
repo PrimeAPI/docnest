@@ -18,7 +18,7 @@ def test_upload_is_accepted_and_durable(scanner, isolated_dirs):
     body = r.json()
     doc = Document.objects.get(uuid=body["id"])
     assert doc.status == "todo" and doc.is_important
-    assert Job.objects.filter(document=doc, kind="process_document").count() == 1
+    assert Job.objects.filter(document=doc, kind="intake_document").count() == 1
     intake = list((isolated_dirs / "intake").iterdir())
     assert len(intake) == 1
     raw = intake[0].read_bytes()

@@ -164,7 +164,11 @@ class ProcessingQueueItem(Schema):
     document_id: UUID
     title: str
     state: str
-    stage: str
+    phase: str  # intake | processing | index
+    stage: str  # the document's current (or next) stage
+    step: int  # position of that stage within the phase, from 1; 0 when not applicable
+    steps: int  # number of stages in the phase
+    outcome: str  # for finished jobs: done | failed | cancelled
     backend: str
     attempts: int
     error: str
@@ -408,12 +412,29 @@ def _queue_item(job: Job, now: datetime) -> ProcessingQueueItem:
     title = crypto_fields.get_title(document) or crypto_fields.get_original_filename(document) or "Document"
     end = job.finished_at or (now if job.state == Job.State.RUNNING else None)
     duration = (end - job.started_at).total_seconds() if job.started_at and end else None
+    stages: list[str]
+    if job.kind == Job.Kind.INTAKE_DOCUMENT:
+        phase, stages = "intake", [str(s) for s in pipeline.INTAKE_STEPS]
+    elif job.kind == Job.Kind.PROCESS_DOCUMENT:
+        phase, stages = "processing", [str(s) for s in pipeline.PROCESSING_STAGES]
+    else:
+        phase, stages = "index", []
+    stage = str(document.processing_stage)
+    outcome = ""
+    if job.state == Job.State.DONE:
+        outcome = "done"
+    elif job.state == Job.State.FAILED:
+        outcome = "cancelled" if job.last_error == "Cancelled" else "failed"
     return ProcessingQueueItem(
         id=job.pk,
         document_id=document.uuid,
         title=title,
         state=job.state,
-        stage=document.processing_stage,
+        phase=phase,
+        stage=stage,
+        step=stages.index(stage) + 1 if stage in stages else 0,
+        steps=len(stages),
+        outcome=outcome,
         backend=document.ocr_backend or get_default_ocr_backend(),
         attempts=job.attempts,
         error=job.last_error,
@@ -427,7 +448,7 @@ def _queue_item(job: Job, now: datetime) -> ProcessingQueueItem:
 @router.get("/processing/queue", response=ProcessingQueueOut)
 def processing_queue(request: HttpRequest) -> ProcessingQueueOut:
     document_jobs = Job.objects.filter(
-        kind__in=[Job.Kind.PROCESS_DOCUMENT, Job.Kind.ANALYZE_DOCUMENT, Job.Kind.REINDEX_DOCUMENT],
+        kind__in=[Job.Kind.INTAKE_DOCUMENT, Job.Kind.PROCESS_DOCUMENT, Job.Kind.REINDEX_DOCUMENT],
         document__isnull=False,
     ).select_related("document")
     now = timezone.now()

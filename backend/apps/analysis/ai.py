@@ -50,6 +50,10 @@ class ModelFailed(Exception):
     """The model answered, but not usefully: fall back to rule-based detection."""
 
 
+class ModelCrashed(Exception):
+    """Ollama failed while running the model (often: not enough memory). Retry; never guess instead."""
+
+
 @dataclass(frozen=True)
 class ModelInfo:
     name: str
@@ -121,6 +125,11 @@ def _request(path: str, payload: dict[str, Any] | None = None, *, timeout: float
             raise ModelUnavailable(detail or "Model not found in Ollama") from exc
         if exc.code >= 500 and "not found" in detail.lower():
             raise ModelUnavailable(detail) from exc
+        if exc.code >= 500:
+            raise ModelCrashed(
+                f"The AI model stopped while reading ({detail or exc.code}); "
+                "a smaller model or more memory for the server helps"
+            ) from exc
         raise ModelFailed(f"Ollama error {exc.code}: {detail}") from exc
     except (urllib.error.URLError, ConnectionError, TimeoutError) as exc:
         reason = getattr(exc, "reason", exc)

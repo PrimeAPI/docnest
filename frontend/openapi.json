@@ -4052,8 +4052,24 @@
       "title": "State",
       "type": "string"
      },
+     "phase": {
+      "title": "Phase",
+      "type": "string"
+     },
      "stage": {
       "title": "Stage",
+      "type": "string"
+     },
+     "step": {
+      "title": "Step",
+      "type": "integer"
+     },
+     "steps": {
+      "title": "Steps",
+      "type": "integer"
+     },
+     "outcome": {
+      "title": "Outcome",
       "type": "string"
      },
      "backend": {
@@ -4114,7 +4130,11 @@
      "document_id",
      "title",
      "state",
+     "phase",
      "stage",
+     "step",
+     "steps",
+     "outcome",
      "backend",
      "attempts",
      "error",
@@ -4293,6 +4313,11 @@
        }
       ],
       "title": "Ai Average Seconds"
+     },
+     "ai_fallbacks": {
+      "default": 0,
+      "title": "Ai Fallbacks",
+      "type": "integer"
      }
     },
     "title": "Processing",

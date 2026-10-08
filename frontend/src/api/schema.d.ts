@@ -1436,8 +1436,16 @@ export interface components {
             title: string;
             /** State */
             state: string;
+            /** Phase */
+            phase: string;
             /** Stage */
             stage: string;
+            /** Step */
+            step: number;
+            /** Steps */
+            steps: number;
+            /** Outcome */
+            outcome: string;
             /** Backend */
             backend: string;
             /** Attempts */
@@ -1515,6 +1523,11 @@ export interface components {
             ai_documents: number;
             /** Ai Average Seconds */
             ai_average_seconds?: number | null;
+            /**
+             * Ai Fallbacks
+             * @default 0
+             */
+            ai_fallbacks: number;
         };
         /** StageTime */
         StageTime: {

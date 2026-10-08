@@ -1,6 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import {
   ArrowLeft,
+  Sparkles,
   Check,
   CircleDot,
   Download,
@@ -331,8 +332,23 @@ function Details({ doc }: { doc: DocumentDetail }) {
   const hasDetectedData =
     extracted.total_amount != null || Object.keys(references).length > 0 || ibans.length > 0 || plates.length > 0;
 
+  const analysis = (extracted.analysis ?? {}) as { by?: string; model?: string; problem?: string };
+
   return (
     <div className="flex flex-col gap-4">
+      {analysis.by === "ai" && (
+        <p className="flex items-center gap-1.5 text-xs text-muted-foreground">
+          <Sparkles className="size-3.5" /> Read by the AI model {analysis.model}
+        </p>
+      )}
+      {analysis.by === "rules" && analysis.problem && (
+        <div className="rounded-md border border-amber-300/60 bg-amber-50 p-2.5 text-xs text-amber-900 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-200">
+          <p className="font-medium">Read without AI — the fields below may be incomplete</p>
+          <p className="mt-0.5">
+            {analysis.model} failed: {analysis.problem}. Use “Reprocess…” → Analysis to try again.
+          </p>
+        </div>
+      )}
       <Field label="Sender" doc={doc} field="correspondent">
         <Input
           list="correspondent-options"

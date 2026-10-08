@@ -364,7 +364,7 @@ def test_storage_outage_defers_without_loss(scanner, monkeypatch, isolated_dirs)
     doc = Document.objects.get()
     assert doc.processing_state == "pending"
     assert doc.processing_error.startswith("Waiting for storage")
-    job = Job.objects.get(document=doc, kind=Job.Kind.ANALYZE_DOCUMENT)
+    job = Job.objects.get(document=doc, kind=Job.Kind.PROCESS_DOCUMENT)
     assert job.state == "queued" and job.attempts == 0  # attempt not consumed
     assert list((isolated_dirs / "intake").iterdir())
 
@@ -465,3 +465,28 @@ def test_delete_removes_everything(scanner, api, isolated_dirs):
     assert not Document.objects.exists()
     assert not list((isolated_dirs / "storage").rglob("*.pdf"))
     assert api.get("/api/v1/documents", {"q": "Stromlieferung"}).json()["total"] == 0
+
+
+def test_jobs_of_a_dead_worker_are_released_at_once(scanner):
+    from apps.processing.models import WorkerHeartbeat
+
+    _, token = scanner
+    upload(Client(), token, text_pdf(INVOICE_LINES))
+    job = queue.claim("crashed-worker")  # lease valid for JOB_LEASE_SECONDS
+    assert job is not None
+    WorkerHeartbeat.objects.create(
+        worker_id="crashed-worker", last_seen_at=timezone.now() - timedelta(minutes=5)
+    )
+    WorkerHeartbeat.objects.create(worker_id="busy-worker", last_seen_at=timezone.now())
+    other = Job.objects.create(
+        kind=Job.Kind.REINDEX_DOCUMENT,
+        document=job.document,
+        state="running",
+        locked_by="busy-worker",
+        locked_until=timezone.now() + timedelta(minutes=30),
+    )
+
+    assert queue.release_orphans() == 1
+    assert Job.objects.get(pk=other.pk).locked_until > timezone.now()  # a live worker keeps its job
+    process_all()  # the released job is taken over and finished
+    assert Document.objects.get().processing_state == "done"
