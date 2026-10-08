@@ -251,7 +251,7 @@ def test_ai_settings_explain_a_missing_ollama_server(api, settings):
     body = r.json()
     assert body["configured"] is False and body["reachable"] is False
     assert "DOCNEST_OLLAMA_URL" in body["error"]
-    assert body["suggestions"][0]["name"] == "qwen3-vl:8b-instruct"
+    assert body["suggestions"][0]["name"] == "qwen3-vl:4b-instruct"
 
 
 def test_ai_model_can_be_chosen_and_downloaded(api, settings, monkeypatch):
@@ -273,7 +273,7 @@ def test_ai_model_can_be_chosen_and_downloaded(api, settings, monkeypatch):
     body = r.json()
     assert body["model"] == "qwen3-vl:8b-instruct" and body["reachable"] is True
     assert body["models"][0]["vision"] is True
-    assert body["suggestions"][0]["installed"] is True
+    assert body["suggestions"][1]["installed"] is True
 
     assert (
         api.put("/api/v1/settings/ai", {"model": "bad name"}, content_type="application/json").status_code
@@ -330,3 +330,19 @@ def test_every_document_can_be_reprocessed_at_once(scanner, api, monkeypatch, mo
     assert r.json()["updated"] == 0  # already queued
     process_all()
     assert {d.correspondent.name for d in Document.objects.all()} == {"Energie Nord AG"}
+
+
+@pytest.mark.parametrize(
+    ("answer", "sender"),
+    [
+        ("Versicherer im Raum der Kirchen, Doktorweg 2-4, 32756 Detmold", "Versicherer im Raum der Kirchen"),
+        ("RME GmbH · Brüggeweg 54 · 28309 Bremen", "RME GmbH"),
+        (
+            "Johanniter-Unfall-Hilfe e.V., Ortsverband Delmenhorst",
+            "Johanniter-Unfall-Hilfe e.V., Ortsverband Delmenhorst",
+        ),
+        ("Bundesamt für Justiz", "Bundesamt für Justiz"),
+    ],
+)
+def test_sender_address_is_dropped(answer, sender):
+    assert ai._fields({"sender": answer}, "m", set()).sender == sender

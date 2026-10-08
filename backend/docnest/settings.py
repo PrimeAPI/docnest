@@ -207,8 +207,12 @@ if DOCLING_FIELD_DETECTION not in {"layout", "vlm", "hybrid"}:
 OLLAMA_URL = env("DOCNEST_OLLAMA_URL", "").rstrip("/")
 AI_MODEL = env("DOCNEST_AI_MODEL", "")
 AI_TIMEOUT_SECONDS = env_int("DOCNEST_AI_TIMEOUT_SECONDS", 3600)
-AI_CONTEXT_TOKENS = env_int("DOCNEST_AI_CONTEXT_TOKENS", 16384)
-AI_PAGES = env_int("DOCNEST_AI_PAGES", 2)  # page images the model looks at
+AI_CONTEXT_TOKENS = env_int("DOCNEST_AI_CONTEXT_TOKENS", 8192)
+# What the model reads per document. Every image tile and text token costs time on a CPU;
+# the sender, title and date are on the first page, and the image beats the OCR text.
+AI_PAGES = env_int("DOCNEST_AI_PAGES", 1)  # page images the model looks at
+AI_IMAGE_SIZE = env_int("DOCNEST_AI_IMAGE_SIZE", 1280)  # pixels along the longer side
+AI_TEXT_CHARS = env_int("DOCNEST_AI_TEXT_CHARS", 3000)  # OCR text from the start of the document
 MAX_PAGES = env_int("DOCNEST_MAX_PAGES", 500)
 # Scanner uploads of page images / multi-part scans (see docs/scanner-api.md)
 MAX_SCAN_BYTES = env_int("DOCNEST_MAX_SCAN_MB", 2000) * 1024 * 1024

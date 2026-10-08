@@ -415,7 +415,9 @@ def _model_fields(document: Document, work: Path, text: str) -> ai.ModelFields |
         return None
     src = _processed_local(document, work)
     pages = range(1, min(document.page_count or 1, max(1, settings.AI_PAGES)) + 1)
-    images = [image for page in pages if (image := pdf.render_page(src, page))]
+    images = [
+        image for page in pages if (image := pdf.render_page(src, page, long_edge=settings.AI_IMAGE_SIZE))
+    ]
     types = [ai.DocumentType(slug=t.slug, name=t.name) for t in DocumentType.objects.all()]
     started = time.monotonic()
     try:

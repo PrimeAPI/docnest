@@ -56,7 +56,8 @@ services:
   # Optional: the local AI model server behind "AI analysis" (Settings → System).
   #   docker compose --profile ai up -d
   # No published ports — only DocNest talks to it. It needs internet access just to download models,
-  # which land in the "ollama" volume. Models need RAM: ≈8 GB for the recommended qwen3-vl:8b-instruct.
+  # which land in the "ollama" volume. Models need RAM: 3.6 GB for the recommended qwen3-vl:4b-instruct
+  # (fits an 8 GB server next to DocNest), 6.2 GB for the more accurate qwen3-vl:8b-instruct (12 GB+ server).
   # With an NVIDIA GPU (and the NVIDIA Container Toolkit), uncomment "deploy" for much faster analysis.
   ollama:
     image: ollama/ollama:${DOCNEST_OLLAMA_VERSION:-0.40.1}

@@ -748,6 +748,11 @@ _BLANK_EDGE_MM = 8.0  # fold marks, edge shadows, staple and clip marks live her
 _PUNCH_HOLE_MM = (4.0, 8.5)  # diameter range of filing holes (ISO 838: 6 mm)
 _PUNCH_REACH_MM = 25.0  # how far from an edge a hole may lie
 _SPECK_MM2 = 0.1  # smaller ink blobs are dust, not a full stop
+# Print, handwriting and stamps have a dark core; show-through, fold creases and the shadow
+# of a crease stay grey even at full resolution.
+_FAINT = 140  # a mark whose darkest pixel is within this much of the paper is not content
+_CREASE_MM = (1.0, 5.0)  # thinner than this and longer than that: a fold line or crease
+_CREASE_FAINT = 200  # creases are excused up to this darkness; printed rules are black
 
 
 def is_blank(image: Image.Image, threshold_percent: float, dpi: float) -> bool:
@@ -759,14 +764,15 @@ def content_share(image: Image.Image, dpi: float) -> float:
     """Share of the page (inside the edge band) covered by ink that counts as content.
 
     Ink is anything clearly darker than the paper. Not counted: a band along
-    the edges, punch holes (round blobs of filing-hole size near an edge) and
-    dust specks. Show-through is faint and does not reach the ink level; the
-    cleanup step whitens most of it anyway.
+    the edges, punch holes (round blobs of filing-hole size near an edge), dust
+    specks, and faint marks — show-through from the other side and fold creases
+    never get as dark as print, handwriting or a stamp.
     """
-    grey = np.array(image.convert("L"))
+    full = np.array(image.convert("L"))
+    grey = full
     factor = min(1.0, _BLANK_DPI / dpi)
     if factor < 1.0:
-        grey = cv2.resize(grey, None, fx=factor, fy=factor, interpolation=cv2.INTER_AREA)
+        grey = cv2.resize(full, None, fx=factor, fy=factor, interpolation=cv2.INTER_AREA)
     sdpi = dpi * factor
     h, w = grey.shape
     edge = int(sdpi * _BLANK_EDGE_MM / 25.4)
@@ -794,8 +800,19 @@ def content_share(image: Image.Image, dpi: float) -> float:
             # A hole is often only partly dark (a ring or crescent, the backing shows through):
             # judge the hull of the blob, not its ink.
             points = cv2.findNonZero((labels[y : y + bh, x : x + bw] == i).astype(np.uint8))
-            if points is not None and cv2.contourArea(cv2.convexHull(points)) >= 0.6 * bw * bh:  # disc: 0.785
+            if points is not None and cv2.contourArea(cv2.convexHull(points)) >= 0.5 * bw * bh:  # disc: 0.785
                 continue
+        # Darkness is judged at full resolution: thin pen strokes turn grey when scaled down.
+        darkest = int(
+            full[
+                int(y / factor) : int((y + bh) / factor) + 1, int(x / factor) : int((x + bw) / factor) + 1
+            ].min()
+        )
+        if darkest >= paper - _FAINT:
+            continue  # show-through or a crease shadow
+        thin, long = min(bw, bh) * mm, max(bw, bh) * mm
+        if thin <= _CREASE_MM[0] and long >= _CREASE_MM[1] and darkest >= paper - _CREASE_FAINT:
+            continue  # a fold line
         inner = labels[max(y, edge) : min(y + bh, h - edge), max(x, edge) : min(x + bw, w - edge)] == i
         content += int(inner.sum())
     return content / float((h - 2 * edge) * (w - 2 * edge))

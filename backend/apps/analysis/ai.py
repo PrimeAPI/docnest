@@ -26,18 +26,17 @@ from rapidfuzz import fuzz
 
 logger = logging.getLogger(__name__)
 
-MAX_TEXT_CHARS = 12000
 LIST_TIMEOUT = 10
 # Shown in Settings as a starting point; any Ollama model works.
 MAX_ANSWER_TOKENS = 2048  # the answer is ~100 tokens; this only stops a runaway generation
 # Shown in Settings as a starting point; any Ollama model works. "-instruct" variants answer
 # directly, while reasoning ("thinking") variants spend minutes deliberating first.
 SUGGESTED_MODELS = [
-    ("qwen3-vl:8b-instruct", "Recommended: reads German letters very well (≈6 GB download, 8 GB RAM)"),
-    ("qwen3-vl:4b-instruct", "Smaller and faster, a little less accurate (≈3 GB, 5 GB RAM)"),
-    ("qwen2.5vl:7b", "Proven alternative (≈6 GB, 8 GB RAM)"),
-    ("gemma3:12b", "Larger and slower (≈8 GB, 12 GB RAM)"),
-    ("qwen3-vl:32b-instruct", "Best results, for a big GPU or a lot of patience (≈21 GB)"),
+    ("qwen3-vl:4b-instruct", "Recommended for 8 GB servers: ≈1 min per document on 8 cores, 3.6 GB RAM"),
+    ("qwen3-vl:8b-instruct", "More accurate, half as fast; 6.2 GB RAM, so a server with 12 GB or more"),
+    ("qwen2.5vl:7b", "Proven alternative (≈6 GB RAM)"),
+    ("gemma3:12b", "Larger and slower (≈9 GB RAM)"),
+    ("qwen3-vl:32b-instruct", "Best results, for a big GPU (≈21 GB)"),
 ]
 
 
@@ -194,11 +193,13 @@ sender: the organisation or person that issued the document, spelled exactly as 
   A small one-line return address above the address window sometimes names a mailing or
   payroll service; when the letterhead or page header names a different organisation,
   that organisation is the sender.
-  Use the organisation's full name with its legal form if printed (e.g. "Bundesamt für Justiz",
-  "Finanzamt Delmenhorst", "VRK Sachversicherung AG"). null if no sender is recognisable
-  (e.g. handwritten notes).
+  Use the organisation's name as written out in text — the return address, the footer or the
+  signature — not a stylised logo or abbreviation, with its legal form if printed (e.g.
+  "Bundesamt für Justiz", "Finanzamt Delmenhorst", "VRK Sachversicherung AG"). The name only,
+  without address. null if no sender is recognisable (e.g. handwritten notes).
 recipient: the name of the addressee, or null.
-title: a short title to file the document under, in the document's language: what the
+title: a short title to file the document under, in the same language as the document
+  (a German letter gets a German title): what the
   document is, plus its subject or period when that distinguishes it — for example
   "Erweitertes Führungszeugnis", "Verdienstabrechnung Juni 2026",
   "Fristverlängerung Umsatzsteuer-Voranmeldung". Do not include the sender, the recipient
@@ -239,7 +240,7 @@ def analyze(
     listing = ", ".join(f'"{t.slug}" ({t.name})' for t in types) or "null"
     prompt = INSTRUCTIONS.format(text_note=TEXT_NOTE if text.strip() else "", types=listing)
     if text.strip():
-        prompt += "\nOCR text:\n<<<\n" + text.strip()[:MAX_TEXT_CHARS] + "\n>>>\n"
+        prompt += "\nOCR text:\n<<<\n" + text.strip()[: settings.AI_TEXT_CHARS] + "\n>>>\n"
     message: dict[str, Any] = {"role": "user", "content": prompt}
     if images:
         message["images"] = [base64.b64encode(image).decode() for image in images]
@@ -286,7 +287,7 @@ def _strip_fences(content: str) -> str:
 
 
 def _fields(data: dict[str, Any], model: str, slugs: set[str]) -> ModelFields:
-    sender = clean(data.get("sender"))
+    sender = _without_address(clean(data.get("sender")))
     recipient = clean(data.get("recipient"))
     if sender and recipient and _same_party(sender, recipient):
         sender = None  # the model confused the addressee with the sender
@@ -308,6 +309,17 @@ def clean(value: object, *, limit: int = 150) -> str | None:
     if not cleaned or cleaned.casefold() in {"none", "null", "n/a", "unknown", "unbekannt", "-"}:
         return None
     return cleaned[:limit]
+
+
+def _without_address(sender: str | None) -> str | None:
+    """Cut an appended address: "Versicherer im Raum der Kirchen, Doktorweg 2-4, 32756 Detmold"."""
+    if not sender:
+        return sender
+    parts = [part.strip() for part in re.split(r",|\s[·•|]\s", sender)]
+    for index, part in enumerate(parts[1:], start=1):
+        if re.search(r"\d", part):  # a street number, postcode or PO box: the address begins
+            return ", ".join(parts[:index]) or None
+    return sender
 
 
 def _same_party(a: str, b: str) -> bool:

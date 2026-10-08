@@ -394,6 +394,26 @@ def test_page_with_only_a_short_line_is_kept(tmp_path, line):
     assert [p.blank for p in result.pages if p] == [False, False]
 
 
+def test_back_side_with_fold_creases_and_strong_show_through_is_removed(tmp_path):
+    """A folded letter's back: the creases cast grey lines, the front shines through clearly."""
+    page = letter()
+    back = Image.eval(page.transpose(Image.Transpose.FLIP_LEFT_RIGHT), lambda v: 255 - (255 - v) // 3)
+    draw = ImageDraw.Draw(back)
+    mm = DPI / 25.4
+    for y in (back.height / 3, back.height * 2 / 3):  # folded in three for a window envelope
+        for x0 in range(0, back.width, int(30 * mm)):  # the crease shadow comes and goes
+            draw.line((x0, y, x0 + 22 * mm, y + 0.3 * mm), fill=150, width=max(1, int(0.4 * mm)))
+    result, _ = run(tmp_path, pdf_of(letter(), back), EnhanceSettings())
+    assert [p.blank for p in result.pages if p] == [False, True]
+
+
+def test_note_in_blue_ballpoint_is_kept(tmp_path):
+    page = Image.new("RGB", letter().size, (250, 250, 248))
+    ImageDraw.Draw(page).text((300, 700), "Bezahlt 13.03.", fill=(40, 60, 170))
+    result, _ = run(tmp_path, pdf_of(letter().convert("RGB"), page), EnhanceSettings())
+    assert [p.blank for p in result.pages if p] == [False, False]
+
+
 def test_punch_holes_do_not_hide_a_short_note(tmp_path):
     page = back_side()
     ImageDraw.Draw(page).text((300, 700), "Erledigt 13.03.", fill=0)
