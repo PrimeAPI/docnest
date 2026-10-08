@@ -16,6 +16,7 @@ from apps.documents import crypto_fields
 from apps.documents.models import Document
 from apps.paper import services
 from apps.paper.models import DEFAULT_CAPACITY, Location
+from apps.taxonomy.services import folder_paths
 
 router = Router(tags=["paper"])
 
@@ -53,8 +54,13 @@ class PaperDocumentOut(Schema):
     sheets: int
 
 
+class PendingItemOut(PaperDocumentOut):
+    folder_id: int | None  # the filing folder it was scanned into, to put away one folder at a time
+    folder: str | None
+
+
 class PendingOut(Schema):
-    documents: list[PaperDocumentOut]
+    documents: list[PendingItemOut]
     sheets: int
 
 
@@ -186,7 +192,15 @@ def delete_location(request: HttpRequest, location_id: int) -> dict[str, bool]:
 
 @router.get("/pending", response=PendingOut)
 def pending(request: HttpRequest) -> PendingOut:
-    docs = [_doc_out(d) for d in services.pending().select_related("correspondent")]
+    paths = folder_paths()
+    docs = [
+        PendingItemOut(
+            **_doc_out(d).dict(),
+            folder_id=d.folder_id,
+            folder=paths.get(d.folder_id) if d.folder_id else None,
+        )
+        for d in services.pending().select_related("correspondent")
+    ]
     return PendingOut(documents=docs, sheets=sum(d.sheets for d in docs))
 
 

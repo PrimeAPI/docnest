@@ -21,7 +21,7 @@ import { Spinner } from "@/components/ui/misc";
 import { cn, formatDate, formatDateTime } from "@/lib/utils";
 
 export type PaperLocation = Schemas["LocationOut"];
-export type PaperDocument = Schemas["PaperDocumentOut"];
+export type PendingDocument = Schemas["PendingItemOut"];
 export const SHEET_MM = 0.1;
 
 export const paperKeys = {
@@ -264,18 +264,28 @@ export function PutAwayDialog({ open, onOpenChange }: { open: boolean; onOpenCha
   const [newCapacity, setNewCapacity] = useState("500");
   const [excluded, setExcluded] = useState<Set<string>>(new Set());
   const [mode, setMode] = useState<"existing" | "new">("existing");
+  // Which filing folder to put away from: "all", "none" (not filed) or a folder id.
+  const [filing, setFiling] = useState<"all" | "none" | number>("all");
 
-  const docs = pending.data?.documents ?? [];
+  const all = pending.data?.documents ?? [];
+  const filings = useMemo(() => pendingFilings(all), [pending.data]);
+  const docs = all.filter((d) => filing === "all" || (d.folder_id ?? "none") === filing);
   const list = locations.data ?? [];
   useEffect(() => {
     if (!open) return;
     setExcluded(new Set());
+    setFiling("all");
     setNewName("");
     // Default: the most recently created location (usually the binder currently being filled).
     const latest = [...list].sort((a, b) => b.created_at.localeCompare(a.created_at))[0];
     setTarget(latest?.id ?? null);
     setMode(list.length ? "existing" : "new");
   }, [open, locations.data]);
+
+  useEffect(() => {
+    // The chosen filing has been put away completely.
+    if (filing !== "all" && !filings.some((f) => f.key === filing)) setFiling("all");
+  }, [filings]);
 
   const chosen = docs.filter((d) => !excluded.has(d.id));
   const sheets = chosen.reduce((sum, d) => sum + d.sheets, 0);
@@ -324,10 +334,30 @@ export function PutAwayDialog({ open, onOpenChange }: { open: boolean; onOpenCha
         </DialogHeader>
         {pending.isPending ? (
           <Spinner />
-        ) : docs.length === 0 ? (
+        ) : all.length === 0 ? (
           <p className="text-sm text-muted-foreground">Nothing to put away — every paper original has a location.</p>
         ) : (
           <div className="flex flex-col gap-4">
+            {filings.length > 1 && (
+              <div className="grid gap-1">
+                <Label htmlFor="put-away-filing">From filing</Label>
+                <Select
+                  id="put-away-filing"
+                  value={String(filing)}
+                  onChange={(e) => {
+                    const v = e.target.value;
+                    setFiling(v === "all" || v === "none" ? v : Number(v));
+                  }}
+                >
+                  <option value="all">Everything ({all.length})</option>
+                  {filings.map((f) => (
+                    <option key={f.key} value={String(f.key)}>
+                      {f.label} ({f.count})
+                    </option>
+                  ))}
+                </Select>
+              </div>
+            )}
             <div className="flex flex-col gap-2">
               <div className="inline-flex w-fit rounded-md border p-0.5 text-xs">
                 {(["existing", "new"] as const).map((m) => (
@@ -394,8 +424,17 @@ export function PutAwayDialog({ open, onOpenChange }: { open: boolean; onOpenCha
             <div className="rounded-md border">
               <div className="flex items-center gap-2 border-b px-3 py-2 text-xs font-medium text-muted-foreground">
                 <Checkbox
-                  checked={excluded.size === 0 ? true : excluded.size === docs.length ? false : "indeterminate"}
-                  onCheckedChange={(v) => setExcluded(v === true ? new Set() : new Set(docs.map((d) => d.id)))}
+                  checked={chosen.length === docs.length ? true : chosen.length === 0 ? false : "indeterminate"}
+                  onCheckedChange={(v) =>
+                    setExcluded((current) => {
+                      const next = new Set(current);
+                      for (const d of docs) {
+                        if (v === true) next.delete(d.id);
+                        else next.add(d.id);
+                      }
+                      return next;
+                    })
+                  }
                   aria-label="Select all"
                 />
                 <span className="flex-1">
@@ -444,6 +483,20 @@ export function PutAwayDialog({ open, onOpenChange }: { open: boolean; onOpenCha
         </DialogFooter>
       </DialogContent>
     </Dialog>
+  );
+}
+
+/** The filing folders that have documents waiting to be put away, "No folder" last. */
+function pendingFilings(docs: PendingDocument[]) {
+  const byKey = new Map<number | "none", { key: number | "none"; label: string; count: number }>();
+  for (const d of docs) {
+    const key = d.folder_id ?? "none";
+    const entry = byKey.get(key) ?? { key, label: d.folder ?? "No folder", count: 0 };
+    entry.count += 1;
+    byKey.set(key, entry);
+  }
+  return [...byKey.values()].sort((a, b) =>
+    a.key === "none" ? 1 : b.key === "none" ? -1 : a.label.localeCompare(b.label),
   );
 }
 

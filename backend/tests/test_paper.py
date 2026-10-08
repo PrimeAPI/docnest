@@ -142,6 +142,18 @@ def test_location_with_documents_cannot_be_deleted(api):
     assert not Location.objects.exists()
 
 
+def test_pending_documents_carry_their_filing_folder(api):
+    from apps.taxonomy.services import ensure_folder_path
+
+    filed = make_doc("Filed", 1, minutes=1)
+    filed.folder = ensure_folder_path("Bucket 1/Taxes")
+    filed.save()
+    make_doc("Unfiled", 1, minutes=2)
+    docs = api.get("/api/v1/paper/pending").json()["documents"]
+    assert [(d["title"], d["folder"]) for d in docs] == [("Filed", "Bucket 1 / Taxes"), ("Unfiled", None)]
+    assert docs[0]["folder_id"] == filed.folder_id and docs[1]["folder_id"] is None
+
+
 def test_bulk_paper_flags(api):
     docs = [make_doc(f"Doc {i}", 1, minutes=i, has_paper=False) for i in range(3)]
     r = api.post(

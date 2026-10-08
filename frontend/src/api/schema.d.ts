@@ -2187,8 +2187,8 @@ export interface components {
              */
             move_to_root: boolean;
         };
-        /** PaperDocumentOut */
-        PaperDocumentOut: {
+        /** PendingItemOut */
+        PendingItemOut: {
             /**
              * Id
              * Format: uuid
@@ -2207,11 +2207,15 @@ export interface components {
             correspondent: string | null;
             /** Sheets */
             sheets: number;
+            /** Folder Id */
+            folder_id: number | null;
+            /** Folder */
+            folder: string | null;
         };
         /** PendingOut */
         PendingOut: {
             /** Documents */
-            documents: components["schemas"]["PaperDocumentOut"][];
+            documents: components["schemas"]["PendingItemOut"][];
             /** Sheets */
             sheets: number;
         };

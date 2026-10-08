@@ -6385,7 +6385,7 @@
     "title": "LocationPatch",
     "type": "object"
    },
-   "PaperDocumentOut": {
+   "PendingItemOut": {
     "properties": {
      "id": {
       "format": "uuid",
@@ -6427,6 +6427,28 @@
      "sheets": {
       "title": "Sheets",
       "type": "integer"
+     },
+     "folder_id": {
+      "anyOf": [
+       {
+        "type": "integer"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Folder Id"
+     },
+     "folder": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Folder"
      }
     },
     "required": [
@@ -6435,16 +6457,18 @@
      "uploaded_at",
      "document_date",
      "correspondent",
-     "sheets"
+     "sheets",
+     "folder_id",
+     "folder"
     ],
-    "title": "PaperDocumentOut",
+    "title": "PendingItemOut",
     "type": "object"
    },
    "PendingOut": {
     "properties": {
      "documents": {
       "items": {
-       "$ref": "#/components/schemas/PaperDocumentOut"
+       "$ref": "#/components/schemas/PendingItemOut"
       },
       "title": "Documents",
       "type": "array"
