@@ -16,10 +16,11 @@ from ninja.errors import HttpError
 from apps.analysis import ai
 from apps.audit.models import AuditLog
 from apps.audit.service import audit
+from apps.core import stats
 from apps.documents import crypto_fields
 from apps.documents.models import Document
 from apps.paper.services import pending as pending_paper
-from apps.processing import queue
+from apps.processing import pipeline, queue
 from apps.processing.models import Job, SystemState, WorkerHeartbeat
 from apps.processing.preferences import (
     AI_MODEL_PULL_KEY,
@@ -173,6 +174,7 @@ class ProcessingQueueItem(Schema):
 
 class ProcessingQueueOut(Schema):
     concurrency: int
+    queued_total: int  # `queued` lists at most 100
     queued: list[ProcessingQueueItem]
     running: list[ProcessingQueueItem]
     history: list[ProcessingQueueItem]
@@ -432,10 +434,32 @@ def processing_queue(request: HttpRequest) -> ProcessingQueueOut:
     )[:50]
     return ProcessingQueueOut(
         concurrency=get_processing_concurrency(),
+        queued_total=document_jobs.filter(state=Job.State.QUEUED).count(),
         queued=[_queue_item(job, now) for job in queued],
         running=[_queue_item(job, now) for job in running],
         history=[_queue_item(job, now) for job in history],
     )
+
+
+class CancelIn(Schema):
+    job_ids: list[int] | None = None  # None: every waiting document job
+
+
+class CancelOut(Schema):
+    cancelled: int
+
+
+@router.post("/processing/queue/cancel", response=CancelOut)
+def cancel_processing(request: HttpRequest, data: CancelIn) -> CancelOut:
+    """Cancel waiting jobs. Running ones cannot be interrupted safely and finish their step."""
+    n = pipeline.cancel_queued(data.job_ids)
+    audit("processing.cancelled", request=request, count=n, all=data.job_ids is None)
+    return CancelOut(cancelled=n)
+
+
+@router.get("/stats", response=stats.Stats)
+def archive_stats(request: HttpRequest) -> stats.Stats:
+    return stats.compute()
 
 
 @router.get("/audit", response=list[AuditOut])

@@ -35,7 +35,7 @@ The classifier that learns from your corrections uses the same hashed terms as f
 - A **second factor is mandatory**: passkeys / security keys (WebAuthn, phishing-resistant, recommended) or TOTP. SMS is not supported. Accounts without a second factor can only enroll one.
 - **Recovery codes** (10, single use, stored as keyed hashes).
 - **Brute-force protection** — per account and per IP, persistent in the database; lockout after repeated failures (default 5 per account / 20 per IP, 15 minutes). TOTP codes cannot be replayed.
-- **Sessions** — server-side, `__Host-` cookie, `Secure`, `HttpOnly`, `SameSite=Strict`; 30 min idle / 12 h absolute timeout; the session ID is rotated at login; logout and “sign out other sessions” invalidate server-side. Changing the password ends all other sessions.
+- **Sessions** — server-side, `__Host-` cookie, `Secure`, `HttpOnly`, `SameSite=Strict`; a signed-in browser stays signed in while it is used (the cookie survives closing the browser) and is signed out after one week without use or five weeks after signing in, whichever comes first — both enforced server-side; sensitive actions (password, second factors, recovery codes) ask for the password again regardless; the session ID is rotated at login; logout and “sign out other sessions” invalidate server-side. Changing the password ends all other sessions.
 - **Re-authentication** — creating scanner tokens, managing second factors and similar actions require the password again if the last sign-in is older than 10 minutes.
 - **CSRF** protection on every state-changing request.
 

@@ -6,7 +6,7 @@ import { PdfViewer } from "./pdf-viewer";
 type Variant = "archive" | "original";
 
 /** The PDF viewer with a switch between the enhanced version (default) and the untouched original. */
-export function DocumentViewer({ id, enhanced }: { id: string; enhanced?: boolean }) {
+export function DocumentViewer({ id, enhanced, version }: { id: string; enhanced?: boolean; version?: string }) {
   const [variant, setVariant] = useState<Variant>("archive");
   useEffect(() => setVariant("archive"), [id]);
 
@@ -52,7 +52,12 @@ export function DocumentViewer({ id, enhanced }: { id: string; enhanced?: boolea
         </a>
       </div>
       <div className="min-h-0 flex-1">
-        <PdfViewer key={variant} url={`/api/v1/documents/${id}/file?variant=${variant}`} />
+        <PdfViewer
+          key={variant}
+          url={`/api/v1/documents/${id}/file?variant=${variant}`}
+          // The thumbnail shows the enhanced first page: a preview while the PDF loads.
+          placeholder={variant === "archive" ? `/api/v1/documents/${id}/thumbnail?v=${version ?? ""}` : undefined}
+        />
       </div>
     </div>
   );

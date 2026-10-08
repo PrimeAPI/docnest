@@ -30,7 +30,7 @@ from apps.processing.models import SystemState
 from apps.search import tokenizer
 from apps.search.index import compute_signature
 from apps.taxonomy.models import Correspondent, DocumentType, MatchRule, Series, Tag, TagAlias
-from apps.taxonomy.services import find_correspondent, find_tag, fold
+from apps.taxonomy.services import find_correspondent, find_tag, fold, resolve_or_create_tag
 
 logger = logging.getLogger(__name__)
 
@@ -203,8 +203,9 @@ def analyze(
 
         document.save()
 
-        # Tags (additive; never removes tags the user or scanner set)
-        _apply_tags(document, signature, counts, rule_tags, result)
+        # Tags (never removes tags the user or scanner set)
+        model_tags = model_fields.tags if model_fields else None
+        _apply_tags(document, signature, counts, rule_tags, result, model_tags)
 
         # Series
         if _can_set(document, "series"):
@@ -227,23 +228,39 @@ def _apply_tags(
     counts: Counter[str],
     rule_tags: list[Tag],
     result: AnalysisResult,
+    model_tags: list[str] | None = None,
 ) -> None:
-    existing = set(DocumentTag.objects.filter(document=document).values_list("tag_id", flat=True))
     removed_by_user = set(document.field_sources.get("tags_removed", []))
-    candidates: dict[int, tuple[Tag, float]] = {}
-
-    for tag in rule_tags:
-        candidates[tag.pk] = (tag, 1.0)
-    for pred in classifier.predict_tags(signature):
-        predicted = Tag.objects.filter(pk=int(pred.label)).first()
-        if predicted:
-            candidates.setdefault(predicted.pk, (predicted, pred.probability))
-
     dismissed = set(
         (
             SystemState.objects.filter(key=DISMISSED_TAGS_KEY).values_list("value", flat=True).first() or {}
         ).get("names", [])
     )
+    candidates: dict[int, tuple[Tag, float]] = {}
+
+    for tag in rule_tags:
+        candidates[tag.pk] = (tag, 1.0)
+    if model_tags is not None:
+        # The AI model read this document; guesses from similar documents are not needed. Its
+        # earlier automatic tags make way, so reprocessing corrects them.
+        for name in model_tags:
+            found = find_tag(name)
+            if found is None:
+                if name in dismissed or fold(name) in {fold(d) for d in dismissed}:
+                    continue
+                found = resolve_or_create_tag(name, suggested=True)
+            candidates.setdefault(found.pk, (found, 0.9))
+        DocumentTag.objects.filter(document=document, source=Source.AUTO).exclude(
+            tag_id__in=list(candidates)
+        ).delete()
+        _add_tags(document, candidates, removed_by_user, result)
+        return
+
+    for pred in classifier.predict_tags(signature):
+        predicted = Tag.objects.filter(pk=int(pred.label)).first()
+        if predicted:
+            candidates.setdefault(predicted.pk, (predicted, pred.probability))
+
     for name, (aliases, keywords) in TAG_KEYWORDS.items():
         if _keyword_hits(counts, keywords) < MIN_KEYWORD_HITS:
             continue
@@ -259,7 +276,16 @@ def _apply_tags(
                 ):
                     TagAlias.objects.create(tag=found, alias=alias)
         candidates.setdefault(found.pk, (found, 0.6))
+    _add_tags(document, candidates, removed_by_user, result)
 
+
+def _add_tags(
+    document: Document,
+    candidates: dict[int, tuple[Tag, float]],
+    removed_by_user: set[int],
+    result: AnalysisResult,
+) -> None:
+    existing = set(DocumentTag.objects.filter(document=document).values_list("tag_id", flat=True))
     for tag_id, (tag, confidence) in list(candidates.items())[:8]:
         if tag_id in existing or tag_id in removed_by_user:
             continue

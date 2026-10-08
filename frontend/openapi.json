@@ -304,6 +304,71 @@
     ]
    }
   },
+  "/api/v1/processing/queue/cancel": {
+   "post": {
+    "operationId": "apps_core_api_cancel_processing",
+    "summary": "Cancel Processing",
+    "parameters": [],
+    "responses": {
+     "200": {
+      "description": "OK",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/CancelOut"
+        }
+       }
+      }
+     }
+    },
+    "description": "Cancel waiting jobs. Running ones cannot be interrupted safely and finish their step.",
+    "tags": [
+     "system"
+    ],
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/CancelIn"
+       }
+      }
+     },
+     "required": true
+    },
+    "security": [
+     {
+      "MfaSessionAuth": []
+     }
+    ]
+   }
+  },
+  "/api/v1/stats": {
+   "get": {
+    "operationId": "apps_core_api_archive_stats",
+    "summary": "Archive Stats",
+    "parameters": [],
+    "responses": {
+     "200": {
+      "description": "OK",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/Stats"
+        }
+       }
+      }
+     }
+    },
+    "tags": [
+     "system"
+    ],
+    "security": [
+     {
+      "MfaSessionAuth": []
+     }
+    ]
+   }
+  },
   "/api/v1/audit": {
    "get": {
     "operationId": "apps_core_api_audit_log",
@@ -4057,6 +4122,10 @@
       "title": "Concurrency",
       "type": "integer"
      },
+     "queued_total": {
+      "title": "Queued Total",
+      "type": "integer"
+     },
      "queued": {
       "items": {
        "$ref": "#/components/schemas/ProcessingQueueItem"
@@ -4081,11 +4150,271 @@
     },
     "required": [
      "concurrency",
+     "queued_total",
      "queued",
      "running",
      "history"
     ],
     "title": "ProcessingQueueOut",
+    "type": "object"
+   },
+   "CancelOut": {
+    "properties": {
+     "cancelled": {
+      "title": "Cancelled",
+      "type": "integer"
+     }
+    },
+    "required": [
+     "cancelled"
+    ],
+    "title": "CancelOut",
+    "type": "object"
+   },
+   "CancelIn": {
+    "properties": {
+     "job_ids": {
+      "anyOf": [
+       {
+        "items": {
+         "type": "integer"
+        },
+        "type": "array"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Job Ids"
+     }
+    },
+    "title": "CancelIn",
+    "type": "object"
+   },
+   "Counted": {
+    "properties": {
+     "name": {
+      "title": "Name",
+      "type": "string"
+     },
+     "count": {
+      "title": "Count",
+      "type": "integer"
+     }
+    },
+    "required": [
+     "name",
+     "count"
+    ],
+    "title": "Counted",
+    "type": "object"
+   },
+   "Month": {
+    "properties": {
+     "month": {
+      "title": "Month",
+      "type": "string"
+     },
+     "documents": {
+      "title": "Documents",
+      "type": "integer"
+     },
+     "pages": {
+      "title": "Pages",
+      "type": "integer"
+     }
+    },
+    "required": [
+     "month",
+     "documents",
+     "pages"
+    ],
+    "title": "Month",
+    "type": "object"
+   },
+   "Processing": {
+    "properties": {
+     "readable_median_seconds": {
+      "anyOf": [
+       {
+        "type": "number"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Readable Median Seconds"
+     },
+     "done_median_seconds": {
+      "anyOf": [
+       {
+        "type": "number"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Done Median Seconds"
+     },
+     "sample": {
+      "default": 0,
+      "title": "Sample",
+      "type": "integer"
+     },
+     "stages": {
+      "items": {
+       "$ref": "#/components/schemas/StageTime"
+      },
+      "title": "Stages",
+      "type": "array"
+     },
+     "ai_documents": {
+      "default": 0,
+      "title": "Ai Documents",
+      "type": "integer"
+     },
+     "ai_average_seconds": {
+      "anyOf": [
+       {
+        "type": "number"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Ai Average Seconds"
+     }
+    },
+    "title": "Processing",
+    "type": "object"
+   },
+   "StageTime": {
+    "properties": {
+     "stage": {
+      "title": "Stage",
+      "type": "string"
+     },
+     "average_seconds": {
+      "title": "Average Seconds",
+      "type": "number"
+     },
+     "runs": {
+      "title": "Runs",
+      "type": "integer"
+     }
+    },
+    "required": [
+     "stage",
+     "average_seconds",
+     "runs"
+    ],
+    "title": "StageTime",
+    "type": "object"
+   },
+   "Stats": {
+    "properties": {
+     "documents": {
+      "title": "Documents",
+      "type": "integer"
+     },
+     "pages": {
+      "title": "Pages",
+      "type": "integer"
+     },
+     "bytes": {
+      "title": "Bytes",
+      "type": "integer"
+     },
+     "correspondents": {
+      "title": "Correspondents",
+      "type": "integer"
+     },
+     "tags": {
+      "title": "Tags",
+      "type": "integer"
+     },
+     "unread": {
+      "title": "Unread",
+      "type": "integer"
+     },
+     "todo": {
+      "title": "Todo",
+      "type": "integer"
+     },
+     "failed": {
+      "title": "Failed",
+      "type": "integer"
+     },
+     "processing_now": {
+      "title": "Processing Now",
+      "type": "integer"
+     },
+     "per_week": {
+      "title": "Per Week",
+      "type": "number"
+     },
+     "oldest_document_date": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Oldest Document Date"
+     },
+     "months": {
+      "items": {
+       "$ref": "#/components/schemas/Month"
+      },
+      "title": "Months",
+      "type": "array"
+     },
+     "types": {
+      "items": {
+       "$ref": "#/components/schemas/Counted"
+      },
+      "title": "Types",
+      "type": "array"
+     },
+     "correspondents_top": {
+      "items": {
+       "$ref": "#/components/schemas/Counted"
+      },
+      "title": "Correspondents Top",
+      "type": "array"
+     },
+     "sources": {
+      "items": {
+       "$ref": "#/components/schemas/Counted"
+      },
+      "title": "Sources",
+      "type": "array"
+     },
+     "processing": {
+      "$ref": "#/components/schemas/Processing"
+     }
+    },
+    "required": [
+     "documents",
+     "pages",
+     "bytes",
+     "correspondents",
+     "tags",
+     "unread",
+     "todo",
+     "failed",
+     "processing_now",
+     "per_week",
+     "oldest_document_date",
+     "months",
+     "types",
+     "correspondents_top",
+     "sources",
+     "processing"
+    ],
+    "title": "Stats",
     "type": "object"
    },
    "AuditOut": {

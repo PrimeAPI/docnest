@@ -25,6 +25,7 @@ PENDING_AT_KEY = "pending_at"
 PENDING_TTL_SECONDS = 300
 MFA_OK_KEY = "mfa_ok"
 REAUTH_AT_KEY = "reauth_at"
+LOGIN_AT_KEY = "login_at"  # start of the absolute session lifetime
 
 
 # --- Throttling --------------------------------------------------------------
@@ -113,6 +114,7 @@ def complete_login(request: HttpRequest, user: User, *, mfa_ok: bool) -> None:
     login(request, user, backend="django.contrib.auth.backends.ModelBackend")
     request.session[MFA_OK_KEY] = mfa_ok
     request.session["last_activity"] = time.time()
+    request.session[LOGIN_AT_KEY] = time.time()
     if mfa_ok:
         request.session[REAUTH_AT_KEY] = time.time()
         track_session(request, user)

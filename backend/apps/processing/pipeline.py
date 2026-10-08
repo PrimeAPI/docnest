@@ -23,6 +23,7 @@ from pathlib import Path
 
 from django.conf import settings
 from django.db import transaction
+from django.db.models import Count
 from django.utils import timezone
 
 from apps.analysis import ai, docling_fields
@@ -54,7 +55,7 @@ from apps.processing.preferences import (
 )
 from apps.search.index import IndexInput, index_document
 from apps.storage.backends import StorageAuthError, StoredObject, get_backend
-from apps.taxonomy.models import DocumentType
+from apps.taxonomy.models import DocumentType, Tag
 
 logger = logging.getLogger(__name__)
 
@@ -419,9 +420,15 @@ def _model_fields(document: Document, work: Path, text: str) -> ai.ModelFields |
         image for page in pages if (image := pdf.render_page(src, page, long_edge=settings.AI_IMAGE_SIZE))
     ]
     types = [ai.DocumentType(slug=t.slug, name=t.name) for t in DocumentType.objects.all()]
+    # The user's own tags first, the most used first: the model should reuse those.
+    tags = list(
+        Tag.objects.annotate(uses=Count("documenttag"))
+        .order_by("is_suggested", "-uses", "name")
+        .values_list("name", flat=True)[: ai.MAX_KNOWN_TAGS]
+    )
     started = time.monotonic()
     try:
-        fields = ai.analyze(model, images=images, text=text, types=types)
+        fields = ai.analyze(model, images=images, text=text, types=types, tags=tags)
     except ai.ModelUnavailable as exc:
         raise AnalysisModelUnavailable(str(exc)) from exc
     except ai.ModelFailed as exc:
@@ -573,6 +580,60 @@ def restart_from(document: Document, stage: str, plan: dict[str, object] | None 
     document.processing_plan = plan or {}
     document.save(
         update_fields=["processing_stage", "processing_state", "processing_error", "processing_plan"]
+    )
+
+
+CANCELLED = "Cancelled — use Reprocess to finish"
+
+
+def cancel_queued(job_ids: list[int] | None = None) -> int:
+    """Cancel waiting document jobs (all of them when `job_ids` is None); running ones finish.
+
+    A document whose stored version is untouched (e.g. a queued reanalysis) simply stays as it
+    was; one left half processed is marked failed, so "Reprocess" can finish it later.
+    """
+    cancellable = [*DOCUMENT_JOB_KINDS, Job.Kind.REINDEX_DOCUMENT]
+    now = timezone.now()
+    n = 0
+    with transaction.atomic():
+        jobs = Job.objects.select_for_update(skip_locked=True).filter(
+            state=Job.State.QUEUED, kind__in=cancellable
+        )
+        if job_ids is not None:
+            jobs = jobs.filter(pk__in=job_ids)
+        for job in jobs.select_related("document").select_for_update(skip_locked=True, of=("self",)):
+            Job.objects.filter(pk=job.pk).update(
+                state=Job.State.FAILED, last_error="Cancelled", finished_at=now, updated_at=now
+            )
+            n += 1
+            if job.kind in DOCUMENT_JOB_KINDS and job.document is not None:
+                _settle_cancelled(job.document)
+    return n
+
+
+def _settle_cancelled(document: Document) -> None:
+    uuid = str(document.uuid)
+    untouched = (
+        bool(document.storage_original)
+        and not archive_intake_path(document).exists()
+        and not enhanced_intake_path_for(uuid).exists()
+    )
+    if untouched:
+        reindex_needed = document.processing_stage == Stage.INDEX
+        Document.objects.filter(pk=document.pk).update(
+            processing_state=Document.State.DONE,
+            processing_stage=Stage.DONE,
+            processing_error="",
+            processing_plan={},
+        )
+        if reindex_needed:
+            reindex(document)
+    else:
+        Document.objects.filter(pk=document.pk).update(
+            processing_state=Document.State.FAILED, processing_error=CANCELLED, processing_plan={}
+        )
+    ProcessingEvent.objects.create(
+        document=document, stage=document.processing_stage, outcome="warning", message="Processing cancelled"
     )
 
 

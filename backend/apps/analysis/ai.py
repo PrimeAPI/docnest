@@ -28,6 +28,8 @@ logger = logging.getLogger(__name__)
 
 LIST_TIMEOUT = 10
 # Shown in Settings as a starting point; any Ollama model works.
+MAX_TAGS = 4
+MAX_KNOWN_TAGS = 80  # existing tags offered to the model; more only cost time
 MAX_ANSWER_TOKENS = 2048  # the answer is ~100 tokens; this only stops a runaway generation
 # Shown in Settings as a starting point; any Ollama model works. "-instruct" variants answer
 # directly, while reasoning ("thinking") variants spend minutes deliberating first.
@@ -82,6 +84,7 @@ class ModelFields:
     title: str | None = None
     document_date: date | None = None
     document_type: str | None = None  # a slug from the offered types
+    tags: list[str] | None = None  # None: the model was not asked
     model: str = ""
 
 
@@ -219,6 +222,10 @@ german_title: a short German title to file the document under (for a document pr
 document_date: the date the document was issued (letter date, invoice date, "Datum"),
   as YYYY-MM-DD. Not a birth date, due date or a period. null if there is none.
 document_type: the slug of the type that fits best: {types}
+tags: 1 to 4 short German keywords to find the document again by topic (e.g. "Steuer",
+  "Versicherung", "Auto", "Gesundheit", "Arbeit", "Wohnung"). Take them from the existing tags
+  below whenever one fits, spelled exactly as listed; make up a new one only for a topic none of
+  them covers. Not the sender, not the document type, no dates. Existing tags: {tags}
 """
 
 TEXT_NOTE = " and the OCR text below; the OCR text may contain recognition errors, so trust the images"
@@ -236,8 +243,9 @@ def _schema(type_slugs: list[str]) -> dict[str, Any]:
             "document_type": {"type": ["string", "null"], "enum": [*type_slugs, None]}
             if type_slugs
             else nullable,
+            "tags": {"type": "array", "items": {"type": "string"}, "maxItems": MAX_TAGS},
         },
-        "required": ["sender", "recipient", "german_title", "document_date", "document_type"],
+        "required": ["sender", "recipient", "german_title", "document_date", "document_type", "tags"],
     }
 
 
@@ -247,6 +255,7 @@ def analyze(
     images: list[bytes],
     text: str,
     types: list[DocumentType],
+    tags: list[str] | None = None,
 ) -> ModelFields:
     """Ask `model` about one document. No timeout beyond DOCNEST_AI_TIMEOUT_SECONDS: slow is fine."""
     listing = (
@@ -256,7 +265,8 @@ def analyze(
         )
         or "null"
     )
-    prompt = INSTRUCTIONS.format(text_note=TEXT_NOTE if text.strip() else "", types=listing)
+    known = ", ".join(f'"{t}"' for t in (tags or [])[:MAX_KNOWN_TAGS]) or "none yet"
+    prompt = INSTRUCTIONS.format(text_note=TEXT_NOTE if text.strip() else "", types=listing, tags=known)
     if text.strip():
         prompt += "\nOCR text:\n<<<\n" + text.strip()[: settings.AI_TEXT_CHARS] + "\n>>>\n"
     message: dict[str, Any] = {"role": "user", "content": prompt}
@@ -316,6 +326,7 @@ def _fields(data: dict[str, Any], model: str, slugs: set[str]) -> ModelFields:
         title=clean(data.get("german_title") or data.get("title"), limit=120),
         document_date=_date(data.get("document_date")),
         document_type=doc_type if doc_type in slugs else None,
+        tags=_tags(data.get("tags")),
         model=model,
     )
 
@@ -327,6 +338,15 @@ def clean(value: object, *, limit: int = 150) -> str | None:
     if not cleaned or cleaned.casefold() in {"none", "null", "n/a", "unknown", "unbekannt", "-"}:
         return None
     return cleaned[:limit]
+
+
+def _tags(value: object) -> list[str]:
+    tags: list[str] = []
+    for item in value if isinstance(value, list) else []:
+        tag = clean(item, limit=40)
+        if tag and tag.casefold() not in {t.casefold() for t in tags}:
+            tags.append(tag)
+    return tags[:MAX_TAGS]
 
 
 def _without_address(sender: str | None) -> str | None:

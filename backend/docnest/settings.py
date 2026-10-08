@@ -116,9 +116,13 @@ SESSION_COOKIE_NAME = "__Host-docnest_session" if SECURE_COOKIES else "docnest_s
 SESSION_COOKIE_SECURE = SECURE_COOKIES
 SESSION_COOKIE_HTTPONLY = True
 SESSION_COOKIE_SAMESITE = "Strict"
-SESSION_COOKIE_AGE = env_int("DOCNEST_SESSION_ABSOLUTE_TIMEOUT_MINUTES", 12 * 60) * 60
-SESSION_EXPIRE_AT_BROWSER_CLOSE = True
-SESSION_IDLE_TIMEOUT = env_int("DOCNEST_SESSION_IDLE_TIMEOUT_MINUTES", 30) * 60
+# A signed-in browser stays signed in while it is used: it signs out after a week without use,
+# and five weeks after the sign-in at the latest. Sensitive actions (password, second factors,
+# recovery codes) ask for the password again regardless (REAUTH_MAX_AGE_SECONDS).
+SESSION_ABSOLUTE_TIMEOUT = env_int("DOCNEST_SESSION_ABSOLUTE_TIMEOUT_MINUTES", 35 * 24 * 60) * 60
+SESSION_IDLE_TIMEOUT = env_int("DOCNEST_SESSION_IDLE_TIMEOUT_MINUTES", 7 * 24 * 60) * 60
+SESSION_COOKIE_AGE = SESSION_ABSOLUTE_TIMEOUT
+SESSION_EXPIRE_AT_BROWSER_CLOSE = False  # survives closing the browser; the limits above still apply
 SESSION_SAVE_EVERY_REQUEST = False
 
 CSRF_COOKIE_NAME = "__Host-docnest_csrf" if SECURE_COOKIES else "docnest_csrf"

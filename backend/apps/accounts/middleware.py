@@ -9,12 +9,17 @@ from django.http import HttpRequest, HttpResponse
 from django.utils import timezone
 
 from apps.accounts.models import UserSession
+from apps.accounts.services import LOGIN_AT_KEY
 
 TOUCH_INTERVAL = 60
 
 
 class SessionTimeoutMiddleware:
-    """Enforces the idle timeout and invalidates sessions that were revoked."""
+    """Enforces the idle and absolute timeouts and invalidates sessions that were revoked.
+
+    Django moves a session's expiry forward whenever it is saved, so the absolute
+    limit is measured here from the sign-in itself.
+    """
 
     def __init__(self, get_response: Callable[[HttpRequest], HttpResponse]) -> None:
         self.get_response = get_response
@@ -24,8 +29,12 @@ class SessionTimeoutMiddleware:
         if request.user.is_authenticated:
             now = time.time()
             last = session.get("last_activity", now)
+            if LOGIN_AT_KEY not in session:
+                session[LOGIN_AT_KEY] = now  # signed in before the absolute limit was recorded
             tracked = session.get("tracked")
-            if now - last > settings.SESSION_IDLE_TIMEOUT:
+            idle = now - last > settings.SESSION_IDLE_TIMEOUT
+            expired = now - session[LOGIN_AT_KEY] > settings.SESSION_ABSOLUTE_TIMEOUT
+            if idle or expired:
                 logout(request)
             elif tracked and not UserSession.objects.filter(session_key=session.session_key).exists():
                 logout(request)  # revoked from another session

@@ -30,8 +30,8 @@ def model(settings):
 def fake_model(monkeypatch, fields: ai.ModelFields | Exception) -> list[dict]:
     calls: list[dict] = []
 
-    def analyze(model, *, images, text, types):
-        calls.append({"model": model, "images": images, "text": text, "types": types})
+    def analyze(model, *, images, text, types, tags=None):
+        calls.append({"model": model, "images": images, "text": text, "types": types, "tags": tags})
         if isinstance(fields, Exception):
             raise fields
         return fields
@@ -400,3 +400,48 @@ def test_title_is_asked_for_in_german(settings, monkeypatch):
     fields = ai.analyze("m", images=[], text="Enhanced Certificate of Conduct", types=[])
     assert fields.title == "Erweitertes Führungszeugnis"
     assert "german_title" in sent[0]["format"]["required"]
+
+
+def test_ai_picks_existing_tags_and_may_suggest_new_ones(scanner, api, monkeypatch, model):
+    from apps.documents.models import DocumentTag
+    from apps.taxonomy.models import Tag
+
+    _, token = scanner
+    Tag.objects.create(name="Energie")
+    calls = fake_model(monkeypatch, ai.ModelFields(sender="Energie Nord AG", tags=["energie", "Haushalt"]))
+    doc_id = upload(Client(), token, text_pdf(INVOICE_LINES)).json()["id"]
+    process_all()
+
+    assert "Energie" in calls[0]["tags"]
+    doc = Document.objects.get(uuid=doc_id)
+    assert {t.name for t in doc.tags.all()} == {"Energie", "Haushalt"}  # the existing spelling is reused
+    assert Tag.objects.get(name="Haushalt").is_suggested  # new: a suggestion to confirm
+
+    # The user removes one; reanalysis replaces the automatic tags but never brings that one back.
+    energie = Tag.objects.get(name="Energie")
+    api.patch(f"/api/v1/documents/{doc_id}", {"tag_ids": [energie.pk]}, content_type="application/json")
+    fake_model(monkeypatch, ai.ModelFields(sender="Energie Nord AG", tags=["Haushalt", "Strom"]))
+    api.post(f"/api/v1/documents/{doc_id}/reprocess", {"steps": ["analyze"]}, content_type="application/json")
+    process_all()
+    assert {t.name for t in doc.tags.all()} == {"Energie", "Strom"}
+    assert DocumentTag.objects.get(document=doc, tag=energie).source == "user"
+
+
+def test_deleted_tags_are_not_recreated_by_the_ai(scanner, api, monkeypatch, model):
+    from apps.taxonomy.models import Tag
+
+    _, token = scanner
+    unwanted = Tag.objects.create(name="Sonstiges")
+    api.delete(f"/api/v1/tags/{unwanted.pk}")
+    fake_model(monkeypatch, ai.ModelFields(sender="Energie Nord AG", tags=["Sonstiges"]))
+    upload(Client(), token, text_pdf(INVOICE_LINES))
+    process_all()
+    assert not Tag.objects.filter(name="Sonstiges").exists()
+    assert not Document.objects.get().tags.exists()
+
+
+def test_model_tags_are_cleaned():
+    fields = ai._fields(
+        {"tags": ["Steuer", " steuer ", "", None, "A" * 80, "Auto", "Haus", "Bank"]}, "m", set()
+    )
+    assert fields.tags == ["Steuer", "A" * 40, "Auto", "Haus"]

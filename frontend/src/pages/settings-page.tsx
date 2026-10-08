@@ -1,6 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   Activity,
+  BarChart3,
   ChevronDown,
   Copy,
   DatabaseBackup,
@@ -35,6 +36,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { KeyEnroll, RecoveryCodes, TotpEnroll } from "@/features/auth/enroll";
 import { AiModelCard, ReprocessAllCard } from "@/features/processing/ai-model";
 import { EnhancementCard } from "@/features/processing/enhancement";
+import { StatsPanel } from "@/features/stats/stats-panel";
 import { Link } from "react-router";
 import { describeAction, describeAgent, describeMethod } from "@/lib/agent";
 import { cn, formatBytes, formatDateTime } from "@/lib/utils";
@@ -54,6 +56,9 @@ export function SettingsPage() {
           <TabsTrigger value="system">
             <Activity /> System
           </TabsTrigger>
+          <TabsTrigger value="stats">
+            <BarChart3 /> Statistics
+          </TabsTrigger>
         </TabsList>
         <TabsContent value="security" className="flex flex-col gap-6">
           <SignInActivity />
@@ -71,6 +76,9 @@ export function SettingsPage() {
           <EnhancementCard />
           <SystemCard />
           <AuditLog />
+        </TabsContent>
+        <TabsContent value="stats">
+          <StatsPanel />
         </TabsContent>
       </Tabs>
     </>
@@ -298,7 +306,7 @@ function Sessions() {
     <Card>
       <CardHeader>
         <CardTitle>Active sessions</CardTitle>
-        <CardDescription>Sessions end after 30 minutes of inactivity and after 12 hours at most.</CardDescription>
+        <CardDescription>Sessions end after a week without use and five weeks after signing in at the latest.</CardDescription>
       </CardHeader>
       <CardContent className="flex flex-col gap-3">
         <div className="divide-y rounded-md border">

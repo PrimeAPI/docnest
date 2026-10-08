@@ -8,8 +8,10 @@ import { ErrorNote, Spinner } from "@/components/ui/misc";
 
 pdfjs.GlobalWorkerOptions.workerSrc = workerUrl;
 
-export function PdfViewer({ url }: { url: string }) {
+/** `placeholder`: an image of the first page shown at full width until the PDF has loaded. */
+export function PdfViewer({ url, placeholder }: { url: string; placeholder?: string }) {
   const [pdf, setPdf] = useState<PDFDocumentProxy | null>(null);
+  const [placeholderFailed, setPlaceholderFailed] = useState(false);
   const [error, setError] = useState<unknown>(null);
   const [scale, setScale] = useState(1.2);
   const scroller = useRef<HTMLDivElement>(null);
@@ -55,6 +57,20 @@ export function PdfViewer({ url }: { url: string }) {
   }, [url]);
 
   if (error) return <ErrorNote error={error} />;
+  if (!pdf && placeholder && !placeholderFailed)
+    return (
+      <div ref={scroller} className="relative h-full w-full overflow-auto bg-muted/40 p-5">
+        <img
+          src={placeholder}
+          alt=""
+          className="mx-auto w-full max-w-3xl bg-white shadow-md"
+          onError={() => setPlaceholderFailed(true)}
+        />
+        <div className="absolute left-1/2 top-3 flex -translate-x-1/2 items-center gap-2 rounded-full border bg-card/95 px-3 py-1 text-xs text-muted-foreground shadow-sm">
+          <Spinner className="size-3.5" /> Loading full document…
+        </div>
+      </div>
+    );
   if (!pdf)
     return (
       <div ref={scroller} className="flex h-96 w-full flex-col items-center justify-center gap-2 text-sm text-muted-foreground">

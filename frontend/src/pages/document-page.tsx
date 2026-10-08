@@ -79,7 +79,7 @@ export function DocumentPage() {
         </div>
         <div className="min-h-0 flex-1">
           {viewable ? (
-            <DocumentViewer id={d.id} enhanced={d.enhanced} />
+            <DocumentViewer id={d.id} enhanced={d.enhanced} version={`${d.page_count}-${d.processing_state}`} />
           ) : (
             <div className="flex h-full flex-col items-center justify-center gap-2 text-sm text-muted-foreground">
               <Spinner className="size-6" /> The document is still being processed…

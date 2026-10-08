@@ -162,3 +162,44 @@ def test_password_change_policy(api):
     )
     assert r.status_code == 200
     assert api.get("/api/v1/overview").status_code == 200
+
+
+def _age_session(client, *, idle_days: float = 0, since_login_days: float = 0) -> None:
+    import time as _time
+
+    session = client.session
+    now = _time.time()
+    session["last_activity"] = now - idle_days * 86400
+    session["login_at"] = now - since_login_days * 86400
+    session.save()
+
+
+def test_session_survives_six_quiet_days(api):
+    _age_session(api, idle_days=6, since_login_days=20)
+    assert api.get("/api/v1/documents").status_code == 200
+
+
+def test_session_ends_after_a_week_without_use(api):
+    _age_session(api, idle_days=8, since_login_days=8)
+    assert api.get("/api/v1/documents").status_code == 401
+
+
+def test_session_ends_five_weeks_after_sign_in_even_when_used_daily(api):
+    _age_session(api, idle_days=0.5, since_login_days=36)
+    assert api.get("/api/v1/documents").status_code == 401
+
+
+def test_session_cookie_outlives_the_browser(totp_user, settings):
+    from django.test import Client as _Client
+
+    user, secret = totp_user
+    client = _Client()
+    client.post(
+        "/api/v1/auth/login",
+        {"username": user.username, "password": PASSWORD},
+        content_type="application/json",
+    )
+    r = client.post("/api/v1/auth/mfa/totp", {"code": totp_code(secret)}, content_type="application/json")
+    cookie = r.cookies[settings.SESSION_COOKIE_NAME]
+    assert int(cookie["max-age"]) == 35 * 24 * 3600
+    assert cookie["httponly"] and cookie["samesite"] == "Strict"

@@ -164,6 +164,43 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/processing/queue/cancel": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Cancel Processing
+         * @description Cancel waiting jobs. Running ones cannot be interrupted safely and finish their step.
+         */
+        post: operations["apps_core_api_cancel_processing"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/stats": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Archive Stats */
+        get: operations["apps_core_api_archive_stats"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/audit": {
         parameters: {
             query?: never;
@@ -1419,12 +1456,104 @@ export interface components {
         ProcessingQueueOut: {
             /** Concurrency */
             concurrency: number;
+            /** Queued Total */
+            queued_total: number;
             /** Queued */
             queued: components["schemas"]["ProcessingQueueItem"][];
             /** Running */
             running: components["schemas"]["ProcessingQueueItem"][];
             /** History */
             history: components["schemas"]["ProcessingQueueItem"][];
+        };
+        /** CancelOut */
+        CancelOut: {
+            /** Cancelled */
+            cancelled: number;
+        };
+        /** CancelIn */
+        CancelIn: {
+            /** Job Ids */
+            job_ids?: number[] | null;
+        };
+        /** Counted */
+        Counted: {
+            /** Name */
+            name: string;
+            /** Count */
+            count: number;
+        };
+        /** Month */
+        Month: {
+            /** Month */
+            month: string;
+            /** Documents */
+            documents: number;
+            /** Pages */
+            pages: number;
+        };
+        /** Processing */
+        Processing: {
+            /** Readable Median Seconds */
+            readable_median_seconds?: number | null;
+            /** Done Median Seconds */
+            done_median_seconds?: number | null;
+            /**
+             * Sample
+             * @default 0
+             */
+            sample: number;
+            /** Stages */
+            stages?: components["schemas"]["StageTime"][];
+            /**
+             * Ai Documents
+             * @default 0
+             */
+            ai_documents: number;
+            /** Ai Average Seconds */
+            ai_average_seconds?: number | null;
+        };
+        /** StageTime */
+        StageTime: {
+            /** Stage */
+            stage: string;
+            /** Average Seconds */
+            average_seconds: number;
+            /** Runs */
+            runs: number;
+        };
+        /** Stats */
+        Stats: {
+            /** Documents */
+            documents: number;
+            /** Pages */
+            pages: number;
+            /** Bytes */
+            bytes: number;
+            /** Correspondents */
+            correspondents: number;
+            /** Tags */
+            tags: number;
+            /** Unread */
+            unread: number;
+            /** Todo */
+            todo: number;
+            /** Failed */
+            failed: number;
+            /** Processing Now */
+            processing_now: number;
+            /** Per Week */
+            per_week: number;
+            /** Oldest Document Date */
+            oldest_document_date: string | null;
+            /** Months */
+            months: components["schemas"]["Month"][];
+            /** Types */
+            types: components["schemas"]["Counted"][];
+            /** Correspondents Top */
+            correspondents_top: components["schemas"]["Counted"][];
+            /** Sources */
+            sources: components["schemas"]["Counted"][];
+            processing: components["schemas"]["Processing"];
         };
         /** AuditOut */
         AuditOut: {
@@ -2653,6 +2782,50 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ProcessingQueueOut"];
+                };
+            };
+        };
+    };
+    apps_core_api_cancel_processing: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CancelIn"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CancelOut"];
+                };
+            };
+        };
+    };
+    apps_core_api_archive_stats: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Stats"];
                 };
             };
         };

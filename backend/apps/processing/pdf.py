@@ -167,7 +167,8 @@ def render_page(pdf_path: Path, page: int, *, long_edge: int = 1600) -> bytes | 
         png.unlink(missing_ok=True)
 
 
-def thumbnail(pdf_path: Path, *, width: int = 480) -> bytes | None:
+def thumbnail(pdf_path: Path, *, width: int = 720) -> bytes | None:
+    """First page as WebP: the list preview, and a stand-in while the viewer loads the PDF."""
     root = pdf_path.with_name(pdf_path.stem + "-thumb")
     png = root.with_suffix(".png")
     try:
