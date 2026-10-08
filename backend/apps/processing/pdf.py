@@ -81,13 +81,13 @@ def sanitize(src: Path, dst: Path) -> SanitizeResult:
     return SanitizeResult(page_count=pages, removed=removed)
 
 
-def ocr(src: Path, dst: Path) -> bool:
-    """Run OCRmyPDF. Returns False if OCR failed and the source was copied instead."""
+def ocr(src: Path, dst: Path, *, deskew: bool = True, rotate: bool = True) -> bool:
+    """Run OCRmyPDF. Raises OcrFailed if it did not produce an output file."""
     cmd = [
         "ocrmypdf",
         "--skip-text",
-        "--rotate-pages",
-        "--deskew",
+        *(["--rotate-pages"] if rotate else []),
+        *(["--deskew"] if deskew else []),
         "--output-type",
         "pdfa",
         "--optimize",

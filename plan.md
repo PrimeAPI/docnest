@@ -488,12 +488,12 @@ Decisions (from the user):
 - Existing documents are never changed automatically; they can be reprocessed (single or as a **bulk action**).
 
 Implementation:
-- [ ] Pipeline: `assemble → validate → enhance → ocr → analyze → store → index`. `enhance` writes `enhanced.pdf` (encrypted in the intake); OCR/Docling/VLM/thumbnail/page count use it. The archive (`archive.pdf`) is built from it, so storage keeps two files: untouched `original.pdf` and processed `archive.pdf`.
-- [ ] `apps/processing/enhance.py`: per page extract the embedded image at native resolution, orientation → deskew → crop → cleanup → blank check, re-encode (G4 for bilevel, JPEG 90 otherwise; untouched pages are copied as-is).
-- [ ] Settings stored in `SystemState` (`scan_enhancement`), API + Settings → System UI.
-- [ ] Reprocess "from original" with one-off overrides (stored on the job/document for that run only); bulk "reprocess" action.
-- [ ] Processing event with a summary ("rotated 1, deskewed 3, cropped 2, removed 1 blank page").
-- [ ] Tests with synthetic skewed / rotated / too long / blank scans; docs (`architecture.md`, `scanner-api.md`).
+- [x] Pipeline: `assemble → validate → enhance → ocr → analyze → store → index`. `enhance` writes `enhanced.pdf` (encrypted in the intake); OCR/Docling/VLM/thumbnail/page count use it. The archive (`archive.pdf`) is built from it, so storage keeps two files: untouched `original.pdf` and processed `archive.pdf`.
+- [x] `apps/processing/enhance.py`: per page extract the embedded image at native resolution, orientation → deskew → crop → cleanup → blank check, re-encode (G4 for bilevel, JPEG 90 otherwise; untouched pages are copied as-is).
+- [x] Settings stored in `SystemState` (`scan_enhancement`), API + Settings → System UI.
+- [x] Reprocess "from original" with one-off overrides (stored on the job/document for that run only); bulk "reprocess" action.
+- [x] Processing event with a summary ("rotated 1, deskewed 3, cropped 2, removed 1 blank page").
+- [x] Tests with synthetic skewed / rotated / too long / blank scans; docs (`architecture.md`, `scanner-api.md`).
 
 ### 12.3 Physical storage locations
 

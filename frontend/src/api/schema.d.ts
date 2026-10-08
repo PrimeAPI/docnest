@@ -75,6 +75,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/settings/enhancement": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /** Update Enhancement Settings */
+        put: operations["apps_core_api_update_enhancement_settings"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/processing/queue": {
         parameters: {
             query?: never;
@@ -973,6 +990,42 @@ export interface components {
             /** Suggested Tags */
             suggested_tags: number;
         };
+        /** EnhanceSettingsOut */
+        EnhanceSettingsOut: {
+            /** Enabled */
+            enabled: boolean;
+            /** Rotate */
+            rotate: boolean;
+            /** Rotate Min Confidence */
+            rotate_min_confidence: number;
+            /** Deskew */
+            deskew: boolean;
+            /** Deskew Min Angle */
+            deskew_min_angle: number;
+            /** Deskew Max Angle */
+            deskew_max_angle: number;
+            /** Crop */
+            crop: boolean;
+            /** Crop Max Fraction */
+            crop_max_fraction: number;
+            /** Cleanup */
+            cleanup: boolean;
+            /** Cleanup Background */
+            cleanup_background: boolean;
+            /** Cleanup Contrast */
+            cleanup_contrast: boolean;
+            /** Cleanup Despeckle */
+            cleanup_despeckle: boolean;
+            /**
+             * Cleanup Strength
+             * @enum {string}
+             */
+            cleanup_strength: "low" | "medium" | "high";
+            /** Remove Blank */
+            remove_blank: boolean;
+            /** Blank Threshold */
+            blank_threshold: number;
+        };
         /** StorageStatus */
         StorageStatus: {
             /** Backend */
@@ -1007,6 +1060,7 @@ export interface components {
             worker_last_seen: string | null;
             /** Processing Concurrency */
             processing_concurrency: number;
+            scan_enhancement: components["schemas"]["EnhanceSettingsOut"];
             /** Queued Jobs */
             queued_jobs: number;
             /** Running Jobs */
@@ -1037,6 +1091,42 @@ export interface components {
             docling_field_detection?: ("layout" | "vlm" | "hybrid") | null;
             /** Processing Concurrency */
             processing_concurrency?: number | null;
+        };
+        /**
+         * EnhanceSettingsIn
+         * @description Partial update: omitted fields keep their current value.
+         */
+        EnhanceSettingsIn: {
+            /** Enabled */
+            enabled?: boolean | null;
+            /** Rotate */
+            rotate?: boolean | null;
+            /** Rotate Min Confidence */
+            rotate_min_confidence?: number | null;
+            /** Deskew */
+            deskew?: boolean | null;
+            /** Deskew Min Angle */
+            deskew_min_angle?: number | null;
+            /** Deskew Max Angle */
+            deskew_max_angle?: number | null;
+            /** Crop */
+            crop?: boolean | null;
+            /** Crop Max Fraction */
+            crop_max_fraction?: number | null;
+            /** Cleanup */
+            cleanup?: boolean | null;
+            /** Cleanup Background */
+            cleanup_background?: boolean | null;
+            /** Cleanup Contrast */
+            cleanup_contrast?: boolean | null;
+            /** Cleanup Despeckle */
+            cleanup_despeckle?: boolean | null;
+            /** Cleanup Strength */
+            cleanup_strength?: ("low" | "medium" | "high") | null;
+            /** Remove Blank */
+            remove_blank?: boolean | null;
+            /** Blank Threshold */
+            blank_threshold?: number | null;
         };
         /** ProcessingQueueItem */
         ProcessingQueueItem: {
@@ -1456,9 +1546,22 @@ export interface components {
              * Action
              * @enum {string}
              */
-            action: "mark_read" | "mark_unread" | "status_done" | "status_todo" | "status_new" | "important" | "unimportant" | "move";
+            action: "mark_read" | "mark_unread" | "status_done" | "status_todo" | "status_new" | "important" | "unimportant" | "move" | "reprocess";
             /** Folder Id */
             folder_id?: number | null;
+            reprocess?: components["schemas"]["ReprocessIn"] | null;
+        };
+        /** ReprocessIn */
+        ReprocessIn: {
+            /**
+             * Stage
+             * @default ocr
+             * @enum {string}
+             */
+            stage: "ocr" | "analyze";
+            /** Backend */
+            backend?: ("ocrmypdf" | "docling") | null;
+            enhancement?: components["schemas"]["EnhanceSettingsIn"] | null;
         };
         /** DocumentDetail */
         DocumentDetail: {
@@ -1526,6 +1629,14 @@ export interface components {
             ocr_backend: string;
             /** Stored */
             stored: boolean;
+            /** Original Page Count */
+            original_page_count: number;
+            /** Enhanced */
+            enhanced: boolean;
+            /** Enhancement */
+            enhancement: {
+                [key: string]: unknown;
+            };
             /** Events */
             events: components["schemas"]["EventOut"][];
         };
@@ -1617,17 +1728,6 @@ export interface components {
             data: {
                 [key: string]: unknown;
             };
-        };
-        /** ReprocessIn */
-        ReprocessIn: {
-            /**
-             * Stage
-             * @default ocr
-             * @enum {string}
-             */
-            stage: "ocr" | "analyze";
-            /** Backend */
-            backend?: ("ocrmypdf" | "docling") | null;
         };
         /** FolderOut */
         FolderOut: {
@@ -1983,6 +2083,30 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ProcessingSettingsOut"];
+                };
+            };
+        };
+    };
+    apps_core_api_update_enhancement_settings: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["EnhanceSettingsIn"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EnhanceSettingsOut"];
                 };
             };
         };

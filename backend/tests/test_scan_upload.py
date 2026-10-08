@@ -28,7 +28,7 @@ A4_POINTS = (595, 842)
 @pytest.fixture
 def no_ocr(monkeypatch):
     """Skip Tesseract: these tests are about PDF assembly, not text recognition."""
-    monkeypatch.setattr(pdf, "ocr", lambda src, dst: bool(shutil.copyfile(src, dst)))
+    monkeypatch.setattr(pdf, "ocr", lambda src, dst, **_: bool(shutil.copyfile(src, dst)))
 
 
 def auth(token: str) -> dict[str, str]:
@@ -126,16 +126,53 @@ def test_multipage_tiff_and_pdf_parts_keep_their_order(tmp_path):
     assert all(is_a4(p) for p in out.pages)
 
 
-def test_blank_pages_are_skipped_on_request(tmp_path):
+def test_assembly_keeps_blank_pages_in_the_original(tmp_path):
     blank = io.BytesIO()
     Image.new("L", (1240, 1754), 250).save(blank, format="PNG", dpi=(150, 150))
     parts = [("image", page_image(INVOICE_LINES)), ("image", blank.getvalue())]
-    out, result = _assemble(tmp_path, *parts, skip_blank_pages=True)
-    assert result.page_count == 1 and result.skipped_blank == 1
-    out, result = _assemble(tmp_path, *parts)
-    assert result.page_count == 2
-    with pytest.raises(assemble.AssemblyFailed, match="blank"):
-        _assemble(tmp_path, ("image", blank.getvalue()), skip_blank_pages=True)
+    _, result = _assemble(tmp_path, *parts, skip_blank_pages=True)
+    assert result.page_count == 2  # dropped later, from the enhanced version only
+
+
+def archive_pdf(doc: Document) -> pikepdf.Pdf:
+    handle = files.fetch(doc, "archive")
+    try:
+        return pikepdf.open(io.BytesIO(handle.read()))
+    finally:
+        handle.close()
+
+
+def test_blank_pages_are_removed_from_the_shown_version_only(scanner, isolated_dirs, no_ocr):
+    _, token = scanner
+    blank = io.BytesIO()
+    Image.new("L", (1240, 1754), 250).save(blank, format="PNG", dpi=(150, 150))
+    r = upload_files(token, ("p1.png", page_image(INVOICE_LINES)), ("p2.png", blank.getvalue()))
+    assert r.status_code == 202, r.content
+    Worker().run_until_empty()
+    doc = Document.objects.get(uuid=r.json()["id"])
+    assert doc.processing_state == "done", doc.processing_error
+    assert (doc.page_count, doc.original_page_count) == (1, 2)
+    assert len(original_pdf(doc).pages) == 2
+    assert len(archive_pdf(doc).pages) == 1
+    assert doc.enhancement["summary"]["removed_blank"] == 1
+    assert not list((isolated_dirs / "intake").iterdir())  # enhanced intake copy cleaned up
+
+
+def test_scanner_blank_page_request_wins_over_disabled_setting(scanner, no_ocr):
+    from apps.processing.preferences import set_enhance_settings
+
+    set_enhance_settings({"remove_blank": False})
+    _, token = scanner
+    blank = io.BytesIO()
+    Image.new("L", (1240, 1754), 250).save(blank, format="PNG", dpi=(150, 150))
+    kept = upload_files(token, ("p1.png", page_image(INVOICE_LINES)), ("p2.png", blank.getvalue()))
+    removed = upload_files(
+        token, ("p1.png", page_image(INSURANCE_LINES)), ("p2.png", blank.getvalue()), skip_blank_pages="true"
+    )
+    assert removed.status_code == 202, removed.content
+    Worker().run_until_empty()
+    assert Document.objects.get(uuid=kept.json()["id"]).page_count == 2
+    assert Document.objects.get(uuid=removed.json()["id"]).page_count == 1
 
 
 # --- Single-request upload of images ------------------------------------------------

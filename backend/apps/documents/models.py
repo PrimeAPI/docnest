@@ -28,6 +28,7 @@ class Document(models.Model):
         RECEIVED = "received"
         ASSEMBLE = "assemble"
         VALIDATE = "validate"
+        ENHANCE = "enhance"
         OCR = "ocr"
         ANALYZE = "analyze"
         STORE = "store"
@@ -76,13 +77,17 @@ class Document(models.Model):
     content_hash = models.CharField(max_length=64)  # HMAC-SHA256 of the uploaded file (dedupe)
     original_filename_enc = models.BinaryField(null=True)
     size = models.BigIntegerField(default=0)
-    page_count = models.PositiveIntegerField(default=0)
+    page_count = models.PositiveIntegerField(default=0)  # of the enhanced version (what is shown)
+    original_page_count = models.PositiveIntegerField(default=0)  # of the untouched original
     processing_stage = models.CharField(max_length=20, choices=Stage.choices, default=Stage.RECEIVED)
     processing_state = models.CharField(
         max_length=20, choices=State.choices, default=State.PENDING, db_index=True
     )
     processing_error = models.CharField(max_length=500, blank=True)
     ocr_backend = models.CharField(max_length=20, choices=OcrBackend.choices, blank=True)
+    # Scan enhancement: {"settings": used settings, "summary": counts, "override": one-off settings
+    # for the next run, "scanner_remove_blank": scanner asked to drop blank pages}
+    enhancement = models.JSONField(default=dict, blank=True)
     intake_path = models.CharField(max_length=300, blank=True)
     storage_original = models.JSONField(null=True, blank=True)
     storage_archive = models.JSONField(null=True, blank=True)

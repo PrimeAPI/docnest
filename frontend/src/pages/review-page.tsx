@@ -35,7 +35,7 @@ import { DateInput } from "@/components/ui/date-input";
 import { Input, Label, Select } from "@/components/ui/input";
 import { EmptyState, ErrorNote, Kbd, Spinner } from "@/components/ui/misc";
 import { TagChip } from "@/features/documents/document-row";
-import { PdfViewer } from "@/features/documents/pdf-viewer";
+import { DocumentViewer } from "@/features/documents/document-viewer";
 import { FolderSelect } from "@/features/folders/folder-ui";
 import { cn } from "@/lib/utils";
 
@@ -418,7 +418,7 @@ function ReviewWorkspace({
         {(view === "pdf" || view === "both") && (
           <div className={cn("min-w-0", view === "both" ? "w-1/2 border-r" : "w-full")}>
             {doc.page_count > 0 || doc.stored ? (
-              <PdfViewer url={`/api/v1/documents/${doc.id}/file?variant=archive`} />
+              <DocumentViewer id={doc.id} enhanced={doc.enhanced} />
             ) : (
               <Processing />
             )}

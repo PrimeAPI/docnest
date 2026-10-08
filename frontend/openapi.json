@@ -113,6 +113,43 @@
     ]
    }
   },
+  "/api/v1/settings/enhancement": {
+   "put": {
+    "operationId": "apps_core_api_update_enhancement_settings",
+    "summary": "Update Enhancement Settings",
+    "parameters": [],
+    "responses": {
+     "200": {
+      "description": "OK",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/EnhanceSettingsOut"
+        }
+       }
+      }
+     }
+    },
+    "tags": [
+     "system"
+    ],
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/EnhanceSettingsIn"
+       }
+      }
+     },
+     "required": true
+    },
+    "security": [
+     {
+      "MfaSessionAuth": []
+     }
+    ]
+   }
+  },
   "/api/v1/processing/queue": {
    "get": {
     "operationId": "apps_core_api_processing_queue",
@@ -2728,6 +2765,94 @@
     "title": "OverviewOut",
     "type": "object"
    },
+   "EnhanceSettingsOut": {
+    "properties": {
+     "enabled": {
+      "title": "Enabled",
+      "type": "boolean"
+     },
+     "rotate": {
+      "title": "Rotate",
+      "type": "boolean"
+     },
+     "rotate_min_confidence": {
+      "title": "Rotate Min Confidence",
+      "type": "number"
+     },
+     "deskew": {
+      "title": "Deskew",
+      "type": "boolean"
+     },
+     "deskew_min_angle": {
+      "title": "Deskew Min Angle",
+      "type": "number"
+     },
+     "deskew_max_angle": {
+      "title": "Deskew Max Angle",
+      "type": "number"
+     },
+     "crop": {
+      "title": "Crop",
+      "type": "boolean"
+     },
+     "crop_max_fraction": {
+      "title": "Crop Max Fraction",
+      "type": "number"
+     },
+     "cleanup": {
+      "title": "Cleanup",
+      "type": "boolean"
+     },
+     "cleanup_background": {
+      "title": "Cleanup Background",
+      "type": "boolean"
+     },
+     "cleanup_contrast": {
+      "title": "Cleanup Contrast",
+      "type": "boolean"
+     },
+     "cleanup_despeckle": {
+      "title": "Cleanup Despeckle",
+      "type": "boolean"
+     },
+     "cleanup_strength": {
+      "enum": [
+       "low",
+       "medium",
+       "high"
+      ],
+      "title": "Cleanup Strength",
+      "type": "string"
+     },
+     "remove_blank": {
+      "title": "Remove Blank",
+      "type": "boolean"
+     },
+     "blank_threshold": {
+      "title": "Blank Threshold",
+      "type": "number"
+     }
+    },
+    "required": [
+     "enabled",
+     "rotate",
+     "rotate_min_confidence",
+     "deskew",
+     "deskew_min_angle",
+     "deskew_max_angle",
+     "crop",
+     "crop_max_fraction",
+     "cleanup",
+     "cleanup_background",
+     "cleanup_contrast",
+     "cleanup_despeckle",
+     "cleanup_strength",
+     "remove_blank",
+     "blank_threshold"
+    ],
+    "title": "EnhanceSettingsOut",
+    "type": "object"
+   },
    "StorageStatus": {
     "properties": {
      "backend": {
@@ -2821,6 +2946,9 @@
       "title": "Processing Concurrency",
       "type": "integer"
      },
+     "scan_enhancement": {
+      "$ref": "#/components/schemas/EnhanceSettingsOut"
+     },
      "queued_jobs": {
       "title": "Queued Jobs",
       "type": "integer"
@@ -2842,6 +2970,7 @@
      "worker_online",
      "worker_last_seen",
      "processing_concurrency",
+     "scan_enhancement",
      "queued_jobs",
      "running_jobs",
      "failed_jobs"
@@ -2929,6 +3058,193 @@
      }
     },
     "title": "ProcessingSettingsIn",
+    "type": "object"
+   },
+   "EnhanceSettingsIn": {
+    "description": "Partial update: omitted fields keep their current value.",
+    "properties": {
+     "enabled": {
+      "anyOf": [
+       {
+        "type": "boolean"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Enabled"
+     },
+     "rotate": {
+      "anyOf": [
+       {
+        "type": "boolean"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Rotate"
+     },
+     "rotate_min_confidence": {
+      "anyOf": [
+       {
+        "maximum": 30,
+        "minimum": 0,
+        "type": "number"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Rotate Min Confidence"
+     },
+     "deskew": {
+      "anyOf": [
+       {
+        "type": "boolean"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Deskew"
+     },
+     "deskew_min_angle": {
+      "anyOf": [
+       {
+        "maximum": 5,
+        "minimum": 0,
+        "type": "number"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Deskew Min Angle"
+     },
+     "deskew_max_angle": {
+      "anyOf": [
+       {
+        "maximum": 30,
+        "minimum": 0.5,
+        "type": "number"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Deskew Max Angle"
+     },
+     "crop": {
+      "anyOf": [
+       {
+        "type": "boolean"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Crop"
+     },
+     "crop_max_fraction": {
+      "anyOf": [
+       {
+        "maximum": 0.6,
+        "minimum": 0.05,
+        "type": "number"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Crop Max Fraction"
+     },
+     "cleanup": {
+      "anyOf": [
+       {
+        "type": "boolean"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Cleanup"
+     },
+     "cleanup_background": {
+      "anyOf": [
+       {
+        "type": "boolean"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Cleanup Background"
+     },
+     "cleanup_contrast": {
+      "anyOf": [
+       {
+        "type": "boolean"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Cleanup Contrast"
+     },
+     "cleanup_despeckle": {
+      "anyOf": [
+       {
+        "type": "boolean"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Cleanup Despeckle"
+     },
+     "cleanup_strength": {
+      "anyOf": [
+       {
+        "enum": [
+         "low",
+         "medium",
+         "high"
+        ],
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Cleanup Strength"
+     },
+     "remove_blank": {
+      "anyOf": [
+       {
+        "type": "boolean"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Remove Blank"
+     },
+     "blank_threshold": {
+      "anyOf": [
+       {
+        "maximum": 2,
+        "minimum": 0,
+        "type": "number"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Blank Threshold"
+     }
+    },
+    "title": "EnhanceSettingsIn",
     "type": "object"
    },
    "ProcessingQueueItem": {
@@ -4081,7 +4397,8 @@
        "status_new",
        "important",
        "unimportant",
-       "move"
+       "move",
+       "reprocess"
       ],
       "title": "Action",
       "type": "string"
@@ -4096,6 +4413,16 @@
        }
       ],
       "title": "Folder Id"
+     },
+     "reprocess": {
+      "anyOf": [
+       {
+        "$ref": "#/components/schemas/ReprocessIn"
+       },
+       {
+        "type": "null"
+       }
+      ]
      }
     },
     "required": [
@@ -4103,6 +4430,46 @@
      "action"
     ],
     "title": "BulkAction",
+    "type": "object"
+   },
+   "ReprocessIn": {
+    "properties": {
+     "stage": {
+      "default": "ocr",
+      "enum": [
+       "ocr",
+       "analyze"
+      ],
+      "title": "Stage",
+      "type": "string"
+     },
+     "backend": {
+      "anyOf": [
+       {
+        "enum": [
+         "ocrmypdf",
+         "docling"
+        ],
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Backend"
+     },
+     "enhancement": {
+      "anyOf": [
+       {
+        "$ref": "#/components/schemas/EnhanceSettingsIn"
+       },
+       {
+        "type": "null"
+       }
+      ]
+     }
+    },
+    "title": "ReprocessIn",
     "type": "object"
    },
    "DocumentDetail": {
@@ -4289,6 +4656,19 @@
       "title": "Stored",
       "type": "boolean"
      },
+     "original_page_count": {
+      "title": "Original Page Count",
+      "type": "integer"
+     },
+     "enhanced": {
+      "title": "Enhanced",
+      "type": "boolean"
+     },
+     "enhancement": {
+      "additionalProperties": true,
+      "title": "Enhancement",
+      "type": "object"
+     },
      "events": {
       "items": {
        "$ref": "#/components/schemas/EventOut"
@@ -4325,6 +4705,9 @@
      "processing_stage",
      "ocr_backend",
      "stored",
+     "original_page_count",
+     "enhanced",
+     "enhancement",
      "events"
     ],
     "title": "DocumentDetail",
@@ -4573,36 +4956,6 @@
      "data"
     ],
     "title": "StructureOut",
-    "type": "object"
-   },
-   "ReprocessIn": {
-    "properties": {
-     "stage": {
-      "default": "ocr",
-      "enum": [
-       "ocr",
-       "analyze"
-      ],
-      "title": "Stage",
-      "type": "string"
-     },
-     "backend": {
-      "anyOf": [
-       {
-        "enum": [
-         "ocrmypdf",
-         "docling"
-        ],
-        "type": "string"
-       },
-       {
-        "type": "null"
-       }
-      ],
-      "title": "Backend"
-     }
-    },
-    "title": "ReprocessIn",
     "type": "object"
    },
    "FolderOut": {

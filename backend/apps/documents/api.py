@@ -16,11 +16,18 @@ from ninja.files import UploadedFile
 
 from apps.audit.service import audit
 from apps.documents import crypto_fields, files
-from apps.documents.intake import IntakeError, IntakeRequest, archive_intake_path_for, receive, remove_intake
+from apps.documents.intake import (
+    IntakeError,
+    IntakeRequest,
+    archive_intake_path_for,
+    receive,
+    remove_intake,
+)
 from apps.documents.models import Document, DocumentTag, ProcessingEvent, Source
 from apps.processing import pipeline, queue
 from apps.processing.models import Job, SystemState
 from apps.processing.preferences import get_default_ocr_backend
+from apps.processing.schemas import EnhanceSettingsIn
 from apps.search import index as search_index
 from apps.search.snippets import make_snippet
 from apps.storage.backends import StorageAuthError, StorageError
@@ -104,6 +111,9 @@ class DocumentDetail(DocumentListItem):
     processing_stage: str
     ocr_backend: str
     stored: bool
+    original_page_count: int
+    enhanced: bool  # the shown file differs from the original
+    enhancement: dict[str, object]  # settings used and what was changed
     events: list[EventOut]
 
 
@@ -149,6 +159,14 @@ class DocumentPatch(Schema):
     reject_series_suggestion: bool = False
 
 
+class ReprocessIn(Schema):
+    # "ocr" = from the original: enhancement, OCR/Docling and analysis run again.
+    stage: Literal["ocr", "analyze"] = "ocr"
+    backend: Literal["ocrmypdf", "docling"] | None = None
+    # One-off scan enhancement settings for this run (merged over the system settings).
+    enhancement: EnhanceSettingsIn | None = None
+
+
 class BulkAction(Schema):
     ids: list[UUID]
     action: Literal[
@@ -160,8 +178,10 @@ class BulkAction(Schema):
         "important",
         "unimportant",
         "move",
+        "reprocess",
     ]
     folder_id: int | None = None  # target of "move"; null = unfile
+    reprocess: ReprocessIn | None = None  # options of "reprocess"
 
 
 class TextOut(Schema):
@@ -177,11 +197,6 @@ class StructureOut(Schema):
 
 class BulkOut(Schema):
     updated: int
-
-
-class ReprocessIn(Schema):
-    stage: Literal["ocr", "analyze"] = "ocr"
-    backend: Literal["ocrmypdf", "docling"] | None = None
 
 
 # --- Helpers ------------------------------------------------------------------
@@ -267,6 +282,9 @@ def to_detail(document: Document) -> DocumentDetail:
         processing_stage=document.processing_stage,
         ocr_backend=document.ocr_backend or get_default_ocr_backend(),
         stored=bool(document.storage_original),
+        original_page_count=document.original_page_count or document.page_count,
+        enhanced=_is_enhanced(document),
+        enhancement={k: v for k, v in document.enhancement.items() if k in ("settings", "summary")},
         events=[
             EventOut(
                 stage=e.stage,
@@ -278,6 +296,11 @@ def to_detail(document: Document) -> DocumentDetail:
             for e in events
         ],
     )
+
+
+def _is_enhanced(document: Document) -> bool:
+    summary = document.enhancement.get("summary") or {}
+    return any(summary.get(key) for key in ("rotated", "deskewed", "cropped", "cleaned", "removed_blank"))
 
 
 def apply_filters(qs: QuerySet[Document], f: DocumentFilters) -> QuerySet[Document]:
@@ -420,6 +443,17 @@ def bulk_update(request: HttpRequest, data: BulkAction) -> dict[str, int]:
                 document.save(update_fields=["folder", "field_sources", "updated_at"])
                 n += 1
         audit("document.bulk", request=request, operation="move", count=n, folder=data.folder_id)
+        return {"updated": n}
+    if data.action == "reprocess":
+        options = data.reprocess or ReprocessIn()
+        n = 0
+        for document in qs:
+            try:
+                start_reprocess(request, document, options)
+            except AlreadyProcessing:
+                continue  # already in the queue: nothing to do
+            n += 1
+        audit("document.bulk", request=request, operation="reprocess", count=n)
         return {"updated": n}
     updates: dict[str, object] = {
         "mark_read": {"read_at": timezone.now()},
@@ -647,29 +681,58 @@ def document_structure(request: HttpRequest, doc_id: UUID) -> dict[str, object]:
     }
 
 
-@router.post("/{doc_id}/reprocess", response=DocumentDetail)
-def reprocess(request: HttpRequest, doc_id: UUID, data: ReprocessIn) -> DocumentDetail:
-    document = get_document(doc_id)
+class AlreadyProcessing(Exception):
+    pass
+
+
+def start_reprocess(request: HttpRequest, document: Document, data: ReprocessIn) -> str:
+    """Queue a document for reprocessing; returns the stage it restarts from."""
     if Job.objects.filter(
         document=document, kind=Job.Kind.PROCESS_DOCUMENT, state__in=[Job.State.QUEUED, Job.State.RUNNING]
     ).exists():
-        raise HttpError(409, "Document is already being processed")
-    stage: str = Document.Stage.OCR if data.stage == "ocr" else Document.Stage.ANALYZE
+        raise AlreadyProcessing
+    if data.stage != "ocr" and (data.backend is not None or data.enhancement is not None):
+        raise HttpError(
+            422, "OCR backend and enhancement can only be chosen when reprocessing from the original"
+        )
+    # OCR always starts from the original, so the enhancement runs again first.
+    stage: str = Document.Stage.ENHANCE if data.stage == "ocr" else Document.Stage.ANALYZE
+    fields: list[str] = []
     if data.backend is not None:
-        if data.stage != "ocr":
-            raise HttpError(422, "An OCR backend can only be selected when reprocessing OCR")
         document.ocr_backend = data.backend
-        document.save(update_fields=["ocr_backend"])
-    if document.processing_state == Document.State.FAILED and document.processing_stage in (
-        Document.Stage.VALIDATE,
-        Document.Stage.OCR,
-        Document.Stage.STORE,
-        Document.Stage.INDEX,
-    ):
-        stage = document.processing_stage  # retry where it failed
+        fields.append("ocr_backend")
+    state = {k: v for k, v in document.enhancement.items() if k != "override"}
+    if data.enhancement is not None:
+        state["override"] = data.enhancement.changes()
+    if state != document.enhancement:
+        document.enhancement = state
+        fields.append("enhancement")
+    if fields:
+        document.save(update_fields=fields)
+    if document.processing_state == Document.State.FAILED:
+        failed = document.processing_stage
+        if failed in (Document.Stage.ASSEMBLE, Document.Stage.VALIDATE):
+            stage = failed  # the original itself is not ready yet
+        elif data.stage != "ocr" and failed in (
+            Document.Stage.ENHANCE,
+            Document.Stage.OCR,
+            Document.Stage.STORE,
+            Document.Stage.INDEX,
+        ):
+            stage = failed  # retry where it failed
     pipeline.restart_from(document, stage)
     queue.enqueue(Job.Kind.PROCESS_DOCUMENT, document=document)
     audit("document.reprocess", request=request, target=str(document.uuid), stage=stage)
+    return stage
+
+
+@router.post("/{doc_id}/reprocess", response=DocumentDetail)
+def reprocess(request: HttpRequest, doc_id: UUID, data: ReprocessIn) -> DocumentDetail:
+    document = get_document(doc_id)
+    try:
+        start_reprocess(request, document, data)
+    except AlreadyProcessing as exc:
+        raise HttpError(409, "Document is already being processed") from exc
     return to_detail(get_document(doc_id))
 
 

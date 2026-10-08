@@ -17,6 +17,7 @@ dependencies = [
     "ocrmypdf>=16",
     "docling-slim[cli,convert-core,format-pdf,models-local]>=2.81,<3",
     "opencv-python-headless>=4.10,<6",
+    "jdeskew>=0.4,<1",
     "torch>=2.2.2,<3",
     "torchvision>=0,<1",
     "snowballstemmer>=2.2",

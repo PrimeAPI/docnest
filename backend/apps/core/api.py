@@ -22,11 +22,14 @@ from apps.processing.preferences import (
     OcrBackend,
     get_default_ocr_backend,
     get_docling_field_detection,
+    get_enhance_settings,
     get_processing_concurrency,
     set_default_ocr_backend,
     set_docling_field_detection,
+    set_enhance_settings,
     set_processing_concurrency,
 )
+from apps.processing.schemas import EnhanceSettingsIn, EnhanceSettingsOut
 
 router = Router(tags=["system"])
 
@@ -60,6 +63,7 @@ class SystemStatus(Schema):
     worker_online: bool
     worker_last_seen: datetime | None
     processing_concurrency: int
+    scan_enhancement: EnhanceSettingsOut
     queued_jobs: int
     running_jobs: int
     failed_jobs: int
@@ -179,6 +183,7 @@ def system_status(request: HttpRequest) -> SystemStatus:
         worker_online=bool(last_seen and timezone.now() - last_seen < timedelta(minutes=2)),
         worker_last_seen=last_seen,
         processing_concurrency=get_processing_concurrency(),
+        scan_enhancement=EnhanceSettingsOut(**get_enhance_settings().to_json()),
         queued_jobs=Job.objects.filter(state=Job.State.QUEUED).count(),
         running_jobs=Job.objects.filter(state=Job.State.RUNNING).count(),
         failed_jobs=Job.objects.filter(state=Job.State.FAILED).count(),
@@ -214,6 +219,14 @@ def update_processing_settings(request: HttpRequest, data: ProcessingSettingsIn)
         docling_field_detection=detection,
         processing_concurrency=concurrency,
     )
+
+
+@router.put("/settings/enhancement", response=EnhanceSettingsOut)
+def update_enhancement_settings(request: HttpRequest, data: EnhanceSettingsIn) -> EnhanceSettingsOut:
+    changes = data.changes()
+    updated = set_enhance_settings(changes)
+    audit("settings.enhancement_updated", request=request, changes=changes)
+    return EnhanceSettingsOut(**updated.to_json())
 
 
 def _queue_item(job: Job, now: datetime) -> ProcessingQueueItem:
