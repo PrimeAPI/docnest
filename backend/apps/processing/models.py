@@ -25,6 +25,8 @@ class Job(models.Model):
     kind = models.CharField(max_length=40, choices=Kind.choices)
     document = models.ForeignKey("documents.Document", null=True, blank=True, on_delete=models.CASCADE)
     payload = models.JSONField(default=dict, blank=True)
+    # Higher runs first. Batch reprocessing runs below new scans, so they never wait for it.
+    priority = models.SmallIntegerField(default=0)
     state = models.CharField(max_length=20, choices=State.choices, default=State.QUEUED)
     attempts = models.PositiveIntegerField(default=0)
     max_attempts = models.PositiveIntegerField(default=5)

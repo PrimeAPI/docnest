@@ -99,6 +99,37 @@ def find_correspondent(name: str) -> Correspondent | None:
     return None
 
 
+MAX_LEARNED_ALIASES = 30
+
+
+def learn_alias(correspondent: Correspondent, read_sender: str | None, *, document_id: int) -> bool:
+    """Remember how a sender was read when the user filed the document under `correspondent`.
+
+    The next letter read the same way ("RWM GmbH" from a payslip's return address,
+    "Versicherer im Raum der Kirchen" for "VRK Sachversicherung") is then filed the same
+    way. Nothing is learned when that reading names another correspondent that still has
+    documents of its own: then it is a different sender, not a different spelling.
+    """
+    sender = normalize_label(read_sender or "")
+    folded = fold(sender)
+    if len(folded) < 3 or len(correspondent.aliases) >= MAX_LEARNED_ALIASES:
+        return False
+    if folded in {fold(correspondent.name), *(fold(a) for a in correspondent.aliases)}:
+        return False
+    other = find_correspondent(sender)
+    if other is not None and other.pk != correspondent.pk:
+        from apps.documents.models import Document
+
+        if Document.objects.filter(correspondent=other).exclude(pk=document_id).exists():
+            return False
+        # Created from the misreading and now empty: it would keep winning by name.
+        if not other.series_set.exists() and not other.matchrule_set.exists():
+            other.delete()
+    correspondent.aliases = sorted({*correspondent.aliases, sender[:150]})
+    correspondent.save(update_fields=["aliases"])
+    return True
+
+
 # --- Folders --------------------------------------------------------------------
 
 

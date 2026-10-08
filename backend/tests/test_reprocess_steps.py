@@ -150,3 +150,26 @@ def test_all_documents_with_chosen_steps(api, scanner, ocr_calls):
     assert r.status_code == 200 and r.json()["updated"] == 2
     process_all()
     assert len(ocr_calls) == 2 and all(call["redo"] for call in ocr_calls)
+
+
+def test_new_scans_go_before_a_batch_reprocess(api, scanner, ocr_calls):
+    from apps.processing import queue
+    from apps.processing.models import Job
+
+    _, token = scanner
+    for month in ("Januar", "Februar"):
+        upload(Client(), token, text_pdf([*INVOICE_LINES, f"Abrechnung {month}"]))
+    process_all()
+    assert (
+        api.post("/api/v1/documents/reprocess-all", {"steps": ["analyze"]}, content_type=J).json()["updated"]
+        == 2
+    )
+    new = upload(Client(), token, text_pdf([*INVOICE_LINES, "Abrechnung März"])).json()["id"]
+
+    job = queue.claim("worker")
+    assert job is not None and str(job.document.uuid) == new
+    Worker().execute(job)
+    process_all()
+    assert Job.objects.filter(priority=queue.BACKGROUND, state="done").count() == 2
+    assert not Document.objects.exclude(processing_state="done").exists()
+    assert all(not d.processing_plan for d in Document.objects.all())

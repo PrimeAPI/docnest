@@ -63,6 +63,18 @@ class DocumentType:
     name: str
 
 
+# What the built-in types mean: a bare "Notice" or "Mail" leaves the model guessing.
+TYPE_HINTS = {
+    "invoice": "bills and invoices, e.g. Rechnung, Beitragsrechnung, Zahlungsaufforderung",
+    "statement": "periodic statements, e.g. Kontoauszug, Verdienstabrechnung, Jahresübersicht",
+    "notice": "decisions, notices and certificates from authorities, courts or insurers, e.g. Bescheid, "
+    "Führungszeugnis, Bescheinigung, Mahnung, Fristverlängerung",
+    "contract": "contracts, policies and their changes, e.g. Vertrag, Versicherungsschein, Kündigung",
+    "mail": "other letters and information without a bill, statement or decision",
+    "other": "anything else, e.g. handwritten notes, manuals, receipts",
+}
+
+
 @dataclass
 class ModelFields:
     sender: str | None = None
@@ -198,8 +210,8 @@ sender: the organisation or person that issued the document, spelled exactly as 
   "Bundesamt für Justiz", "Finanzamt Delmenhorst", "VRK Sachversicherung AG"). The name only,
   without address. null if no sender is recognisable (e.g. handwritten notes).
 recipient: the name of the addressee, or null.
-title: a short title to file the document under, in the same language as the document
-  (a German letter gets a German title): what the
+german_title: a short German title to file the document under (for a document printed in
+  several languages, use its German wording): what the
   document is, plus its subject or period when that distinguishes it — for example
   "Erweitertes Führungszeugnis", "Verdienstabrechnung Juni 2026",
   "Fristverlängerung Umsatzsteuer-Voranmeldung". Do not include the sender, the recipient
@@ -219,13 +231,13 @@ def _schema(type_slugs: list[str]) -> dict[str, Any]:
         "properties": {
             "sender": nullable,
             "recipient": nullable,
-            "title": nullable,
+            "german_title": nullable,
             "document_date": nullable,
             "document_type": {"type": ["string", "null"], "enum": [*type_slugs, None]}
             if type_slugs
             else nullable,
         },
-        "required": ["sender", "recipient", "title", "document_date", "document_type"],
+        "required": ["sender", "recipient", "german_title", "document_date", "document_type"],
     }
 
 
@@ -237,7 +249,13 @@ def analyze(
     types: list[DocumentType],
 ) -> ModelFields:
     """Ask `model` about one document. No timeout beyond DOCNEST_AI_TIMEOUT_SECONDS: slow is fine."""
-    listing = ", ".join(f'"{t.slug}" ({t.name})' for t in types) or "null"
+    listing = (
+        "".join(
+            f'\n    "{t.slug}": {t.name}' + (f" — {TYPE_HINTS[t.slug]}" if t.slug in TYPE_HINTS else "")
+            for t in types
+        )
+        or "null"
+    )
     prompt = INSTRUCTIONS.format(text_note=TEXT_NOTE if text.strip() else "", types=listing)
     if text.strip():
         prompt += "\nOCR text:\n<<<\n" + text.strip()[: settings.AI_TEXT_CHARS] + "\n>>>\n"
@@ -295,7 +313,7 @@ def _fields(data: dict[str, Any], model: str, slugs: set[str]) -> ModelFields:
     return ModelFields(
         sender=sender,
         recipient=recipient,
-        title=clean(data.get("title"), limit=120),
+        title=clean(data.get("german_title") or data.get("title"), limit=120),
         document_date=_date(data.get("document_date")),
         document_type=doc_type if doc_type in slugs else None,
         model=model,

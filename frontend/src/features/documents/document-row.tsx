@@ -10,7 +10,7 @@ import {
   RefreshCw,
   Star,
 } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Link } from "react-router";
 import { type DocumentListItem, useBulkAction } from "@/api/queries";
 import { Badge } from "@/components/ui/badge";
@@ -30,6 +30,9 @@ import { cn, colorClass, formatDate, formatDateTime } from "@/lib/utils";
 export function Thumbnail({ doc, className }: { doc: DocumentListItem; className?: string }) {
   const [failed, setFailed] = useState(false);
   const ready = doc.processing_state === "done" || doc.page_count > 0;
+  // The thumbnail appears (and improves) as processing advances: try again at every step.
+  const version = `${doc.page_count}-${doc.processing_state}`;
+  useEffect(() => setFailed(false), [version]);
   return (
     <div
       className={cn(
@@ -39,7 +42,7 @@ export function Thumbnail({ doc, className }: { doc: DocumentListItem; className
     >
       {ready && !failed ? (
         <img
-          src={`/api/v1/documents/${doc.id}/thumbnail`}
+          src={`/api/v1/documents/${doc.id}/thumbnail?v=${version}`}
           alt=""
           loading="lazy"
           draggable={false}

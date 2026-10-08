@@ -515,7 +515,8 @@ def enqueue(document: Document) -> Job | None:
         if document.processing_stage in PREPARE_STAGES
         else Job.Kind.ANALYZE_DOCUMENT
     )
-    return queue.enqueue(kind, document=document)
+    priority = queue.BACKGROUND if document.processing_plan.get("background") else 0
+    return queue.enqueue(kind, document=document, priority=priority)
 
 
 def run(document_id: int, *, prepare_only: bool = False) -> None:

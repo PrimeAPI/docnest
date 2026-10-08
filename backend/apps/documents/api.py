@@ -35,7 +35,13 @@ from apps.search import index as search_index
 from apps.search.snippets import make_snippet
 from apps.storage.backends import StorageAuthError, StorageError
 from apps.taxonomy.models import Correspondent, DocumentType, Folder, Series, Tag
-from apps.taxonomy.services import find_correspondent, folder_paths, folder_subtree, resolve_or_create_tag
+from apps.taxonomy.services import (
+    find_correspondent,
+    folder_paths,
+    folder_subtree,
+    learn_alias,
+    resolve_or_create_tag,
+)
 
 router = Router(tags=["documents"])
 
@@ -526,7 +532,7 @@ def reprocess_all(request: HttpRequest, data: ReprocessIn) -> dict[str, int]:
     n = 0
     for document in Document.objects.filter(deleted_at__isnull=True).order_by("uploaded_at", "id").iterator():
         try:
-            start_reprocess(request, document, data, quiet=True)
+            start_reprocess(request, document, data, quiet=True, background=True)
         except AlreadyProcessing:
             continue
         n += 1
@@ -554,7 +560,7 @@ def bulk_update(request: HttpRequest, data: BulkAction) -> dict[str, int]:
         n = 0
         for document in qs:
             try:
-                start_reprocess(request, document, options)
+                start_reprocess(request, document, options, background=True)
             except AlreadyProcessing:
                 continue  # already in the queue: nothing to do
             n += 1
@@ -638,6 +644,11 @@ def update_document(request: HttpRequest, doc_id: UUID, data: DocumentPatch) -> 
             document.correspondent = find_correspondent(name) or Correspondent.objects.create(name=name)
             document.set_source("correspondent", Source.USER)
             changed.append("correspondent")
+        if "correspondent" in changed and document.correspondent_id:
+            # Learn the spelling on the letter, so the next one from this sender is filed alike.
+            read = crypto_fields.get_extracted(document).get("sender")
+            corr = Correspondent.objects.get(pk=document.correspondent_id)
+            learn_alias(corr, read if isinstance(read, str) else None, document_id=document.pk)
         if data.status is not None:
             document.status = data.status
             document.set_source("status", Source.USER)
@@ -812,7 +823,12 @@ class AlreadyProcessing(Exception):
 
 
 def start_reprocess(
-    request: HttpRequest, document: Document, data: ReprocessIn, *, quiet: bool = False
+    request: HttpRequest,
+    document: Document,
+    data: ReprocessIn,
+    *,
+    quiet: bool = False,
+    background: bool = False,
 ) -> str:
     """Queue a document for reprocessing; returns the stage it restarts from."""
     if Job.objects.filter(
@@ -859,6 +875,8 @@ def start_reprocess(
     plan: dict[str, object] = {} if steps == STEP_ORDER else {"steps": steps}
     if data.ai_model is not None:
         plan["ai_model"] = data.ai_model
+    if background:
+        plan["background"] = True  # a batch: new scans go first
     pipeline.restart_from(document, stage, plan)
     pipeline.enqueue(document)
     if not quiet:

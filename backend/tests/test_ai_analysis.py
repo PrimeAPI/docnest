@@ -346,3 +346,57 @@ def test_every_document_can_be_reprocessed_at_once(scanner, api, monkeypatch, mo
 )
 def test_sender_address_is_dropped(answer, sender):
     assert ai._fields({"sender": answer}, "m", set()).sender == sender
+
+
+def test_a_correction_teaches_how_the_sender_is_spelled(scanner, api, monkeypatch, model):
+    _, token = scanner
+    fake_model(monkeypatch, ai.ModelFields(sender="RWM GmbH"))  # the payroll service's return address
+    first = upload(Client(), token, text_pdf([*INVOICE_LINES, "Juni"])).json()["id"]
+    process_all()
+    rme = Correspondent.objects.create(name="RME GmbH")
+    r = api.patch(f"/api/v1/documents/{first}", {"correspondent_id": rme.pk}, content_type="application/json")
+    assert r.status_code == 200
+    rme.refresh_from_db()
+    assert rme.aliases == ["RWM GmbH"]
+    assert Document.objects.get(uuid=first).correspondent == rme  # the corrected document stays
+    assert not Correspondent.objects.filter(name="RWM GmbH").exists()  # the misreading's leftover
+
+    upload(Client(), token, text_pdf([*INVOICE_LINES, "Juli"]))
+    process_all()
+    latest = Document.objects.order_by("-id").first()
+    assert latest and latest.correspondent == rme
+
+
+def test_a_different_sender_is_not_learned_as_a_spelling(scanner, api, monkeypatch, model):
+    _, token = scanner
+    fake_model(monkeypatch, ai.ModelFields(sender="Stadt Delmenhorst"))
+    ids = [upload(Client(), token, text_pdf([*INVOICE_LINES, m])).json()["id"] for m in ("Juni", "Juli")]
+    process_all()
+    justiz = Correspondent.objects.create(name="Bundesamt für Justiz")
+    api.patch(f"/api/v1/documents/{ids[0]}", {"correspondent_id": justiz.pk}, content_type="application/json")
+    justiz.refresh_from_db()
+    # "Stadt Delmenhorst" still has a document of its own: a real, different sender.
+    assert justiz.aliases == []
+
+
+def test_a_bare_logo_as_sender_yields_to_the_known_letterhead(scanner, monkeypatch, model):
+    _, token = scanner
+    known = Correspondent.objects.create(name="Stadtwerke Musterstadt GmbH")
+    fake_model(monkeypatch, ai.ModelFields(sender="swm"))  # what a small model reads off a logo
+    upload(Client(), token, text_pdf(INVOICE_LINES))
+    process_all()
+    assert Document.objects.get().correspondent == known
+
+
+def test_title_is_asked_for_in_german(settings, monkeypatch):
+    settings.OLLAMA_URL = "http://ollama:11434"
+    sent: list[dict] = []
+
+    def request(path, payload=None, *, timeout):
+        sent.append(payload)
+        return {"message": {"content": '{"german_title": "Erweitertes Führungszeugnis"}'}}
+
+    monkeypatch.setattr("apps.analysis.ai._request", request)
+    fields = ai.analyze("m", images=[], text="Enhanced Certificate of Conduct", types=[])
+    assert fields.title == "Erweitertes Führungszeugnis"
+    assert "german_title" in sent[0]["format"]["required"]

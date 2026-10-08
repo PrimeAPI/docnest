@@ -105,6 +105,9 @@ def _choose_correspondent(
     analysis_text: str, signature: list[int], read_sender: str | None, model_sender: str | None
 ) -> Correspondent | None:
     """The sender the document itself names wins over guesses from similar documents."""
+    if model_sender and len(fold(model_sender)) <= 4:
+        # A bare logo such as "vrk": a known name in the letterhead is more precise.
+        read_sender, model_sender = model_sender, None
     if model_sender:
         return _correspondent_from_sender(model_sender)
     corr = _match_known_correspondent(analysis_text, header_only=True)

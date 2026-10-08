@@ -23,7 +23,12 @@ logger = logging.getLogger(__name__)
 CHANNEL = "docnest_jobs"
 
 
-def enqueue(kind: str, *, document: object = None, payload: dict | None = None, delay: int = 0) -> Job | None:
+BACKGROUND = -10  # priority of batch work (reprocessing many documents at once)
+
+
+def enqueue(
+    kind: str, *, document: object = None, payload: dict | None = None, delay: int = 0, priority: int = 0
+) -> Job | None:
     """Queue a job. Returns None if an equivalent job is already active."""
     try:
         with transaction.atomic():
@@ -31,6 +36,7 @@ def enqueue(kind: str, *, document: object = None, payload: dict | None = None, 
                 kind=kind,
                 document=document,  # type: ignore[misc]
                 payload=payload or {},
+                priority=priority,
                 max_attempts=settings.JOB_MAX_ATTEMPTS,
                 run_after=timezone.now() + timedelta(seconds=delay),
             )
@@ -54,7 +60,7 @@ def claim(worker_id: str, *, kinds: Sequence[str] | None = None) -> Job | None:
         )
         if kinds is not None:
             jobs = jobs.filter(kind__in=kinds)
-        job = jobs.order_by("run_after", "id").first()
+        job = jobs.order_by("-priority", "run_after", "id").first()
         if job is None:
             return None
         job.state = Job.State.RUNNING
