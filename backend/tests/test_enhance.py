@@ -109,6 +109,46 @@ def test_scanned_page_is_recognised_with_its_resolution():
     assert scan.lossless
 
 
+def with_text(pdf: bytes, *, before: bytes = b"", after: bytes = b"") -> bytes:
+    """Add a text layer around the page's image drawing (like scanner apps and OCRmyPDF do)."""
+    with pikepdf.open(io.BytesIO(pdf)) as doc:
+        page = doc.pages[0]
+        font = doc.make_indirect(
+            pikepdf.Dictionary(
+                Type=pikepdf.Name.Font, Subtype=pikepdf.Name.Type1, BaseFont=pikepdf.Name.Courier
+            )
+        )
+        page.Resources.Font = pikepdf.Dictionary(F1=font)
+        page.Contents = doc.make_stream(before + page.Contents.read_bytes() + b"\n" + after)
+        buf = io.BytesIO()
+        doc.save(buf)
+    return buf.getvalue()
+
+
+HIDDEN_WORDS = b"BT /F1 12 Tf 72 500 Td (Rechnung) Tj ET\n"
+
+
+@pytest.mark.parametrize(
+    "layer",
+    [
+        {"before": HIDDEN_WORDS},  # underneath the image (Microsoft Lens, some scanners)
+        {"after": b"BT 3 Tr /F1 12 Tf 72 500 Td (Rechnung) Tj ET\n"},  # invisible on top
+    ],
+)
+def test_scan_with_hidden_text_layer_is_enhanced(tmp_path, layer):
+    skewed = letter().rotate(3, expand=True, fillcolor=255)
+    result, dst = run(tmp_path, with_text(pdf_of(skewed), **layer), settings(**{**ONLY, "deskew": True}))
+    assert result.pages[0] is not None and result.pages[0].deskewed
+    with pikepdf.open(dst) as out:
+        assert b"BT" not in out.pages[0].obj.Contents.read_bytes()  # recognised again by the OCR stage
+
+
+def test_scan_with_visible_text_on_top_is_left_alone(tmp_path):
+    skewed = letter().rotate(3, expand=True, fillcolor=255)
+    result, dst = run(tmp_path, with_text(pdf_of(skewed), after=HIDDEN_WORDS), EnhanceSettings())
+    assert result.pages == [None] and not dst.exists()
+
+
 # --- Orientation --------------------------------------------------------------------------
 
 
@@ -209,6 +249,43 @@ def test_coloured_letterhead_band_is_not_cropped(tmp_path):
 def test_page_without_background_is_not_cropped(tmp_path):
     result, _ = run(tmp_path, pdf_of(letter()), settings(**{**ONLY, "crop": True}))
     assert result.pages[0] is not None and not result.pages[0].cropped
+
+
+def sheet_on_backing(angle: float, backing: int = 185) -> tuple[Image.Image, Image.Image]:
+    """A small sheet lying crooked on a grey backing; the scanner pads the rest of the page white."""
+    sheet = letter("RGB").resize((700, 1000))
+    crooked = sheet.rotate(angle, expand=True, fillcolor=(backing,) * 3, resample=Image.Resampling.BICUBIC)
+    scan = Image.new("RGB", (1240, 1754), (255, 255, 255))
+    bed = Image.new(
+        "RGB", (1240, 1300), (backing, backing + 5, backing + 8)
+    )  # slightly tinted, like real plates
+    bed.paste(crooked, (200, 80))
+    scan.paste(bed, (0, 0))
+    return sheet, scan
+
+
+@pytest.mark.parametrize("angle", [-12.0, 4.0])
+def test_crooked_small_sheet_is_cut_out_and_straightened(tmp_path, angle):
+    sheet, scan = sheet_on_backing(angle)
+    result, dst = run(tmp_path, pdf_of(scan), settings(**{**ONLY, "crop": True, "deskew": True}))
+    report = result.pages[0]
+    assert report is not None and report.cropped
+    assert report.deskewed == pytest.approx(-angle, abs=0.3)  # PIL turned it counter-clockwise
+    (image,) = page_images(dst)
+    assert abs(image.width - sheet.width) <= 20 and abs(image.height - sheet.height) <= 20
+    grey = np.array(image.convert("L"))
+    edges = np.concatenate([grey[:8].ravel(), grey[-8:].ravel(), grey[:, :8].ravel(), grey[:, -8:].ravel()])
+    assert (edges < 200).mean() < 0.01  # no backing or edge shadow left along the borders
+    assert abs(ink_angle(image)) <= 0.25
+
+
+def test_sheet_corner_beyond_the_scan_area_is_filled_not_cut(tmp_path):
+    sheet, scan = sheet_on_backing(-10)
+    scan = scan.crop((0, 120, scan.width, scan.height))  # the scan starts below the sheet's top corner
+    result, dst = run(tmp_path, pdf_of(scan), settings(**{**ONLY, "crop": True, "deskew": True}))
+    assert result.pages[0] is not None and result.pages[0].cropped
+    (image,) = page_images(dst)
+    assert abs(image.height - sheet.height) <= 30  # full sheet height, missing corner painted as paper
 
 
 # --- Cleanup ------------------------------------------------------------------------------

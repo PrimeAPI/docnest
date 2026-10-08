@@ -496,6 +496,7 @@ Implementation:
 - [x] Reprocess "from original" with one-off overrides (stored on the job/document for that run only); bulk "reprocess" action.
 - [x] Processing event with a summary ("rotated 1, deskewed 3, cropped 2, removed 1 blank page").
 - [x] Tests with synthetic skewed / rotated / too long / blank scans; docs (`architecture.md`, `scanner-api.md`).
+- [x] Tuned on real scans in `testdoc/` (2026-10-08): pages with a hidden OCR text layer (Microsoft Lens, OCRmyPDF output) are enhanced too (were skipped); crooked/small sheets on a grey backing are found as a shape, straightened by their edges (up to 30°, refined by jdeskew ±1°) and cut out with wedges, edge shadows and corners beyond the scan area painted in the paper colour (previously only axis-aligned bands were cut and anything above 8° was not straightened); scanner padding only counts next to backing/scan edge; cleanup fades near-white with a soft knee so show-through no longer looks mottled.
 
 ### 12.3 Physical storage locations
 

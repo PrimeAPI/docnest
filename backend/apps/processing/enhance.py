@@ -4,25 +4,31 @@ Runs after validation and before OCR/Docling. The original is never changed;
 this module writes a separate *enhanced* PDF that every later stage reads.
 
 Only pages that consist of exactly one raster image covering the page (what a
-scanner or image-to-PDF produces) are touched. Pages with text, vector
-graphics, inline images, masks or unusual transforms are copied unchanged, so
-born-digital PDFs and already OCRed scans pass through as they are.
+scanner or image-to-PDF produces) are touched. A hidden OCR text layer (drawn
+invisibly or underneath the image, as scanner apps and OCRmyPDF do) is allowed;
+it is dropped from rewritten pages, and the OCR stage recognises them again.
+Pages with visible text, vector graphics, inline images, masks or unusual
+transforms are copied unchanged, so born-digital PDFs pass through as they are.
 
 Per scanned page, each step can be switched off in the settings:
 
 1. **Orientation** (90/180/270°) — Tesseract OSD; applied only above a
    confidence threshold. A page that only needs this is rotated losslessly via
    the PDF `/Rotate` entry.
-2. **Crop to the paper** — removes scanner background beyond the paper edge
-   (feeders scan a fixed length; the overshoot shows the backing plate) and a
-   paper-edge shadow line followed only by empty background. Bands are only
-   cut when they are uniform, so coloured letterhead bands survive. This runs
-   before deskewing, while the backing is still aligned with the image edges.
-3. **Deskew** (small angles) — jdeskew (Adaptive Radial Projection on the
-   Fourier magnitude spectrum, ICIP 2022), applied between a minimum and a
-   maximum angle.
-4. **Gentle cleanup** — background flattening (yellowed/grey paper and uneven
-   lighting become white), a mild contrast stretch, and removal of isolated
+2. **Cut out the sheet** — when the sheet lies on a visibly darker, neutral
+   scanner backing (crooked, smaller than the scan area, or both), it is found
+   as a shape: the backing connected to the image edge plus pure padding
+   beyond the scan area is outside, the rest's convex hull is the paper. Its
+   edges give the angle (up to 30°), refined by the text on it; the page is
+   rotated once, cropped to the sheet, and everything outside the sheet
+   (wedges, edge shadow, missing corners) is painted in the paper colour.
+3. Otherwise **crop + deskew**: uniform backing bands beyond the paper edge
+   and a paper-edge shadow line followed only by empty background are cut
+   (coloured letterhead bands survive), then jdeskew (Adaptive Radial
+   Projection on the Fourier magnitude spectrum, ICIP 2022) straightens the
+   text between a minimum and a maximum angle.
+4. **Gentle cleanup** — background flattening (yellowed/grey paper, uneven
+   lighting and faint show-through become white), a mild contrast stretch, and removal of isolated
    specks. Bilevel pages only get speck removal.
 5. **Blank pages** — dropped with the same ink measure the assembly uses,
    evaluated after cropping (so feeder shadows don't count as ink). If every
@@ -49,10 +55,12 @@ from apps.processing.enhance_settings import EnhanceSettings, Strength
 
 logger = logging.getLogger(__name__)
 
-_TEXT_OPERATORS = {"BT", "ET", "Tj", "TJ", "'", '"', "Tf", "Td", "TD", "Tm", "T*"}
+_TEXT_SHOW_OPERATORS = {"Tj", "TJ", "'", '"'}
+_TEXT_STATE_OPERATORS = {"BT", "ET", "Tf", "Td", "TD", "Tm", "T*", "Tc", "Tw", "Tz", "TL", "Ts", "Tr"}
 _PAINT_OPERATORS = {"f", "F", "f*", "S", "s", "B", "B*", "b", "b*", "sh", "BI", "ID", "EI", "d0", "d1"}
 _ALLOWED_OPERATORS = {"q", "Q", "cm", "Do", "re", "W", "W*", "n", "gs", "w", "i", "ri", "J", "j", "M"}
 _MIN_COVERAGE = 0.9  # the image must cover this share of the page
+_HIDING_COVERAGE = 0.99  # ...and nearly all of it when a text layer is hidden underneath
 _OSD_TIMEOUT = 60
 
 
@@ -159,30 +167,49 @@ def scan_image(page: pikepdf.Page) -> ScanImage | None:
 
 
 def _image_placement(page: pikepdf.Page, name: str) -> tuple[float, float, float, float] | None:
-    """Where the image is drawn, if the content is just "draw this image over the page"."""
+    """Where the image is drawn, if the content is just "draw this image over the page".
+
+    Text is tolerated only when nobody can see it: rendering mode 3 (invisible)
+    or drawn before the image that then covers the page.
+    """
     try:
         instructions = pikepdf.parse_content_stream(page)
     except pikepdf.PdfError:
         return None
     ctm = pikepdf.Matrix()
-    stack: list[pikepdf.Matrix] = []
+    render_mode = 0
+    stack: list[tuple[pikepdf.Matrix, int]] = []
     placed: pikepdf.Matrix | None = None
+    text_underneath = False
     for instruction in instructions:
         if isinstance(instruction, pikepdf.ContentStreamInlineImage):
             return None
         operands, op = instruction.operands, str(instruction.operator)
-        if op in _TEXT_OPERATORS or op in _PAINT_OPERATORS:
-            return None
-        if op not in _ALLOWED_OPERATORS:
+        if op in _TEXT_SHOW_OPERATORS:
+            if render_mode == 3:
+                continue
+            if placed is not None:
+                return None  # visible text on top of the image
+            text_underneath = True
+            continue
+        if op in _TEXT_STATE_OPERATORS:
+            if op == "Tr" and operands:
+                render_mode = int(operands[0])
+            continue
+        if op in _PAINT_OPERATORS or op not in _ALLOWED_OPERATORS:
             return None
         if op == "q":
-            stack.append(ctm)
+            stack.append((ctm, render_mode))
         elif op == "Q":
-            ctm = stack.pop() if stack else pikepdf.Matrix()
+            ctm, render_mode = stack.pop() if stack else (pikepdf.Matrix(), 0)
         elif op == "cm":
             ctm = pikepdf.Matrix(*[float(v) for v in operands]) @ ctm
         elif op == "Do":
-            if placed is not None or str(operands[0]) != name:
+            if str(operands[0]) != name:
+                if not _invisible_form(page, str(operands[0])):
+                    return None
+                continue
+            if placed is not None:
                 return None
             placed = ctm
     if placed is None or abs(placed.b) > 1e-6 or abs(placed.c) > 1e-6 or placed.a <= 0 or placed.d <= 0:
@@ -193,9 +220,39 @@ def _image_placement(page: pikepdf.Page, name: str) -> tuple[float, float, float
     x1, y1 = x0 + placed.a, y0 + placed.d
     overlap_w = max(0.0, min(x1, page_w) - max(x0, 0.0))
     overlap_h = max(0.0, min(y1, page_h) - max(y0, 0.0))
-    if overlap_w * overlap_h < _MIN_COVERAGE * page_w * page_h:
+    needed = _HIDING_COVERAGE if text_underneath else _MIN_COVERAGE
+    if overlap_w * overlap_h < needed * page_w * page_h:
         return None
     return x0, y0, x1, y1
+
+
+def _invisible_form(page: pikepdf.Page, name: str) -> bool:
+    """A form XObject that only holds invisible text (OCRmyPDF's text layer)."""
+    try:
+        form = page.obj.Resources.XObject[name]
+        if form.get("/Subtype") != "/Form":
+            return False
+        instructions = pikepdf.parse_content_stream(form)
+    except (pikepdf.PdfError, AttributeError, KeyError, TypeError, ValueError):
+        return False
+    render_mode = 0
+    stack: list[int] = []
+    for instruction in instructions:
+        if isinstance(instruction, pikepdf.ContentStreamInlineImage):
+            return False
+        operands, op = instruction.operands, str(instruction.operator)
+        if op in _TEXT_SHOW_OPERATORS:
+            if render_mode != 3:
+                return False
+        elif op == "Tr" and operands:
+            render_mode = int(operands[0])
+        elif op == "q":
+            stack.append(render_mode)
+        elif op == "Q":
+            render_mode = stack.pop() if stack else 0
+        elif op not in _TEXT_STATE_OPERATORS and op not in _ALLOWED_OPERATORS - {"Do"}:
+            return False
+    return True
 
 
 # --- Image steps ----------------------------------------------------------------
@@ -406,6 +463,212 @@ def _edge_line_bounds(
     return top, bottom, left, right
 
 
+_SHEET_DPI = 50  # detection resolution
+_NEUTRAL_CHROMA = 45  # backing plates are grey, though often slightly tinted
+_SHEET_REFINE_ANGLE = 1.0  # degrees the text may deviate from the sheet's edges
+_MAX_SHEET_ANGLE = 30.0  # degrees; a sheet's own edges are trusted further than text-based deskew
+
+
+@dataclass
+class Sheet:
+    """The sheet of paper lying on a darker scanner backing."""
+
+    angle: float  # rotating counter-clockwise by this straightens the sheet's edges
+    mask: np.ndarray  # uint8, 1 = paper, at detection resolution
+
+
+def find_sheet(array: np.ndarray, dpi: float) -> Sheet | None:
+    """Find the paper as a shape on a visibly darker, neutral scanner backing.
+
+    Works for crooked sheets and sheets smaller than the scan area, where cutting
+    straight bands off the edges cannot help. Returns None when no backing is
+    visible (white lid, sheet filling the scan, born-digital look).
+    """
+    factor = min(1.0, _SHEET_DPI / dpi)
+    sdpi = dpi * factor
+    small = cv2.resize(array, None, fx=factor, fy=factor, interpolation=cv2.INTER_AREA)
+    rgb = small if small.ndim == 3 else cv2.cvtColor(small, cv2.COLOR_GRAY2RGB)
+    grey = cv2.cvtColor(rgb, cv2.COLOR_RGB2GRAY).astype(np.int16)
+    chroma = rgb.max(axis=2).astype(np.int16) - rgb.min(axis=2)
+    sh, sw = grey.shape
+    if sh < 32 or sw < 32:
+        return None
+    # Scanners pad beyond their scan area with pure white or black: whole rows/columns along an edge.
+    padding = _scan_padding(rgb, sdpi)
+    if padding.mean() > 0.9:
+        return None
+
+    width = max(2, int(sdpi * 3 / 25.4))  # ~3 mm ring along the image edge
+    ring = np.zeros(grey.shape, bool)
+    ring[:width] = ring[-width:] = True
+    ring[:, :width] = ring[:, -width:] = True
+    ring &= padding == 0
+    paper = float(np.percentile(grey[padding == 0], 95))
+    values = grey[ring]
+    darker = values < paper - 30
+    if values.size < 20 or darker.mean() < 0.03:
+        return None
+    backing_level = float(np.median(values[darker]))
+    if float(np.median(chroma[ring][darker])) >= _NEUTRAL_CHROMA:
+        return None  # coloured, so a letterhead band or a photo rather than a backing plate
+    split = (backing_level + paper) / 2
+
+    # Backing: smooth, close to the backing level, connected to the image edge.
+    backing = (
+        (np.abs(grey - backing_level) < split - backing_level)
+        & (_texture(grey) < 12)
+        & (chroma < _NEUTRAL_CHROMA)
+    ).astype(np.uint8) | padding
+    # The scan area's own edge is a dark, noisy line next to the padding; it belongs outside as well.
+    reach = max(3, int(sdpi * 3 / 25.4) | 1)
+    near_padding = cv2.dilate(padding, np.ones((reach, reach), np.uint8))
+    backing |= ((near_padding > 0) & (grey < split)).astype(np.uint8)
+    backing = cv2.morphologyEx(backing, cv2.MORPH_OPEN, np.ones((3, 3), np.uint8))
+    _, labels = cv2.connectedComponents(backing, connectivity=4)
+    edge_labels = np.unique(np.concatenate([labels[0], labels[-1], labels[:, 0], labels[:, -1]]))
+    outside = np.isin(labels, edge_labels[edge_labels > 0])
+    # The sheet's edge casts a shadow onto the backing: dark, but not smooth. Grow into it up to ~3 mm.
+    shadow = grey < split
+    for _ in range(reach // 2):
+        outside |= cv2.dilate(outside.astype(np.uint8), np.ones((3, 3), np.uint8)).astype(bool) & shadow
+    if (outside & (padding == 0)).mean() < 0.005:
+        return None  # hardly any backing visible: nothing to straighten or cut by
+
+    candidate = cv2.morphologyEx((~outside).astype(np.uint8), cv2.MORPH_OPEN, np.ones((5, 5), np.uint8))
+    count, labels, stats, _ = cv2.connectedComponentsWithStats(candidate, connectivity=4)
+    if count <= 1:
+        return None
+    biggest = 1 + int(np.argmax(stats[1:, cv2.CC_STAT_AREA]))
+    mask = (labels == biggest).astype(np.uint8)
+    others = int(stats[1:, cv2.CC_STAT_AREA].sum()) - int(mask.sum())
+    if others > 0.01 * sh * sw:
+        return None  # several separate things on the backing: unclear which one is the sheet
+    contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_NONE)
+    outline = max(contours, key=cv2.contourArea)
+    hull = cv2.convexHull(outline)
+    hull_area = cv2.contourArea(hull)
+    if hull_area < 0.15 * sh * sw or mask.sum() < 0.85 * hull_area:
+        return None  # too small, or not a sheet-like (convex) shape
+
+    # Angle from the sheet's own edges, ignoring stretches along the image border or padding.
+    points = outline[:, 0, :]
+    xs, ys = points[:, 0], points[:, 1]
+    real = (xs > 1) & (xs < sw - 2) & (ys > 1) & (ys < sh - 2) & (near_padding[ys, xs] == 0)
+    edge = points[real].astype(np.float32)
+    if len(edge) < 0.1 * (sh + sw):
+        return None
+    angle = _edge_angle(edge)
+    if angle is None:
+        return None
+    # Paper is convex: its hull gives straight edges where shading near the edge looked like backing.
+    outline_mask = np.zeros_like(mask)
+    cv2.drawContours(outline_mask, [hull], -1, 1, thickness=cv2.FILLED)
+    return Sheet(angle=angle, mask=outline_mask)
+
+
+def _texture(grey: np.ndarray) -> np.ndarray:
+    """Local standard deviation over 3x3 pixels."""
+    as_float = grey.astype(np.float32)
+    mean = cv2.blur(as_float, (3, 3))
+    return np.sqrt(np.maximum(cv2.blur(as_float * as_float, (3, 3)) - mean * mean, 0))
+
+
+def _scan_padding(rgb: np.ndarray, dpi: float) -> np.ndarray:
+    """Mask of the rows/columns at the image edges that lie outside the scan area.
+
+    Scanners pad there with pure white or black. A stripe only counts when the
+    scan next to it shows backing or the scan area's dark edge; a clean white
+    page margin is pure white as well, but borders on paper.
+    """
+    grey = cv2.cvtColor(rgb, cv2.COLOR_RGB2GRAY)
+    pure = (rgb.min(axis=2) >= 253) | (rgb.max(axis=2) <= 2)
+    dark = (grey < 225) & (_texture(grey) < 12)  # backing or the scan edge, not text
+    band = max(2, int(dpi * 3 / 25.4))  # ~3 mm of scan next to the stripe
+    mask = np.zeros(pure.shape, np.uint8)
+
+    def stripe(share: np.ndarray) -> int:
+        full = share >= 0.98
+        return len(full) if full.all() else int(np.argmin(full))
+
+    rows, cols = pure.mean(axis=1), pure.mean(axis=0)
+    h, w = pure.shape
+
+    def outside_scan(next_line: np.ndarray, next_band: np.ndarray) -> bool:
+        # The scan's last line is its dark edge or backing; a page margin ends in nearly white paper.
+        return float(next_line.mean()) < 235 or float(next_band.mean()) >= 0.05
+
+    top, bottom = stripe(rows), stripe(rows[::-1])
+    left, right = stripe(cols), stripe(cols[::-1])
+    if 0 < top < h and outside_scan(grey[top], dark[top : top + band]):
+        mask[:top] = 1
+    if 0 < bottom < h and outside_scan(grey[h - bottom - 1], dark[h - bottom - band : h - bottom]):
+        mask[h - bottom :] = 1
+    if 0 < left < w and outside_scan(grey[:, left], dark[:, left : left + band]):
+        mask[:, :left] = 1
+    if 0 < right < w and outside_scan(grey[:, w - right - 1], dark[:, w - right - band : w - right]):
+        mask[:, w - right :] = 1
+    return mask
+
+
+def _edge_angle(points: np.ndarray) -> float | None:
+    """Rotation that aligns the most edge points with straight horizontal/vertical lines (a tiny Hough)."""
+    best_score, best_angle = 0, 0.0
+    for angle in np.arange(-_MAX_SHEET_ANGLE, _MAX_SHEET_ANGLE + 1e-6, 0.1):
+        t = np.radians(angle)
+        score = 0
+        for nx, ny in ((-np.sin(t), np.cos(t)), (np.cos(t), np.sin(t))):  # horizontal and vertical edges
+            distance = np.round(points[:, 0] * nx + points[:, 1] * ny).astype(np.int64)
+            counts = np.bincount(distance - distance.min())
+            score += int(np.sort(counts)[-2:].sum())  # the two parallel sides
+        if score > best_score:
+            best_score, best_angle = score, float(angle)
+    if best_score < 0.3 * len(points):
+        return None  # edges are not straight lines (torn, folded, or not a sheet at all)
+    return round(best_angle, 2)
+
+
+def sheet_angle(array: np.ndarray, dpi: float, sheet: Sheet) -> float:
+    """The sheet's edge angle, refined by the text on it (print is often a little off the paper edge)."""
+    factor = min(1.0, 150 / dpi)
+    small = cv2.resize(array, None, fx=factor, fy=factor, interpolation=cv2.INTER_AREA)
+    straightened = cut_out_sheet(small, dpi * factor, sheet, sheet.angle)
+    grey = straightened if straightened.ndim == 2 else cv2.cvtColor(straightened, cv2.COLOR_RGB2GRAY)
+    residual = estimate_skew(grey, dpi * factor, _SHEET_REFINE_ANGLE)
+    return round(sheet.angle + residual, 2)
+
+
+def cut_out_sheet(array: np.ndarray, dpi: float, sheet: Sheet, angle: float) -> np.ndarray:
+    """Rotate by `angle`, crop to the sheet and paint anything that is not paper in the paper colour.
+
+    Corners that lay outside the scan area are filled rather than cut, so no content is lost.
+    """
+    h, w = array.shape[:2]
+    mask = cv2.resize(sheet.mask * 255, (w, h), interpolation=cv2.INTER_LINEAR)
+    inside = array[mask >= 128]
+    fill = tuple(float(v) for v in np.percentile(inside.reshape(len(inside), -1), 90, axis=0))
+    if angle:
+        array = rotate_by(array, angle, fill)
+        mask = rotate_by(mask, angle, (0.0,))
+    paper = mask >= 128
+    rows, cols = paper.sum(axis=1), paper.sum(axis=0)
+    rows = np.flatnonzero(rows > 0.05 * np.median(rows[rows > 0]))
+    cols = np.flatnonzero(cols > 0.05 * np.median(cols[cols > 0]))
+    top, bottom = int(rows[0]), int(rows[-1]) + 1
+    left, right = int(cols[0]), int(cols[-1]) + 1
+    inset = max(1, round(dpi * 2 / 25.4))  # the sheet's edge casts a shadow: paint ~2 mm over
+    out = array[top:bottom, left:right].copy()
+    keep = cv2.erode(
+        paper[top:bottom, left:right].astype(np.uint8),
+        np.ones((2 * inset + 1,) * 2, np.uint8),
+        borderType=cv2.BORDER_CONSTANT,
+        borderValue=0,  # the outermost rows/columns are the paper edge itself
+    )
+    out[keep == 0] = fill if out.ndim == 3 else fill[0]
+    return out
+
+
+_KNEE = 25.0  # levels below the white clip that fade into white
+
 _STRENGTH = {
     # blend of the flattened background, white clip level, max black point lift, speck size at 300 dpi
     "low": (0.5, 248, 30, 4),
@@ -431,9 +694,15 @@ def flatten_background(array: np.ndarray, dpi: float, strength: Strength) -> np.
     source = array.astype(np.float32)
     flat = np.clip(source * 255.0 / np.maximum(background, 1.0), 0, 255)
     out = source * (1 - blend) + flat * blend
+    # Near-white becomes white with a soft knee: a hard threshold leaves show-through and paper
+    # grain as a mottled pattern of white and almost-white pixels.
     lightest = out if out.ndim == 2 else out.min(axis=2)
-    out[lightest >= clip] = 255
-    return out.astype(np.uint8)
+    lift = np.clip((lightest - (clip - _KNEE)) / _KNEE, 0.0, 1.0)
+    lift = lift * lift * (3 - 2 * lift)  # smoothstep
+    if out.ndim == 3:
+        lift = lift[:, :, None]
+    out = out + (255.0 - out) * lift
+    return np.clip(out, 0, 255).astype(np.uint8)
 
 
 def stretch_contrast(array: np.ndarray, strength: Strength) -> np.ndarray:
@@ -497,9 +766,20 @@ def enhance_image(
     array = np.array(image.convert("L") if bilevel else image)
     grey = array if array.ndim == 2 else cv2.cvtColor(array, cv2.COLOR_RGB2GRAY)
 
-    # Crop before deskewing: the scanner's overshoot is aligned with the scanner, not with a crooked
-    # sheet; after rotating, the backing band would be tilted and no longer recognisable.
-    if options.crop:
+    # A sheet on a visible backing: its own edges give the angle and the outline to cut along.
+    sheet = find_sheet(array, dpi) if options.crop and not bilevel else None
+    if sheet is not None:
+        angle = sheet_angle(array, dpi, sheet) if options.deskew else 0.0
+        if abs(angle) < max(options.deskew_min_angle, 0.01):
+            angle = 0.0
+        array = cut_out_sheet(array, dpi, sheet, angle)
+        report.cropped = True
+        report.deskewed = angle
+        pixels_changed = True
+
+    # Otherwise crop before deskewing: the scanner's overshoot is aligned with the scanner, not with a
+    # crooked sheet; after rotating, the backing band would be tilted and no longer recognisable.
+    if options.crop and sheet is None:
         box = paper_bounds(array, dpi, options.crop_max_fraction)
         if box:
             left, top, right, bottom = box
@@ -507,7 +787,7 @@ def enhance_image(
             report.cropped = True
             pixels_changed = True
 
-    if options.deskew:
+    if options.deskew and sheet is None:
         grey = array if array.ndim == 2 else cv2.cvtColor(array, cv2.COLOR_RGB2GRAY)
         angle = estimate_skew(grey, dpi, options.deskew_max_angle)
         if abs(angle) >= max(options.deskew_min_angle, 0.01):
