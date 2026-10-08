@@ -247,6 +247,9 @@ function StatusBanner() {
   } else if (s.storage.ok === false) {
     problems.push(`Storage is not reachable: ${s.storage.message}`);
   }
+  if (s.backup.last_error && !s.storage.needs_reauth) {
+    problems.push(`The last database backup failed: ${s.backup.last_error}`);
+  }
   if (!s.worker_online) problems.push("The processing worker is not running — new documents will wait.");
   if (!problems.length) return null;
   return (

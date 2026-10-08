@@ -178,6 +178,10 @@ PROTON_ROOT = env("DOCNEST_PROTON_ROOT", "/my-files/DocNest")
 PROTON_CLI = env("DOCNEST_PROTON_CLI", "docnest-proton")
 PROTON_TIMEOUT_SECONDS = env_int("DOCNEST_PROTON_TIMEOUT_SECONDS", 600)
 VIEW_CACHE_MB = env_int("DOCNEST_VIEW_CACHE_MB", 0)  # 0 = disabled
+# Database backups uploaded to the storage backend (see docs/operations.md)
+BACKUP_INTERVAL_HOURS = env_int("DOCNEST_BACKUP_INTERVAL_HOURS", 24)  # 0 = disabled
+BACKUP_KEEP = max(1, env_int("DOCNEST_BACKUP_KEEP", 14))
+BACKUP_TIMEOUT_SECONDS = env_int("DOCNEST_BACKUP_TIMEOUT_SECONDS", 3600)
 
 # --- Crypto -----------------------------------------------------------------
 

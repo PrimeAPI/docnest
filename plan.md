@@ -317,7 +317,7 @@ DocNest/
 
 **compose.yml:** `app` + `db` (postgres:17, healthcheck, internal network only), named volumes for DB data and the encrypted intake, `tmpfs` for work dir, Docker secrets for `master_key`, `db_password`, `django_secret_key`; a `proton-session` volume (or host bind mount) for the Proton CLI session (see 2.3). Ports: app binds to `127.0.0.1:8000` by default (behind the existing reverse proxy). Example reverse-proxy snippets (Caddy, Traefik, nginx) in `docs/operations.md`, including the upload body size limit.
 
-**Backups:** documented: PostgreSQL dump (contains only encrypted content + metadata) + the master key stored separately offline. Without the master key, backups are unreadable — this is stated loudly in the docs. Documents themselves live in Proton Drive.
+**Backups:** the worker uploads a daily PostgreSQL dump to `<root>/backups/` in Proton Drive (newest 14 kept; `docnest backup` on demand). Documented: PostgreSQL dump (contains only encrypted content + metadata) + the master key stored separately offline. Without the master key, backups are unreadable — this is stated loudly in the docs. Documents themselves live in Proton Drive.
 
 ---
 

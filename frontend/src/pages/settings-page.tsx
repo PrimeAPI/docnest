@@ -3,6 +3,7 @@ import {
   Activity,
   ChevronDown,
   Copy,
+  DatabaseBackup,
   HardDrive,
   KeyRound,
   Monitor,
@@ -35,7 +36,7 @@ import { KeyEnroll, RecoveryCodes, TotpEnroll } from "@/features/auth/enroll";
 import { EnhancementCard } from "@/features/processing/enhancement";
 import { Link } from "react-router";
 import { describeAction, describeAgent, describeMethod } from "@/lib/agent";
-import { cn, formatDateTime } from "@/lib/utils";
+import { cn, formatBytes, formatDateTime } from "@/lib/utils";
 
 export function SettingsPage() {
   return (
@@ -697,16 +698,26 @@ function ProcessingCard() {
 }
 
 function SystemCard() {
+  const qc = useQueryClient();
   const system = useSystem();
+  const backupNow = useMutation({
+    mutationFn: () => call(() => client.POST("/api/v1/system/backup")),
+    onSuccess: () => {
+      toast.success("Backup queued — the worker uploads it shortly.");
+      qc.invalidateQueries({ queryKey: keys.system });
+    },
+    onError: (e) => toast.error(e.message),
+  });
   const s = system.data;
   if (!s) return <Spinner />;
+  const b = s.backup;
   return (
     <Card>
       <CardHeader>
         <CardTitle>System status</CardTitle>
         <CardDescription>Version {s.version}</CardDescription>
       </CardHeader>
-      <CardContent className="grid gap-3 sm:grid-cols-3">
+      <CardContent className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
         <div className="rounded-md border p-3">
           <div className="flex items-center gap-2 text-sm font-medium">
             <HardDrive className="size-4" /> Storage ({s.storage.backend === "proton" ? "Proton Drive" : "local"})
@@ -741,6 +752,41 @@ function SystemCard() {
           <div className="mt-2 text-sm">
             {s.running_jobs} running · {s.queued_jobs} queued · {s.failed_jobs} failed
           </div>
+        </div>
+        <div className="rounded-md border p-3">
+          <div className="flex items-center gap-2 text-sm font-medium">
+            <DatabaseBackup className="size-4" /> Database backup
+          </div>
+          <div className="mt-2">
+            {b.pending ? (
+              <Badge variant="muted">In progress</Badge>
+            ) : b.last_error ? (
+              <Badge variant="danger">Failed</Badge>
+            ) : b.last_success_at ? (
+              <Badge variant="success">OK</Badge>
+            ) : (
+              <Badge variant="muted">No backup yet</Badge>
+            )}
+          </div>
+          {b.last_error && <p className="mt-2 text-xs text-muted-foreground">{b.last_error}</p>}
+          {b.last_success_at && (
+            <p className="mt-2 text-xs text-muted-foreground">
+              last {formatDateTime(b.last_success_at)}
+              {b.last_size != null && ` · ${formatBytes(b.last_size)}`} · {b.count} kept
+            </p>
+          )}
+          <p className="mt-1 text-xs text-muted-foreground">
+            {b.enabled ? `Every ${b.interval_hours} h, newest ${b.keep} kept` : "Automatic backups are off"}
+          </p>
+          <Button
+            size="sm"
+            variant="outline"
+            className="mt-2"
+            disabled={b.pending || backupNow.isPending}
+            onClick={() => backupNow.mutate()}
+          >
+            Back up now
+          </Button>
         </div>
       </CardContent>
     </Card>

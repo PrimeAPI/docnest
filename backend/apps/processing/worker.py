@@ -26,7 +26,8 @@ from apps.documents.models import Document
 from apps.processing import pipeline, queue
 from apps.processing.models import Job, SystemState, WorkerHeartbeat
 from apps.processing.preferences import MAX_PROCESSING_CONCURRENCY, get_processing_concurrency
-from apps.storage.backends import get_backend
+from apps.storage import backup
+from apps.storage.backends import StorageAuthError, get_backend
 
 logger = logging.getLogger("docnest.worker")
 
@@ -151,6 +152,8 @@ class Worker:
                     classifier.train_all()
                 elif job.kind == Job.Kind.REINDEX_DOCUMENT:
                     pipeline.reindex(Document.objects.get(pk=job.document_id or 0))
+                elif job.kind == Job.Kind.BACKUP_DATABASE:
+                    self.backup_database()
                 else:
                     raise pipeline.PermanentError(f"unknown job kind {job.kind}")
         except pipeline.StorageUnavailable as exc:
@@ -223,6 +226,12 @@ class Worker:
         if folder:
             get_backend().delete_folder(folder)
 
+    def backup_database(self) -> None:
+        try:
+            backup.run()
+        except StorageAuthError as exc:
+            raise pipeline.StorageUnavailable(str(exc)) from exc
+
     # -- periodic maintenance
 
     def periodic(self) -> None:
@@ -236,6 +245,8 @@ class Worker:
         if now - self._last_health > HEALTHCHECK_INTERVAL:
             self._last_health = now
             self.check_storage()
+            if backup.is_due():
+                backup.schedule()
         if now - self._last_cleanup > CLEANUP_INTERVAL:
             self._last_cleanup = now
             self.cleanup()

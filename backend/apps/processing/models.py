@@ -12,6 +12,7 @@ class Job(models.Model):
         DELETE_STORAGE = "delete_storage"
         TRAIN_CLASSIFIER = "train_classifier"
         REINDEX_DOCUMENT = "reindex_document"
+        BACKUP_DATABASE = "backup_database"
 
     class State(models.TextChoices):
         QUEUED = "queued"

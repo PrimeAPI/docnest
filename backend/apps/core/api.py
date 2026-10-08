@@ -31,6 +31,7 @@ from apps.processing.preferences import (
     set_processing_concurrency,
 )
 from apps.processing.schemas import EnhanceSettingsIn, EnhanceSettingsOut
+from apps.storage import backup
 
 router = Router(tags=["system"])
 
@@ -57,11 +58,24 @@ class StorageStatus(Schema):
     checked_at: str | None
 
 
+class BackupStatus(Schema):
+    enabled: bool
+    interval_hours: int
+    keep: int
+    last_success_at: datetime | None
+    last_attempt_at: datetime | None
+    last_error: str
+    last_size: int | None
+    count: int  # backups currently kept in storage
+    pending: bool  # a backup job is queued or running
+
+
 class SystemStatus(Schema):
     version: str
     default_ocr_backend: OcrBackend
     docling_field_detection: DoclingFieldDetection
     storage: StorageStatus
+    backup: BackupStatus
     worker_online: bool
     worker_last_seen: datetime | None
     processing_concurrency: int
@@ -183,6 +197,7 @@ def system_status(request: HttpRequest) -> SystemStatus:
             message=value.get("message", ""),
             checked_at=value.get("checked_at"),
         ),
+        backup=_backup_status(),
         worker_online=bool(last_seen and timezone.now() - last_seen < timedelta(minutes=2)),
         worker_last_seen=last_seen,
         processing_concurrency=get_processing_concurrency(),
@@ -191,6 +206,31 @@ def system_status(request: HttpRequest) -> SystemStatus:
         running_jobs=Job.objects.filter(state=Job.State.RUNNING).count(),
         failed_jobs=Job.objects.filter(state=Job.State.FAILED).count(),
     )
+
+
+def _backup_status() -> BackupStatus:
+    state = backup.get_state()
+    return BackupStatus(
+        enabled=settings.BACKUP_INTERVAL_HOURS > 0,
+        interval_hours=settings.BACKUP_INTERVAL_HOURS,
+        keep=settings.BACKUP_KEEP,
+        last_success_at=state.get("last_success_at") or None,
+        last_attempt_at=state.get("last_attempt_at") or None,
+        last_error=state.get("last_error", ""),
+        last_size=state.get("last_size"),
+        count=len(state.get("backups", [])),
+        pending=Job.objects.filter(
+            kind=Job.Kind.BACKUP_DATABASE, state__in=[Job.State.QUEUED, Job.State.RUNNING]
+        ).exists(),
+    )
+
+
+@router.post("/system/backup", response=BackupStatus)
+def start_backup(request: HttpRequest) -> BackupStatus:
+    """Queue a database backup now (the worker uploads it to storage)."""
+    if backup.schedule() is not None:
+        audit("system.backup_requested", request=request)
+    return _backup_status()
 
 
 @router.put("/settings/processing", response=ProcessingSettingsOut)

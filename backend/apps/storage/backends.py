@@ -67,6 +67,8 @@ class StorageBackend(Protocol):
 
     def delete_folder(self, folder: str) -> None: ...
 
+    def delete_file(self, path: str) -> None: ...
+
     def healthcheck(self) -> HealthStatus: ...
 
 
@@ -118,6 +120,9 @@ class LocalFilesystemBackend:
     def delete_folder(self, folder: str) -> None:
         target = self.root / _safe_relative(*os.path.split(folder))
         shutil.rmtree(target, ignore_errors=True)
+
+    def delete_file(self, path: str) -> None:
+        (self.root / _safe_relative(*os.path.split(path))).unlink(missing_ok=True)
 
     def healthcheck(self) -> HealthStatus:
         try:
@@ -267,6 +272,21 @@ class ProtonDriveCliBackend:
             self._json("filesystem", "delete", f"/trash/{rel.name}")
         except StorageError:
             logger.warning("could not permanently delete trashed folder; it remains in Proton Drive trash")
+
+    def delete_file(self, path: str) -> None:
+        """Delete a file this backend returned from `put` (its `StoredObject.path`)."""
+        remote = PurePosixPath(path)
+        if not remote.is_relative_to(self.root) or ".." in remote.parts:
+            raise StorageError("invalid storage path")
+        try:
+            self._json("filesystem", "trash", str(remote))
+        except StorageNotFound:
+            return
+        # Callers only delete uniquely named files (e.g. timestamped backups).
+        try:
+            self._json("filesystem", "delete", f"/trash/{remote.name}")
+        except StorageError:
+            logger.warning("could not permanently delete trashed file; it remains in Proton Drive trash")
 
     def healthcheck(self) -> HealthStatus:
         try:

@@ -58,6 +58,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/system/backup": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Start Backup
+         * @description Queue a database backup now (the worker uploads it to storage).
+         */
+        post: operations["apps_core_api_start_backup"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/settings/processing": {
         parameters: {
             query?: never;
@@ -1082,6 +1102,27 @@ export interface components {
             /** Paper Pending */
             paper_pending: number;
         };
+        /** BackupStatus */
+        BackupStatus: {
+            /** Enabled */
+            enabled: boolean;
+            /** Interval Hours */
+            interval_hours: number;
+            /** Keep */
+            keep: number;
+            /** Last Success At */
+            last_success_at: string | null;
+            /** Last Attempt At */
+            last_attempt_at: string | null;
+            /** Last Error */
+            last_error: string;
+            /** Last Size */
+            last_size: number | null;
+            /** Count */
+            count: number;
+            /** Pending */
+            pending: boolean;
+        };
         /** EnhanceSettingsOut */
         EnhanceSettingsOut: {
             /** Enabled */
@@ -1146,6 +1187,7 @@ export interface components {
              */
             docling_field_detection: "layout" | "vlm" | "hybrid";
             storage: components["schemas"]["StorageStatus"];
+            backup: components["schemas"]["BackupStatus"];
             /** Worker Online */
             worker_online: boolean;
             /** Worker Last Seen */
@@ -2329,6 +2371,26 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["SystemStatus"];
+                };
+            };
+        };
+    };
+    apps_core_api_start_backup: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BackupStatus"];
                 };
             };
         };

@@ -76,6 +76,34 @@
     ]
    }
   },
+  "/api/v1/system/backup": {
+   "post": {
+    "operationId": "apps_core_api_start_backup",
+    "summary": "Start Backup",
+    "parameters": [],
+    "responses": {
+     "200": {
+      "description": "OK",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/BackupStatus"
+        }
+       }
+      }
+     }
+    },
+    "description": "Queue a database backup now (the worker uploads it to storage).",
+    "tags": [
+     "system"
+    ],
+    "security": [
+     {
+      "MfaSessionAuth": []
+     }
+    ]
+   }
+  },
   "/api/v1/settings/processing": {
    "put": {
     "operationId": "apps_core_api_update_processing_settings",
@@ -3049,6 +3077,82 @@
     "title": "OverviewOut",
     "type": "object"
    },
+   "BackupStatus": {
+    "properties": {
+     "enabled": {
+      "title": "Enabled",
+      "type": "boolean"
+     },
+     "interval_hours": {
+      "title": "Interval Hours",
+      "type": "integer"
+     },
+     "keep": {
+      "title": "Keep",
+      "type": "integer"
+     },
+     "last_success_at": {
+      "anyOf": [
+       {
+        "format": "date-time",
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Last Success At"
+     },
+     "last_attempt_at": {
+      "anyOf": [
+       {
+        "format": "date-time",
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Last Attempt At"
+     },
+     "last_error": {
+      "title": "Last Error",
+      "type": "string"
+     },
+     "last_size": {
+      "anyOf": [
+       {
+        "type": "integer"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Last Size"
+     },
+     "count": {
+      "title": "Count",
+      "type": "integer"
+     },
+     "pending": {
+      "title": "Pending",
+      "type": "boolean"
+     }
+    },
+    "required": [
+     "enabled",
+     "interval_hours",
+     "keep",
+     "last_success_at",
+     "last_attempt_at",
+     "last_error",
+     "last_size",
+     "count",
+     "pending"
+    ],
+    "title": "BackupStatus",
+    "type": "object"
+   },
    "EnhanceSettingsOut": {
     "properties": {
      "enabled": {
@@ -3210,6 +3314,9 @@
      "storage": {
       "$ref": "#/components/schemas/StorageStatus"
      },
+     "backup": {
+      "$ref": "#/components/schemas/BackupStatus"
+     },
      "worker_online": {
       "title": "Worker Online",
       "type": "boolean"
@@ -3251,6 +3358,7 @@
      "default_ocr_backend",
      "docling_field_detection",
      "storage",
+     "backup",
      "worker_online",
      "worker_last_seen",
      "processing_concurrency",
