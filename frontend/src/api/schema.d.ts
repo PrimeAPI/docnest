@@ -1799,14 +1799,17 @@ export interface components {
             /** Updated */
             updated: number;
         };
-        /** ReprocessAllIn */
-        ReprocessAllIn: {
-            /**
-             * Stage
-             * @default analyze
-             * @enum {string}
-             */
-            stage: "ocr" | "analyze";
+        /** ReprocessIn */
+        ReprocessIn: {
+            /** Steps */
+            steps?: ("enhance" | "ocr" | "analyze")[] | null;
+            /** Stage */
+            stage?: ("ocr" | "analyze") | null;
+            /** Backend */
+            backend?: ("ocrmypdf" | "docling") | null;
+            enhancement?: components["schemas"]["EnhanceSettingsIn"] | null;
+            /** Ai Model */
+            ai_model?: string | null;
         };
         /** BulkAction */
         BulkAction: {
@@ -1820,18 +1823,6 @@ export interface components {
             /** Folder Id */
             folder_id?: number | null;
             reprocess?: components["schemas"]["ReprocessIn"] | null;
-        };
-        /** ReprocessIn */
-        ReprocessIn: {
-            /**
-             * Stage
-             * @default ocr
-             * @enum {string}
-             */
-            stage: "ocr" | "analyze";
-            /** Backend */
-            backend?: ("ocrmypdf" | "docling") | null;
-            enhancement?: components["schemas"]["EnhanceSettingsIn"] | null;
         };
         /** DocumentDetail */
         DocumentDetail: {
@@ -3223,7 +3214,7 @@ export interface operations {
         };
         requestBody: {
             content: {
-                "application/json": components["schemas"]["ReprocessAllIn"];
+                "application/json": components["schemas"]["ReprocessIn"];
             };
         };
         responses: {

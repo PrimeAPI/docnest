@@ -81,13 +81,17 @@ def sanitize(src: Path, dst: Path) -> SanitizeResult:
     return SanitizeResult(page_count=pages, removed=removed)
 
 
-def ocr(src: Path, dst: Path, *, deskew: bool = True, rotate: bool = True) -> bool:
-    """Run OCRmyPDF. Raises OcrFailed if it did not produce an output file."""
+def ocr(src: Path, dst: Path, *, deskew: bool = True, rotate: bool = True, redo: bool = False) -> bool:
+    """Run OCRmyPDF. Raises OcrFailed if it did not produce an output file.
+
+    `redo` replaces an existing OCR text layer (re-reading an already processed archive)
+    instead of skipping pages that have text; OCRmyPDF cannot deskew in that mode.
+    """
     cmd = [
         "ocrmypdf",
-        "--skip-text",
+        "--redo-ocr" if redo else "--skip-text",
         *(["--rotate-pages"] if rotate else []),
-        *(["--deskew"] if deskew else []),
+        *(["--deskew"] if deskew and not redo else []),
         "--output-type",
         "pdfa",
         "--optimize",

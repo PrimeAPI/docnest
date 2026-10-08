@@ -1,20 +1,12 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { RefreshCw, RotateCcw } from "lucide-react";
+import { RotateCcw } from "lucide-react";
 import { useEffect, useId, useState } from "react";
 import { toast } from "sonner";
 import { call, client, type Schemas } from "@/api/client";
-import { keys, useInvalidateDocuments, useSystem } from "@/api/queries";
+import { keys, useSystem } from "@/api/queries";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
 import { Input, Label, Select } from "@/components/ui/input";
 import { ErrorNote, Spinner } from "@/components/ui/misc";
 import { cn } from "@/lib/utils";
@@ -58,7 +50,7 @@ export function describeEnhancement(summary: Record<string, unknown> | undefined
   return n("scanned_pages") ? "No changes were needed" : "No scanned pages (nothing to enhance)";
 }
 
-function Toggle({
+export function Toggle({
   label,
   hint,
   checked,
@@ -364,116 +356,3 @@ export function EnhancementCard() {
 }
 
 /** Reprocess one or many documents from the original, optionally with one-off enhancement settings. */
-export function ReprocessDialog({
-  ids,
-  open,
-  onOpenChange,
-  onDone,
-}: {
-  ids: string[];
-  open: boolean;
-  onOpenChange: (open: boolean) => void;
-  onDone?: () => void;
-}) {
-  const system = useSystem();
-  const invalidate = useInvalidateDocuments();
-  const [backend, setBackend] = useState<"" | "ocrmypdf" | "docling">("");
-  const [custom, setCustom] = useState(false);
-  const [settings, setSettings] = useState<EnhanceSettings | null>(null);
-  const [busy, setBusy] = useState(false);
-  const defaults = system.data?.scan_enhancement;
-
-  useEffect(() => {
-    if (open) {
-      setBackend("");
-      setCustom(false);
-      setSettings(null);
-    }
-  }, [open]);
-
-  const current = settings ?? defaults ?? DEFAULT_ENHANCEMENT;
-  const many = ids.length > 1;
-
-  const submit = async () => {
-    const reprocess = {
-      stage: "ocr" as const,
-      backend: backend || undefined,
-      enhancement: custom ? current : undefined,
-    };
-    setBusy(true);
-    try {
-      if (many) {
-        const result = await call(() =>
-          client.POST("/api/v1/documents/bulk", { body: { ids, action: "reprocess", reprocess } }),
-        );
-        const skipped = ids.length - result.updated;
-        toast.success(
-          `Reprocessing ${result.updated} document${result.updated === 1 ? "" : "s"}` +
-            (skipped ? ` (${skipped} already in the queue)` : ""),
-        );
-      } else {
-        await call(() =>
-          client.POST("/api/v1/documents/{doc_id}/reprocess", {
-            params: { path: { doc_id: ids[0] } },
-            body: reprocess,
-          }),
-        );
-        toast.success("Reprocessing started");
-      }
-      invalidate();
-      onOpenChange(false);
-      onDone?.();
-    } catch (e) {
-      toast.error((e as Error).message);
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-h-[90vh] max-w-xl overflow-y-auto">
-        <DialogHeader>
-          <DialogTitle>{many ? `Reprocess ${ids.length} documents` : "Reprocess from the original"}</DialogTitle>
-          <DialogDescription>
-            Scan enhancement, text recognition and analysis run again from the untouched original. Fields you set
-            yourself are kept.
-          </DialogDescription>
-        </DialogHeader>
-        <div className="flex flex-col gap-5">
-          <div className="grid gap-1.5">
-            <Label htmlFor="reprocess-backend">Processor</Label>
-            <Select
-              id="reprocess-backend"
-              value={backend}
-              onChange={(e) => setBackend(e.target.value as typeof backend)}
-            >
-              <option value="">{many ? "Keep each document's processor" : "Keep the current processor"}</option>
-              <option value="ocrmypdf">OCRmyPDF / Tesseract</option>
-              <option value="docling">Docling</option>
-            </Select>
-          </div>
-          <Toggle
-            label="Use different scan enhancement settings for this run"
-            hint="Only for this reprocessing; the system settings stay unchanged."
-            checked={custom}
-            onChange={setCustom}
-          />
-          {custom && (
-            <div className="rounded-md border p-4">
-              <EnhancementForm value={current} onChange={(c) => setSettings({ ...current, ...c })} />
-            </div>
-          )}
-        </div>
-        <DialogFooter>
-          <Button variant="outline" onClick={() => onOpenChange(false)}>
-            Cancel
-          </Button>
-          <Button onClick={submit} disabled={busy || !ids.length}>
-            <RefreshCw /> Reprocess
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
-  );
-}

@@ -70,6 +70,8 @@ ORDER: list[str] = [
     Stage.INDEX,
     Stage.DONE,
 ]
+# Steps a reprocessing run can choose; storage and indexing always follow.
+STEP_STAGES: dict[str, str] = {"enhance": Stage.ENHANCE, "ocr": Stage.OCR, "analyze": Stage.ANALYZE}
 # Stages of the fast `process_document` job; the rest run in `analyze_document`.
 PREPARE_STAGES = frozenset({Stage.RECEIVED, Stage.ASSEMBLE, Stage.VALIDATE, Stage.ENHANCE})
 DOCUMENT_JOB_KINDS = (Job.Kind.PROCESS_DOCUMENT, Job.Kind.ANALYZE_DOCUMENT)
@@ -172,6 +174,30 @@ def _enhanced_local(document: Document, work: Path) -> Path | None:
 def _ocr_source(document: Document, work: Path) -> Path:
     """Input for OCR / Docling: the enhanced version, else the original."""
     return _enhanced_local(document, work) or _original_local(document, work)
+
+
+def planned(document: Document, stage: str) -> bool:
+    """Whether this run includes `stage` (a reprocessing run may leave steps out)."""
+    steps = document.processing_plan.get("steps")
+    step = next((name for name, s in STEP_STAGES.items() if s == stage), None)
+    return not isinstance(steps, list) or step is None or step in steps
+
+
+def _ocr_input(document: Document, work: Path) -> tuple[Path, bool]:
+    """The file to recognise, and whether it already carries an OCR text layer.
+
+    When this run leaves enhancement out, the current archive (the enhanced pages
+    as shown) is read again rather than the raw original.
+    """
+    enhanced = _enhanced_local(document, work)
+    if enhanced:
+        return enhanced, False
+    has_archive = archive_intake_path(document).exists() or bool(document.storage_archive)
+    if not planned(document, Stage.ENHANCE) and has_archive:
+        current = work / "current.pdf"
+        _archive_local(document, work).replace(current)
+        return current, True
+    return _original_local(document, work), False
 
 
 def _processed_local(document: Document, work: Path) -> Path:
@@ -289,7 +315,7 @@ def stage_enhance(document: Document, work: Path) -> None:
 
 
 def stage_ocr(document: Document, work: Path) -> None:
-    src = _ocr_source(document, work)
+    src, has_ocr_layer = _ocr_input(document, work)
     archive = work / "archive.pdf"
     archive.unlink(missing_ok=True)
     backend = document.ocr_backend or get_default_ocr_backend()
@@ -320,7 +346,11 @@ def stage_ocr(document: Document, work: Path) -> None:
     used = EnhanceSettings.from_json(document.enhancement.get("settings") or {"enabled": False})
     try:
         pdf.ocr(
-            src, archive, deskew=not (used.enabled and used.deskew), rotate=not (used.enabled and used.rotate)
+            src,
+            archive,
+            deskew=not (used.enabled and used.deskew),
+            rotate=not (used.enabled and used.rotate),
+            redo=has_ocr_layer,
         )
     except pdf.OcrFailed as exc:
         # Keep the document usable: archive = original, text from any existing text layer.
@@ -379,7 +409,8 @@ def stage_analyze(document: Document, work: Path) -> None:
 
 def _model_fields(document: Document, work: Path, text: str) -> ai.ModelFields | None:
     """Ask the AI model, when one is chosen, to read the document's first pages."""
-    model = get_ai_model()
+    plan = document.processing_plan
+    model = plan["ai_model"] if isinstance(plan.get("ai_model"), str) else get_ai_model()
     if not model or not ai.configured():
         return None
     src = _processed_local(document, work)
@@ -507,6 +538,9 @@ def run(document_id: int, *, prepare_only: bool = False) -> None:
                     Document.objects.filter(pk=document.pk).update(processing_state=Document.State.PENDING)
                     enqueue(document)
                 return
+            if not planned(document, stage):
+                _advance(document, ORDER[ORDER.index(stage) + 1])
+                continue
             started = time.monotonic()
             try:
                 STAGES[stage](document, work)
@@ -521,16 +555,22 @@ def run(document_id: int, *, prepare_only: bool = False) -> None:
 
     with transaction.atomic():
         Document.objects.filter(pk=document.pk).update(
-            processing_state=Document.State.DONE, processing_error="", updated_at=timezone.now()
+            processing_state=Document.State.DONE,
+            processing_error="",
+            processing_plan={},
+            updated_at=timezone.now(),
         )
 
 
-def restart_from(document: Document, stage: str) -> None:
+def restart_from(document: Document, stage: str, plan: dict[str, object] | None = None) -> None:
     """Prepare a document for reprocessing from `stage` (used by the reprocess action)."""
     document.processing_stage = stage
     document.processing_state = Document.State.PENDING
     document.processing_error = ""
-    document.save(update_fields=["processing_stage", "processing_state", "processing_error"])
+    document.processing_plan = plan or {}
+    document.save(
+        update_fields=["processing_stage", "processing_state", "processing_error", "processing_plan"]
+    )
 
 
 def _describe(exc: Exception) -> str:

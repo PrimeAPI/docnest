@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import os
-import re
 from datetime import datetime, timedelta
 from uuid import UUID
 
@@ -155,9 +154,6 @@ class AiSettingsIn(Schema):
 
 class AiPullIn(Schema):
     model: str = Field(..., max_length=200)
-
-
-MODEL_NAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._\-/:]{0,199}$")
 
 
 class ProcessingQueueItem(Schema):
@@ -375,7 +371,7 @@ def ai_settings(request: HttpRequest) -> AiSettingsOut:
 @router.put("/settings/ai", response=AiSettingsOut)
 def update_ai_settings(request: HttpRequest, data: AiSettingsIn) -> AiSettingsOut:
     model = data.model.strip()
-    if model and not MODEL_NAME.match(model):
+    if model and not ai.valid_model_name(model):
         raise HttpError(422, "Invalid model name")
     set_ai_model(model)
     audit("settings.ai_updated", request=request, model=model)
@@ -385,7 +381,7 @@ def update_ai_settings(request: HttpRequest, data: AiSettingsIn) -> AiSettingsOu
 @router.post("/settings/ai/pull", response=AiSettingsOut)
 def pull_ai_model(request: HttpRequest, data: AiPullIn) -> AiSettingsOut:
     model = data.model.strip()
-    if not MODEL_NAME.match(model):
+    if not ai.valid_model_name(model):
         raise HttpError(422, "Invalid model name")
     if not ai.configured():
         raise HttpError(409, "No Ollama server is configured")

@@ -3,33 +3,31 @@ import { Download, RefreshCw, Sparkles } from "lucide-react";
 import { type FormEvent, useState } from "react";
 import { toast } from "sonner";
 import { call, client, type Schemas } from "@/api/client";
-import { keys, useInvalidateDocuments, useOverview } from "@/api/queries";
+import { useOverview } from "@/api/queries";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
 import { Input, Label, Select } from "@/components/ui/input";
 import { Spinner } from "@/components/ui/misc";
 import { formatBytes } from "@/lib/utils";
+import { ReprocessDialog } from "./reprocess-dialog";
 
 type AiSettings = Schemas["AiSettingsOut"];
 const aiKey = ["ai-settings"] as const;
 
 /** Settings → System: which local AI model reads incoming documents, and downloading new ones. */
-export function AiModelCard() {
-  const qc = useQueryClient();
-  const settings = useQuery({
+export function useAiSettings({ enabled = true }: { enabled?: boolean } = {}) {
+  return useQuery({
     queryKey: aiKey,
     queryFn: () => call(() => client.GET("/api/v1/settings/ai")),
     refetchInterval: (query) => (query.state.data?.pull?.active ? 2_000 : false),
+    enabled,
   });
+}
+
+export function AiModelCard() {
+  const qc = useQueryClient();
+  const settings = useAiSettings();
   const choose = useMutation({
     mutationFn: (model: string) => call(() => client.PUT("/api/v1/settings/ai", { body: { model } })),
     onSuccess: (data) => {
@@ -131,8 +129,8 @@ function ModelChoice({
         ))}
       </Select>
       <p className="text-xs text-muted-foreground">
-        Applies to new documents and to “Reanalyze”. Select documents and reprocess them to have existing ones
-        read again; fields you set yourself are kept.
+        Applies to new documents and when reprocessing. To have existing documents read again, use “Reprocess all
+        documents” below or reprocess a selection; fields you set yourself are kept.
       </p>
       {chosen && !chosen.vision && (
         <p className="text-xs text-amber-700 dark:text-amber-300">
@@ -235,70 +233,24 @@ function PullProgress({ pull }: { pull: NonNullable<AiSettings["pull"]> }) {
 
 /** Settings → System: queue every document again, e.g. overnight after choosing a new AI model. */
 export function ReprocessAllCard() {
-  const qc = useQueryClient();
-  const invalidate = useInvalidateDocuments();
   const total = useOverview().data?.total;
-  const [stage, setStage] = useState<"analyze" | "ocr">("analyze");
-  const [confirming, setConfirming] = useState(false);
-  const start = useMutation({
-    mutationFn: () => call(() => client.POST("/api/v1/documents/reprocess-all", { body: { stage } })),
-    onSuccess: (data) => {
-      setConfirming(false);
-      toast.success(`${data.updated} documents queued — they are worked through one after another.`);
-      invalidate();
-      qc.invalidateQueries({ queryKey: keys.processingQueue });
-    },
-    onError: (e) => toast.error(e.message),
-  });
-
+  const [open, setOpen] = useState(false);
   return (
     <Card>
       <CardHeader>
         <CardTitle>Reprocess all documents</CardTitle>
         <CardDescription>
-          Have every document read again, for example overnight after choosing a new AI model. Documents stay
-          readable throughout, and everything you set yourself (titles, senders, tags, folders) is kept.
+          Have every document read again, for example overnight after choosing a new AI model. You choose which steps
+          run. Documents stay readable throughout, and everything you set yourself (titles, senders, tags, folders) is
+          kept.
         </CardDescription>
       </CardHeader>
-      <CardContent className="flex max-w-xl flex-col gap-3">
-        <div className="flex flex-col gap-1.5">
-          <Label htmlFor="reprocess-all-stage">What runs again</Label>
-          <Select
-            id="reprocess-all-stage"
-            value={stage}
-            onChange={(e) => setStage(e.target.value as "analyze" | "ocr")}
-          >
-            <option value="analyze">Analysis only — AI model and rules on the existing text (recommended)</option>
-            <option value="ocr">Everything — scan enhancement, text recognition and analysis</option>
-          </Select>
-        </div>
-        <div>
-          <Button variant="outline" onClick={() => setConfirming(true)} disabled={total === 0}>
-            <RefreshCw /> Reprocess {total ?? "all"} documents
-          </Button>
-        </div>
+      <CardContent>
+        <Button variant="outline" onClick={() => setOpen(true)} disabled={total === 0}>
+          <RefreshCw /> Reprocess {total ?? "all"} documents…
+        </Button>
       </CardContent>
-      <Dialog open={confirming} onOpenChange={setConfirming}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Reprocess {total ?? "all"} documents?</DialogTitle>
-            <DialogDescription>
-              {stage === "analyze"
-                ? "Every document is analysed again. With an AI model this takes a few minutes per document on a CPU."
-                : "Every document is enhanced, recognised and analysed again from its original. This takes the longest."}{" "}
-              Documents already in the queue are skipped.
-            </DialogDescription>
-          </DialogHeader>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setConfirming(false)}>
-              Cancel
-            </Button>
-            <Button onClick={() => start.mutate()} disabled={start.isPending}>
-              Reprocess
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      <ReprocessDialog target={{ all: true, count: total }} open={open} onOpenChange={setOpen} />
     </Card>
   );
 }

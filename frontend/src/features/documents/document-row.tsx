@@ -24,7 +24,7 @@ import {
 } from "@/components/ui/dropdown";
 import { MoveButton, MoveToFolderDialog } from "@/features/folders/folder-ui";
 import { dragDocuments } from "@/features/folders/tree";
-import { ReprocessDialog } from "@/features/processing/enhancement";
+import { ReprocessDialog } from "@/features/processing/reprocess-dialog";
 import { cn, colorClass, formatDate, formatDateTime } from "@/lib/utils";
 
 export function Thumbnail({ doc, className }: { doc: DocumentListItem; className?: string }) {
@@ -230,13 +230,13 @@ export function BulkBar({ ids, onClear }: { ids: string[]; onClear: () => void }
         </Button>
         <MoveButton ids={ids} onMoved={onClear} />
         <Button size="sm" variant="outline" onClick={() => setReprocessOpen(true)}>
-          <RefreshCw /> Reprocess
+          <RefreshCw /> Reprocess…
         </Button>
         <Button size="sm" variant="ghost" onClick={onClear}>
           Clear
         </Button>
       </div>
-      <ReprocessDialog ids={ids} open={reprocessOpen} onOpenChange={setReprocessOpen} onDone={onClear} />
+      <ReprocessDialog target={{ ids }} open={reprocessOpen} onOpenChange={setReprocessOpen} onDone={onClear} />
     </div>
   );
 }

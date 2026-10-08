@@ -14,6 +14,7 @@ from ninja import Field, File, Form, Query, Router, Schema, Status
 from ninja.errors import HttpError
 from ninja.files import UploadedFile
 
+from apps.analysis import ai
 from apps.audit.service import audit
 from apps.documents import crypto_fields, files
 from apps.documents.intake import (
@@ -194,12 +195,32 @@ class DocumentPatch(Schema):
     clear_paper_location: bool = False
 
 
+ReprocessStep = Literal["enhance", "ocr", "analyze"]
+STEP_ORDER: list[str] = ["enhance", "ocr", "analyze"]
+
+
 class ReprocessIn(Schema):
-    # "ocr" = from the original: enhancement, OCR/Docling and analysis run again.
-    stage: Literal["ocr", "analyze"] = "ocr"
-    backend: Literal["ocrmypdf", "docling"] | None = None
+    # The steps to run again; storage and indexing always follow. Enhancement changes the
+    # pages, so it brings text recognition along. Without "enhance", text recognition reads
+    # the current (enhanced) version again.
+    steps: list[ReprocessStep] | None = None
+    # Shorthand used by older clients when `steps` is missing: "ocr" = every step, "analyze" = analysis.
+    stage: Literal["ocr", "analyze"] | None = None
+    backend: Literal["ocrmypdf", "docling"] | None = None  # text recognition: keep when None
     # One-off scan enhancement settings for this run (merged over the system settings).
     enhancement: EnhanceSettingsIn | None = None
+    # Analysis: None = as in Settings, "" = rules only, else an installed Ollama model.
+    ai_model: str | None = Field(default=None, max_length=200)
+
+    def resolved_steps(self) -> list[str]:
+        chosen = (
+            set(self.steps)
+            if self.steps is not None
+            else set(["analyze"] if self.stage == "analyze" else STEP_ORDER)
+        )
+        if "enhance" in chosen:
+            chosen.add("ocr")
+        return [step for step in STEP_ORDER if step in chosen]
 
 
 class BulkAction(Schema):
@@ -499,21 +520,17 @@ def web_upload(
     return Status(202 if result.created else 200, out)
 
 
-class ReprocessAllIn(Schema):
-    stage: Literal["ocr", "analyze"] = "analyze"
-
-
 @router.post("/reprocess-all", response=BulkOut)
-def reprocess_all(request: HttpRequest, data: ReprocessAllIn) -> dict[str, int]:
+def reprocess_all(request: HttpRequest, data: ReprocessIn) -> dict[str, int]:
     """Queue every document (e.g. overnight, after choosing a new AI model); busy ones are skipped."""
     n = 0
     for document in Document.objects.filter(deleted_at__isnull=True).order_by("uploaded_at", "id").iterator():
         try:
-            start_reprocess(request, document, ReprocessIn(stage=data.stage), quiet=True)
+            start_reprocess(request, document, data, quiet=True)
         except AlreadyProcessing:
             continue
         n += 1
-    audit("document.reprocess_all", request=request, stage=data.stage, count=n)
+    audit("document.reprocess_all", request=request, steps=data.resolved_steps(), count=n)
     return {"updated": n}
 
 
@@ -804,12 +821,17 @@ def start_reprocess(
         state__in=[Job.State.QUEUED, Job.State.RUNNING],
     ).exists():
         raise AlreadyProcessing
-    if data.stage != "ocr" and (data.backend is not None or data.enhancement is not None):
-        raise HttpError(
-            422, "OCR backend and enhancement can only be chosen when reprocessing from the original"
-        )
-    # OCR always starts from the original, so the enhancement runs again first.
-    stage: str = Document.Stage.ENHANCE if data.stage == "ocr" else Document.Stage.ANALYZE
+    steps = data.resolved_steps()
+    if not steps:
+        raise HttpError(422, "Choose at least one step")
+    if data.backend is not None and "ocr" not in steps:
+        raise HttpError(422, "A processor can only be chosen when text recognition runs")
+    if data.enhancement is not None and "enhance" not in steps:
+        raise HttpError(422, "Enhancement settings can only be chosen when the scan enhancement runs")
+    if data.ai_model is not None and "analyze" not in steps:
+        raise HttpError(422, "An AI model can only be chosen when the analysis runs")
+    if data.ai_model and not ai.valid_model_name(data.ai_model):
+        raise HttpError(422, "Invalid model name")
     fields: list[str] = []
     if data.backend is not None:
         document.ocr_backend = data.backend
@@ -822,21 +844,25 @@ def start_reprocess(
         fields.append("enhancement")
     if fields:
         document.save(update_fields=fields)
+    stage: str = pipeline.STEP_STAGES[steps[0]]
     if document.processing_state == Document.State.FAILED:
         failed = document.processing_stage
-        if failed in (Document.Stage.ASSEMBLE, Document.Stage.VALIDATE):
-            stage = failed  # the original itself is not ready yet
-        elif data.stage != "ocr" and failed in (
-            Document.Stage.ENHANCE,
-            Document.Stage.OCR,
-            Document.Stage.STORE,
-            Document.Stage.INDEX,
-        ):
-            stage = failed  # retry where it failed
-    pipeline.restart_from(document, stage)
+        order = pipeline.ORDER
+        if failed in order and order.index(failed) < order.index(stage):
+            # It never got this far: everything from where it failed has to run first.
+            steps = [
+                s
+                for s in STEP_ORDER
+                if s in steps or order.index(pipeline.STEP_STAGES[s]) >= order.index(failed)
+            ]
+            stage = failed
+    plan: dict[str, object] = {} if steps == STEP_ORDER else {"steps": steps}
+    if data.ai_model is not None:
+        plan["ai_model"] = data.ai_model
+    pipeline.restart_from(document, stage, plan)
     pipeline.enqueue(document)
     if not quiet:
-        audit("document.reprocess", request=request, target=str(document.uuid), stage=stage)
+        audit("document.reprocess", request=request, target=str(document.uuid), stage=stage, steps=steps)
     return stage
 
 

@@ -88,6 +88,9 @@ class Document(models.Model):
     # Scan enhancement: {"settings": used settings, "summary": counts, "override": one-off settings
     # for the next run, "scanner_remove_blank": scanner asked to drop blank pages}
     enhancement = models.JSONField(default=dict, blank=True)
+    # A reprocessing run limited to some steps: {"steps": ["ocr", "analyze"], "ai_model": "…"}.
+    # Empty: every stage runs, with the system settings. Cleared when the run finishes.
+    processing_plan = models.JSONField(default=dict, blank=True)
     intake_path = models.CharField(max_length=300, blank=True)
     storage_original = models.JSONField(null=True, blank=True)
     storage_archive = models.JSONField(null=True, blank=True)

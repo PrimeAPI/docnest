@@ -54,7 +54,8 @@ import { StatusBadge, TagChip } from "@/features/documents/document-row";
 import { DocumentViewer } from "@/features/documents/document-viewer";
 import { FolderSelect } from "@/features/folders/folder-ui";
 import { PaperCard } from "@/features/paper/paper";
-import { ReprocessDialog, describeEnhancement } from "@/features/processing/enhancement";
+import { describeEnhancement } from "@/features/processing/enhancement";
+import { ReprocessDialog } from "@/features/processing/reprocess-dialog";
 import { cn, formatBytes, formatDate, formatDateTime } from "@/lib/utils";
 
 export function DocumentPage() {
@@ -137,22 +138,6 @@ function Header({ doc }: { doc: DocumentDetail }) {
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [reprocessOpen, setReprocessOpen] = useState(false);
 
-  const reanalyze = async () => {
-    try {
-      await call(() =>
-        client.POST("/api/v1/documents/{doc_id}/reprocess", {
-          params: { path: { doc_id: doc.id } },
-          body: { stage: "analyze" },
-        }),
-      );
-      toast.success("Reprocessing started");
-      invalidate();
-      update.reset();
-    } catch (e) {
-      toast.error((e as Error).message);
-    }
-  };
-
   const markUnread = async () => {
     await call(() => client.POST("/api/v1/documents/{doc_id}/unread", { params: { path: { doc_id: doc.id } } }));
     invalidate();
@@ -231,11 +216,8 @@ function Header({ doc }: { doc: DocumentDetail }) {
               <CircleDot /> Mark as unread
             </DropdownMenuItem>
             <DropdownMenuSeparator />
-            <DropdownMenuItem onSelect={reanalyze}>
-              <RefreshCw /> Re-run analysis
-            </DropdownMenuItem>
             <DropdownMenuItem onSelect={() => setReprocessOpen(true)}>
-              <RefreshCw /> Reprocess from original…
+              <RefreshCw /> Reprocess…
             </DropdownMenuItem>
             <DropdownMenuSeparator />
             <DropdownMenuItem className="text-destructive" onSelect={() => setConfirmDelete(true)}>
@@ -245,7 +227,7 @@ function Header({ doc }: { doc: DocumentDetail }) {
         </DropdownMenu>
       </div>
       <ReprocessDialog
-        ids={[doc.id]}
+        target={{ ids: [doc.id] }}
         open={reprocessOpen}
         onOpenChange={setReprocessOpen}
         onDone={() => update.reset()}

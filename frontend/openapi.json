@@ -1391,7 +1391,7 @@
      "content": {
       "application/json": {
        "schema": {
-        "$ref": "#/components/schemas/ReprocessAllIn"
+        "$ref": "#/components/schemas/ReprocessIn"
        }
       }
      },
@@ -5105,19 +5105,81 @@
     "title": "BulkOut",
     "type": "object"
    },
-   "ReprocessAllIn": {
+   "ReprocessIn": {
     "properties": {
-     "stage": {
-      "default": "analyze",
-      "enum": [
-       "ocr",
-       "analyze"
+     "steps": {
+      "anyOf": [
+       {
+        "items": {
+         "enum": [
+          "enhance",
+          "ocr",
+          "analyze"
+         ],
+         "type": "string"
+        },
+        "type": "array"
+       },
+       {
+        "type": "null"
+       }
       ],
-      "title": "Stage",
-      "type": "string"
+      "title": "Steps"
+     },
+     "stage": {
+      "anyOf": [
+       {
+        "enum": [
+         "ocr",
+         "analyze"
+        ],
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Stage"
+     },
+     "backend": {
+      "anyOf": [
+       {
+        "enum": [
+         "ocrmypdf",
+         "docling"
+        ],
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Backend"
+     },
+     "enhancement": {
+      "anyOf": [
+       {
+        "$ref": "#/components/schemas/EnhanceSettingsIn"
+       },
+       {
+        "type": "null"
+       }
+      ]
+     },
+     "ai_model": {
+      "anyOf": [
+       {
+        "maxLength": 200,
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Ai Model"
      }
     },
-    "title": "ReprocessAllIn",
+    "title": "ReprocessIn",
     "type": "object"
    },
    "BulkAction": {
@@ -5174,46 +5236,6 @@
      "action"
     ],
     "title": "BulkAction",
-    "type": "object"
-   },
-   "ReprocessIn": {
-    "properties": {
-     "stage": {
-      "default": "ocr",
-      "enum": [
-       "ocr",
-       "analyze"
-      ],
-      "title": "Stage",
-      "type": "string"
-     },
-     "backend": {
-      "anyOf": [
-       {
-        "enum": [
-         "ocrmypdf",
-         "docling"
-        ],
-        "type": "string"
-       },
-       {
-        "type": "null"
-       }
-      ],
-      "title": "Backend"
-     },
-     "enhancement": {
-      "anyOf": [
-       {
-        "$ref": "#/components/schemas/EnhanceSettingsIn"
-       },
-       {
-        "type": "null"
-       }
-      ]
-     }
-    },
-    "title": "ReprocessIn",
     "type": "object"
    },
    "DocumentDetail": {

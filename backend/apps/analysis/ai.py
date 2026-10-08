@@ -74,6 +74,13 @@ class ModelFields:
     model: str = ""
 
 
+MODEL_NAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._\-/:]{0,199}$")
+
+
+def valid_model_name(name: str) -> bool:
+    return bool(MODEL_NAME.match(name))
+
+
 def configured() -> bool:
     return bool(settings.OLLAMA_URL)
 
