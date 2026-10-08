@@ -352,6 +352,55 @@ def test_blank_page_with_feeder_shadow_is_removed_after_cropping(tmp_path):
     assert result.page_count == 1
 
 
+def back_side(*, holes: bool = True) -> Image.Image:
+    """The empty back of a filed letter: faint mirrored show-through, punch holes, a clip mark."""
+    page = letter()
+    show_through = Image.eval(page.transpose(Image.Transpose.FLIP_LEFT_RIGHT), lambda v: 255 - (255 - v) // 6)
+    back = Image.eval(show_through, lambda v: min(v, 248))  # slightly grey paper
+    draw = ImageDraw.Draw(back)
+    if holes:
+        mm = DPI / 25.4
+        for centre_y in (back.height / 2 - 40 * mm, back.height / 2 + 40 * mm):  # ISO 838: 80 mm apart
+            x, y, r = back.width - 12 * mm, centre_y, 3 * mm  # 6 mm hole, 12 mm from the edge
+            draw.ellipse((x - r, y - r, x + r, y + r), fill=70)
+            draw.ellipse((x - r, y - r * 0.2, x + r * 0.3, y + r), fill=230)  # backing shows through
+    draw.rectangle((300, 4, 340, 14), fill=40)  # clip mark at the very edge
+    for x, y in ((420, 900), (811, 1300), (150, 600)):
+        draw.point((x, y), fill=30)  # dust
+    return back
+
+
+def test_back_side_with_show_through_and_punch_holes_is_removed(tmp_path):
+    result, dst = run(tmp_path, pdf_of(letter(), back_side()), EnhanceSettings())
+    assert [p.blank for p in result.pages if p] == [False, True]
+    assert result.page_count == 1
+    with pikepdf.open(dst) as out:
+        assert len(out.pages) == 1
+    assert len(pikepdf.open(tmp_path / "in.pdf").pages) == 2  # the original keeps the page
+
+
+@pytest.mark.parametrize("cleanup", [True, False])
+def test_back_side_is_blank_with_or_without_cleanup(tmp_path, cleanup):
+    result, _ = run(
+        tmp_path, pdf_of(back_side()), settings(**{**ONLY, "cleanup": cleanup, "remove_blank": True})
+    )
+    assert result.pages[0] is not None and result.pages[0].blank
+
+
+@pytest.mark.parametrize("line", ["- 2 -", "OK", "13.03.2024"])
+def test_page_with_only_a_short_line_is_kept(tmp_path, line):
+    page = Image.open(io.BytesIO(page_image([line], dpi=DPI))).copy()
+    result, _ = run(tmp_path, pdf_of(letter(), page), EnhanceSettings())
+    assert [p.blank for p in result.pages if p] == [False, False]
+
+
+def test_punch_holes_do_not_hide_a_short_note(tmp_path):
+    page = back_side()
+    ImageDraw.Draw(page).text((300, 700), "Erledigt 13.03.", fill=0)
+    result, _ = run(tmp_path, pdf_of(letter(), page), EnhanceSettings())
+    assert [p.blank for p in result.pages if p] == [False, False]
+
+
 def test_all_blank_document_keeps_its_pages(tmp_path):
     blank = Image.new("L", letter().size, 250)
     result, dst = run(tmp_path, pdf_of(blank, blank), settings(**{**ONLY, "remove_blank": True}))

@@ -743,8 +743,62 @@ def despeckle(array: np.ndarray, dpi: float, strength: Strength, paper: float) -
     return out, int(remove.sum())
 
 
-def is_blank(image: Image.Image, threshold_percent: float) -> bool:
-    return assemble.is_blank_image(image, ink_ratio=threshold_percent / 100)
+_BLANK_DPI = 100  # analysis resolution
+_BLANK_EDGE_MM = 8.0  # fold marks, edge shadows, staple and clip marks live here
+_PUNCH_HOLE_MM = (4.0, 8.5)  # diameter range of filing holes (ISO 838: 6 mm)
+_PUNCH_REACH_MM = 25.0  # how far from an edge a hole may lie
+_SPECK_MM2 = 0.1  # smaller ink blobs are dust, not a full stop
+
+
+def is_blank(image: Image.Image, threshold_percent: float, dpi: float) -> bool:
+    """True if the page holds no content: the back of a sheet, an empty separator page."""
+    return content_share(image, dpi) < threshold_percent / 100
+
+
+def content_share(image: Image.Image, dpi: float) -> float:
+    """Share of the page (inside the edge band) covered by ink that counts as content.
+
+    Ink is anything clearly darker than the paper. Not counted: a band along
+    the edges, punch holes (round blobs of filing-hole size near an edge) and
+    dust specks. Show-through is faint and does not reach the ink level; the
+    cleanup step whitens most of it anyway.
+    """
+    grey = np.array(image.convert("L"))
+    factor = min(1.0, _BLANK_DPI / dpi)
+    if factor < 1.0:
+        grey = cv2.resize(grey, None, fx=factor, fy=factor, interpolation=cv2.INTER_AREA)
+    sdpi = dpi * factor
+    h, w = grey.shape
+    edge = int(sdpi * _BLANK_EDGE_MM / 25.4)
+    if h <= 2 * edge or w <= 2 * edge:
+        edge = 0
+    paper = float(np.median(grey[edge : h - edge, edge : w - edge]))
+    ink = (grey < paper - assemble.BLANK_CONTRAST).astype(np.uint8)
+    count, labels, stats, _ = cv2.connectedComponentsWithStats(ink, connectivity=8)
+    mm = 25.4 / sdpi
+    reach = _PUNCH_REACH_MM / mm
+    content = 0
+    for i in range(1, count):
+        x, y, bw, bh, area = (int(v) for v in stats[i])
+        if area * mm * mm < _SPECK_MM2:
+            continue
+        if x >= w - edge or y >= h - edge or x + bw <= edge or y + bh <= edge:
+            continue  # entirely within the edge band
+        diameter = max(bw, bh) * mm
+        near_edge = min(x, y, w - (x + bw), h - (y + bh)) < reach
+        if (
+            near_edge
+            and _PUNCH_HOLE_MM[0] <= diameter <= _PUNCH_HOLE_MM[1]
+            and 0.75 <= bw / max(bh, 1) <= 1.33
+        ):
+            # A hole is often only partly dark (a ring or crescent, the backing shows through):
+            # judge the hull of the blob, not its ink.
+            points = cv2.findNonZero((labels[y : y + bh, x : x + bw] == i).astype(np.uint8))
+            if points is not None and cv2.contourArea(cv2.convexHull(points)) >= 0.6 * bw * bh:  # disc: 0.785
+                continue
+        inner = labels[max(y, edge) : min(y + bh, h - edge), max(x, edge) : min(x + bw, w - edge)] == i
+        content += int(inner.sum())
+    return content / float((h - 2 * edge) * (w - 2 * edge))
 
 
 def enhance_image(
@@ -814,7 +868,7 @@ def enhance_image(
     else:
         result = Image.fromarray(array)
 
-    if options.remove_blank and is_blank(result, options.blank_threshold):
+    if options.remove_blank and is_blank(result, options.blank_threshold, dpi):
         report.blank = True
     return result, report, pixels_changed
 

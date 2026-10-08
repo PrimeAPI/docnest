@@ -91,7 +91,7 @@ The usual pipeline then follows: validate & sanitize → **scan enhancement** �
 - **Crop to the paper** — when the feeder scanned more than the sheet, the scanner backing beyond the paper edge (and the edge shadow) is cut off. Uniform, neutral bands only: a coloured letterhead band or anything with text on it stays.
 - **Crooked or small sheets** — a sheet lying askew on a darker backing (or smaller than A4) is straightened by its own edges (up to 30°) and cut out; backing wedges and edge shadows disappear.
 - **Cleanup** — paper whitening, a mild contrast stretch and removal of isolated specks.
-- **Blank pages** — a page counts as blank when less than 0.01 % of its area (outer 2 % of each edge ignored) is clearly darker than the paper; checked after cropping. A short line such as a page number line is enough to keep a page; dust and light bleed-through are not. If *every* page is blank, all pages are kept.
+- **Blank pages** — a page counts as blank when less than 0.003 % of its area is content ink (clearly darker than the paper); checked after cropping and cleanup. Not counted: an ~8 mm band along the edges (fold marks, edge shadows, clip marks), punch holes (round blobs of 4–8.5 mm near an edge) and dust specks. Show-through from the back is too faint to count. A lone page number is enough to keep a page. If *every* page is blank, all pages are kept. Removed pages only disappear from the enhanced version; the original keeps them.
 
 A single uploaded PDF skips the assemble stage and is used as-is.
 

@@ -40,7 +40,7 @@ export const DEFAULT_ENHANCEMENT: EnhanceSettings = {
   cleanup_despeckle: true,
   cleanup_strength: "medium",
   remove_blank: true,
-  blank_threshold: 0.01,
+  blank_threshold: 0.003,
 };
 
 /** One line describing what the enhancement changed, e.g. "2 straightened · 1 blank page removed". */
@@ -298,11 +298,11 @@ export function EnhancementForm({
             <div className="pl-6">
               <NumberField
                 label="A page counts as blank below"
-                hint="Share of the page covered by ink. 0.01 % keeps a page with a single short line."
+                hint="Share of the page covered by ink (edges, punch holes and dust are ignored). 0.003 % still keeps a page that only carries a page number."
                 unit="% ink"
                 min={0}
                 max={2}
-                step={0.005}
+                step={0.001}
                 disabled={off}
                 {...num("blank_threshold")}
               />

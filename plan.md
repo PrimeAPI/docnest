@@ -497,6 +497,7 @@ Implementation:
 - [x] Processing event with a summary ("rotated 1, deskewed 3, cropped 2, removed 1 blank page").
 - [x] Tests with synthetic skewed / rotated / too long / blank scans; docs (`architecture.md`, `scanner-api.md`).
 - [x] Tuned on real scans in `testdoc/` (2026-10-08): pages with a hidden OCR text layer (Microsoft Lens, OCRmyPDF output) are enhanced too (were skipped); crooked/small sheets on a grey backing are found as a shape, straightened by their edges (up to 30°, refined by jdeskew ±1°) and cut out with wedges, edge shadows and corners beyond the scan area painted in the paper colour (previously only axis-aligned bands were cut and anything above 8° was not straightened); scanner padding only counts next to backing/scan edge; cleanup fades near-white with a soft knee so show-through no longer looks mottled.
+- [x] Blank pages (2026-10-08, `testdoc/doc5`: back side with show-through and punch holes was kept): own content measure in `enhance.is_blank` — ignores an ~8 mm edge band, punch holes (round 4–8.5 mm blobs within 25 mm of an edge, judged by their hull since the backing shows through) and dust. Real back sides measure ≤ 0.0005 %, text pages ≥ 1.6 %, a lone "- 2 -" 0.007 %; default threshold lowered from 0.01 % to 0.003 % (migration updates settings that still hold the old default). Removed pages only leave the enhanced version; the original keeps them.
 
 ### 12.3 Physical storage locations
 

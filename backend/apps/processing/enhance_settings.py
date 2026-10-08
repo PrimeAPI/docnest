@@ -25,7 +25,7 @@ class EnhanceSettings:
     cleanup_despeckle: bool = True
     cleanup_strength: Strength = "medium"
     remove_blank: bool = True
-    blank_threshold: float = 0.01  # percent of the page that must be ink to keep it
+    blank_threshold: float = 0.003  # percent of the page that must be content ink to keep it
 
     def to_json(self) -> dict[str, Any]:
         return asdict(self)
