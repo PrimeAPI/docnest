@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Archive, ArrowDown, ArrowUp, Plus } from "lucide-react";
+import { Archive, ArrowDown, ArrowUp, Check, Folder, Inbox, Plus } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router";
 import { toast } from "sonner";
@@ -18,7 +18,7 @@ import {
 } from "@/components/ui/dialog";
 import { Input, Label, Select } from "@/components/ui/input";
 import { Spinner } from "@/components/ui/misc";
-import { cn, formatDate, formatDateTime } from "@/lib/utils";
+import { cn, colorClass, dotClass, formatDate, formatDateTime, iconClass } from "@/lib/utils";
 
 export type PaperLocation = Schemas["LocationOut"];
 export type PendingDocument = Schemas["PendingItemOut"];
@@ -264,28 +264,23 @@ export function PutAwayDialog({ open, onOpenChange }: { open: boolean; onOpenCha
   const [newCapacity, setNewCapacity] = useState("500");
   const [excluded, setExcluded] = useState<Set<string>>(new Set());
   const [mode, setMode] = useState<"existing" | "new">("existing");
-  // Which filing folder to put away from: "all", "none" (not filed) or a folder id.
-  const [filing, setFiling] = useState<"all" | "none" | number>("all");
+  // Filing folders left out this time; everything (including unfiled documents) is in by default.
+  const [skipped, setSkipped] = useState<Set<FilingKey>>(new Set());
 
   const all = pending.data?.documents ?? [];
   const filings = useMemo(() => pendingFilings(all), [pending.data]);
-  const docs = all.filter((d) => filing === "all" || (d.folder_id ?? "none") === filing);
+  const docs = all.filter((d) => !skipped.has(d.folder_id ?? "none"));
   const list = locations.data ?? [];
   useEffect(() => {
     if (!open) return;
     setExcluded(new Set());
-    setFiling("all");
+    setSkipped(new Set());
     setNewName("");
     // Default: the most recently created location (usually the binder currently being filled).
     const latest = [...list].sort((a, b) => b.created_at.localeCompare(a.created_at))[0];
     setTarget(latest?.id ?? null);
     setMode(list.length ? "existing" : "new");
   }, [open, locations.data]);
-
-  useEffect(() => {
-    // The chosen filing has been put away completely.
-    if (filing !== "all" && !filings.some((f) => f.key === filing)) setFiling("all");
-  }, [filings]);
 
   const chosen = docs.filter((d) => !excluded.has(d.id));
   const sheets = chosen.reduce((sum, d) => sum + d.sheets, 0);
@@ -324,12 +319,12 @@ export function PutAwayDialog({ open, onOpenChange }: { open: boolean; onOpenCha
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-h-[90vh] max-w-2xl overflow-y-auto">
+      <DialogContent className="max-h-[90vh] max-w-2xl grid-cols-1 overflow-y-auto overflow-x-hidden">
         <DialogHeader>
           <DialogTitle>Put away paper originals</DialogTitle>
           <DialogDescription>
             Everything scanned since last time goes into one location, in scan order with the newest on top. Untick
-            documents you are not putting away now.
+            piles or documents you are not putting away now.
           </DialogDescription>
         </DialogHeader>
         {pending.isPending ? (
@@ -337,26 +332,16 @@ export function PutAwayDialog({ open, onOpenChange }: { open: boolean; onOpenCha
         ) : all.length === 0 ? (
           <p className="text-sm text-muted-foreground">Nothing to put away — every paper original has a location.</p>
         ) : (
-          <div className="flex flex-col gap-4">
+          <div className="flex min-w-0 flex-col gap-4">
             {filings.length > 1 && (
-              <div className="grid gap-1">
-                <Label htmlFor="put-away-filing">From filing</Label>
-                <Select
-                  id="put-away-filing"
-                  value={String(filing)}
-                  onChange={(e) => {
-                    const v = e.target.value;
-                    setFiling(v === "all" || v === "none" ? v : Number(v));
-                  }}
-                >
-                  <option value="all">Everything ({all.length})</option>
-                  {filings.map((f) => (
-                    <option key={f.key} value={String(f.key)}>
-                      {f.label} ({f.count})
-                    </option>
-                  ))}
-                </Select>
-              </div>
+              <FilingPicker
+                filings={filings}
+                skipped={skipped}
+                onChange={setSkipped}
+                chosenSheets={(key) =>
+                  chosen.filter((d) => (d.folder_id ?? "none") === key).reduce((sum, d) => sum + d.sheets, 0)
+                }
+              />
             )}
             <div className="flex flex-col gap-2">
               <div className="inline-flex w-fit rounded-md border p-0.5 text-xs">
@@ -421,7 +406,7 @@ export function PutAwayDialog({ open, onOpenChange }: { open: boolean; onOpenCha
                 </div>
               )}
             </div>
-            <div className="rounded-md border">
+            <div className="min-w-0 rounded-md border">
               <div className="flex items-center gap-2 border-b px-3 py-2 text-xs font-medium text-muted-foreground">
                 <Checkbox
                   checked={chosen.length === docs.length ? true : chosen.length === 0 ? false : "indeterminate"}
@@ -457,7 +442,7 @@ export function PutAwayDialog({ open, onOpenChange }: { open: boolean; onOpenCha
                       }
                       aria-label={`Put away ${d.title}`}
                     />
-                    <span className="min-w-0 flex-1 truncate">
+                    <span className="min-w-0 flex-1 truncate" title={d.correspondent ? `${d.title} · ${d.correspondent}` : d.title}>
                       {d.title}
                       {d.correspondent && <span className="text-muted-foreground"> · {d.correspondent}</span>}
                     </span>
@@ -486,17 +471,121 @@ export function PutAwayDialog({ open, onOpenChange }: { open: boolean; onOpenCha
   );
 }
 
+type FilingKey = number | "none";
+type Filing = { key: FilingKey; label: string; color: string | null; count: number };
+
 /** The filing folders that have documents waiting to be put away, "No folder" last. */
-function pendingFilings(docs: PendingDocument[]) {
-  const byKey = new Map<number | "none", { key: number | "none"; label: string; count: number }>();
+function pendingFilings(docs: PendingDocument[]): Filing[] {
+  const byKey = new Map<FilingKey, Filing>();
   for (const d of docs) {
     const key = d.folder_id ?? "none";
-    const entry = byKey.get(key) ?? { key, label: d.folder ?? "No folder", count: 0 };
+    const entry = byKey.get(key) ?? { key, label: d.folder ?? "No folder", color: d.folder_color ?? null, count: 0 };
     entry.count += 1;
     byKey.set(key, entry);
   }
   return [...byKey.values()].sort((a, b) =>
     a.key === "none" ? 1 : b.key === "none" ? -1 : a.label.localeCompare(b.label),
+  );
+}
+
+/**
+ * Toggle chips for the filings to put away, plus the pile they add up to, coloured per filing.
+ * Everything starts selected; tap a chip to leave that filing on the desk for now.
+ */
+function FilingPicker({
+  filings,
+  skipped,
+  onChange,
+  chosenSheets,
+}: {
+  filings: Filing[];
+  skipped: Set<FilingKey>;
+  onChange: (skipped: Set<FilingKey>) => void;
+  chosenSheets: (key: FilingKey) => number;
+}) {
+  const toggle = (key: FilingKey) => {
+    const next = new Set(skipped);
+    if (next.has(key)) next.delete(key);
+    else next.add(key);
+    onChange(next);
+  };
+  const pile = filings.map((f) => ({ ...f, sheets: chosenSheets(f.key) })).filter((f) => f.sheets > 0);
+  const total = pile.reduce((sum, f) => sum + f.sheets, 0);
+  const picked = filings.length - skipped.size;
+  return (
+    <div className="grid min-w-0 gap-2">
+      <div className="flex items-baseline justify-between gap-2">
+        <span className="text-sm font-medium">Which piles are you holding?</span>
+        <div className="flex gap-1 text-xs">
+          <button
+            type="button"
+            className="cursor-pointer rounded px-1.5 py-0.5 text-muted-foreground hover:bg-muted disabled:cursor-default disabled:opacity-40"
+            disabled={skipped.size === 0}
+            onClick={() => onChange(new Set())}
+          >
+            All
+          </button>
+          <button
+            type="button"
+            className="cursor-pointer rounded px-1.5 py-0.5 text-muted-foreground hover:bg-muted disabled:cursor-default disabled:opacity-40"
+            disabled={picked === 0}
+            onClick={() => onChange(new Set(filings.map((f) => f.key)))}
+          >
+            None
+          </button>
+        </div>
+      </div>
+      <div className="flex flex-wrap gap-1.5">
+        {filings.map((f) => {
+          const on = !skipped.has(f.key);
+          return (
+            <button
+              key={String(f.key)}
+              type="button"
+              aria-pressed={on}
+              title={f.label}
+              onClick={() => toggle(f.key)}
+              className={cn(
+                "inline-flex max-w-full cursor-pointer items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs font-medium transition-all duration-150 select-none",
+                "motion-safe:hover:-translate-y-0.5 motion-safe:active:scale-90",
+                on
+                  ? cn("border-transparent shadow-sm", colorClass(f.color))
+                  : "border-dashed text-muted-foreground opacity-70 hover:opacity-100",
+              )}
+            >
+              {on ? (
+                <Check key="on" className="size-3.5 shrink-0 motion-safe:animate-pop" />
+              ) : f.key === "none" ? (
+                <Inbox key="off" className="size-3.5 shrink-0" />
+              ) : (
+                <Folder key="off" className={cn("size-3.5 shrink-0", iconClass(f.color))} />
+              )}
+              <span className={cn("max-w-48 truncate", !on && "line-through decoration-1")}>{f.label}</span>
+              <span className="rounded-full bg-background/60 px-1.5 tabular-nums">{f.count}</span>
+            </button>
+          );
+        })}
+      </div>
+      <div className="grid gap-1">
+        <div className="flex h-2.5 w-full overflow-hidden rounded-full bg-muted">
+          {pile.map((f) => (
+            <div
+              key={String(f.key)}
+              title={`${f.label}: ${f.sheets} sheets`}
+              className={cn("h-full transition-[width] duration-300 ease-out first:rounded-l-full last:rounded-r-full", dotClass(f.color))}
+              style={{ width: `${(f.sheets / total) * 100}%` }}
+            />
+          ))}
+        </div>
+        <span className="text-xs text-muted-foreground">
+          {picked === 0
+            ? "Nothing picked — everything stays on the desk for now."
+            : picked === filings.length
+              ? `Every pile, ${total} sheets ≈ ${formatThickness(total)}. Tap a pile to leave it for later.`
+              : `${picked} of ${filings.length} piles, ${total} sheets ≈ ${formatThickness(total)}.`}
+        </span>
+      </div>
+    </div>
   );
 }
 

@@ -152,6 +152,7 @@ def test_pending_documents_carry_their_filing_folder(api):
     docs = api.get("/api/v1/paper/pending").json()["documents"]
     assert [(d["title"], d["folder"]) for d in docs] == [("Filed", "Bucket 1 / Taxes"), ("Unfiled", None)]
     assert docs[0]["folder_id"] == filed.folder_id and docs[1]["folder_id"] is None
+    assert docs[0]["folder_color"] == "slate" and docs[1]["folder_color"] is None
 
 
 def test_bulk_paper_flags(api):

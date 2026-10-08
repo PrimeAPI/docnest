@@ -6449,6 +6449,17 @@
        }
       ],
       "title": "Folder"
+     },
+     "folder_color": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Folder Color"
      }
     },
     "required": [
@@ -6459,7 +6470,8 @@
      "correspondent",
      "sheets",
      "folder_id",
-     "folder"
+     "folder",
+     "folder_color"
     ],
     "title": "PendingItemOut",
     "type": "object"

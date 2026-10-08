@@ -408,13 +408,35 @@ test("scans are enhanced, the original stays available, and paper is put away", 
   await expect(page.getByText(/straightened/).first()).toBeVisible();
   await expect(page.getByText(/cropped/).first()).toBeVisible();
 
-  // put the paper away in a new binder
-  await page.getByRole("link", { name: /^Paper/ }).click();
+  // the web-uploaded invoice (filed under Haushalt) has a paper original too
+  await page.goto("/documents?q=Stromlieferung");
+  await page.locator("main a[href^='/documents/']").nth(1).click();
+  await page.getByRole("button", { name: "I have it on paper" }).click();
+  await expect(page.getByText("Not put away yet.")).toBeVisible();
+
+  // put away only the Private pile in a new binder
+  await page.getByRole("navigation").getByRole("link", { name: /^Paper/ }).click();
   await expect(page.getByText(/waiting to be put away/)).toBeVisible();
   await page.getByRole("button", { name: "Put away…" }).click();
-  await page.getByRole("button", { name: "New location", exact: true }).click();
+  const dialog = page.getByRole("dialog");
+  const pile = (name: string) => dialog.getByRole("button", { name: new RegExp(`^${name}`) });
+  await expect(pile("Private")).toHaveAttribute("aria-pressed", "true");
+  await expect(pile("Haushalt")).toHaveAttribute("aria-pressed", "true");
+  await dialog.getByRole("button", { name: "None", exact: true }).click();
+  await expect(dialog.getByText(/Nothing picked/)).toBeVisible();
+  await expect(dialog.getByRole("button", { name: /^Put away/ })).toBeDisabled();
+  await pile("Private").click();
+  await expect(pile("Haushalt")).toHaveAttribute("aria-pressed", "false");
+  await dialog.getByRole("button", { name: "New location", exact: true }).click();
   await page.getByLabel("Name").fill("Binder E2E");
+  await page.screenshot({ path: "test-results/put-away-piles.png" });
   await page.getByRole("button", { name: /^Put away \d+/ }).click();
+  await expect(page.getByText(/1 paper original waiting to be put away/)).toBeVisible();
+
+  // then the rest into the same binder
+  await page.getByRole("button", { name: "Put away…" }).click();
+  await expect(pile("Private")).toHaveCount(0);
+  await page.getByRole("button", { name: /^Put away 1$/ }).click();
   await expect(page.getByText("Every paper original has a location.")).toBeVisible();
   await expect(page.getByText("Binder E2E").first()).toBeVisible();
 

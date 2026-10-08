@@ -2211,6 +2211,8 @@ export interface components {
             folder_id: number | null;
             /** Folder */
             folder: string | null;
+            /** Folder Color */
+            folder_color: string | null;
         };
         /** PendingOut */
         PendingOut: {

@@ -57,6 +57,7 @@ class PaperDocumentOut(Schema):
 class PendingItemOut(PaperDocumentOut):
     folder_id: int | None  # the filing folder it was scanned into, to put away one folder at a time
     folder: str | None
+    folder_color: str | None
 
 
 class PendingOut(Schema):
@@ -198,8 +199,9 @@ def pending(request: HttpRequest) -> PendingOut:
             **_doc_out(d).dict(),
             folder_id=d.folder_id,
             folder=paths.get(d.folder_id) if d.folder_id else None,
+            folder_color=d.folder.color if d.folder else None,
         )
-        for d in services.pending().select_related("correspondent")
+        for d in services.pending().select_related("correspondent", "folder")
     ]
     return PendingOut(documents=docs, sheets=sum(d.sheets for d in docs))
 
