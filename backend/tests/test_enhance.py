@@ -171,6 +171,19 @@ def test_feeder_overshoot_with_dark_backing_is_cut_off(tmp_path):
     assert abs(image.height - page.height) <= 4
 
 
+def test_crooked_page_scanned_too_long_is_cropped_and_straightened(tmp_path):
+    page = letter()
+    crooked = page.rotate(2.5, expand=True, fillcolor=90)  # backing visible around the crooked sheet
+    too_long = Image.new("L", (crooked.width, crooked.height + 300), 90)
+    too_long.paste(crooked, (0, 0))
+    result, dst = run(tmp_path, pdf_of(too_long), settings(**{**ONLY, "crop": True, "deskew": True}))
+    report = result.pages[0]
+    assert report is not None and report.cropped and report.deskewed
+    (image,) = page_images(dst)
+    assert image.height < too_long.height - 200  # the 300 px overshoot is gone (deskew adds ~60 px)
+    assert abs(ink_angle(image)) <= 0.25
+
+
 def test_overshoot_with_light_backing_is_cut_at_the_paper_edge_shadow(tmp_path):
     page = letter()
     too_long = Image.new("L", (page.width, page.height + 260), 252)  # light backing, like the paper

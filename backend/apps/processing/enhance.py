@@ -13,13 +13,14 @@ Per scanned page, each step can be switched off in the settings:
 1. **Orientation** (90/180/270°) — Tesseract OSD; applied only above a
    confidence threshold. A page that only needs this is rotated losslessly via
    the PDF `/Rotate` entry.
-2. **Deskew** (small angles) — jdeskew (Adaptive Radial Projection on the
-   Fourier magnitude spectrum, ICIP 2022), applied between a minimum and a
-   maximum angle.
-3. **Crop to the paper** — removes scanner background beyond the paper edge
+2. **Crop to the paper** — removes scanner background beyond the paper edge
    (feeders scan a fixed length; the overshoot shows the backing plate) and a
    paper-edge shadow line followed only by empty background. Bands are only
-   cut when they are uniform, so coloured letterhead bands survive.
+   cut when they are uniform, so coloured letterhead bands survive. This runs
+   before deskewing, while the backing is still aligned with the image edges.
+3. **Deskew** (small angles) — jdeskew (Adaptive Radial Projection on the
+   Fourier magnitude spectrum, ICIP 2022), applied between a minimum and a
+   maximum angle.
 4. **Gentle cleanup** — background flattening (yellowed/grey paper and uneven
    lighting become white), a mild contrast stretch, and removal of isolated
    specks. Bilevel pages only get speck removal.
@@ -325,10 +326,12 @@ def _background_bounds(
     size = max(3, int(dpi * 10 / 25.4) | 1)  # ~10 mm: text and pictures become "paper"
     kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (size, size))
     closed = cv2.morphologyEx(like_paper, cv2.MORPH_CLOSE, kernel)
-    rows = np.flatnonzero(closed.mean(axis=1) > 0.5)
-    cols = np.flatnonzero(closed.mean(axis=0) > 0.5)
-    if rows.size == 0 or cols.size == 0:
-        return 0, 0, sw, sh
+    row_share, col_share = closed.mean(axis=1), closed.mean(axis=0)
+    if not (row_share > 0.5).any() or not (col_share > 0.5).any():
+        return 0, 0, sw, sh  # no paper found
+    # Keep every row/column with a bit of paper: a crooked sheet's corner must not be cut off.
+    rows = np.flatnonzero(row_share > 0.05)
+    cols = np.flatnonzero(col_share > 0.05)
     top, bottom = int(rows[0]), int(rows[-1]) + 1
     left, right = int(cols[0]), int(cols[-1]) + 1
     min_band = max(1, int(dpi * 1 / 25.4))  # ignore cuts below ~1 mm
@@ -494,19 +497,22 @@ def enhance_image(
     array = np.array(image.convert("L") if bilevel else image)
     grey = array if array.ndim == 2 else cv2.cvtColor(array, cv2.COLOR_RGB2GRAY)
 
-    if options.deskew:
-        angle = estimate_skew(grey, dpi, options.deskew_max_angle)
-        if abs(angle) >= max(options.deskew_min_angle, 0.01):
-            array = rotate_by(array, angle, paper_colour(array))
-            report.deskewed = round(angle, 2)
-            pixels_changed = True
-
+    # Crop before deskewing: the scanner's overshoot is aligned with the scanner, not with a crooked
+    # sheet; after rotating, the backing band would be tilted and no longer recognisable.
     if options.crop:
         box = paper_bounds(array, dpi, options.crop_max_fraction)
         if box:
             left, top, right, bottom = box
             array = array[top:bottom, left:right]
             report.cropped = True
+            pixels_changed = True
+
+    if options.deskew:
+        grey = array if array.ndim == 2 else cv2.cvtColor(array, cv2.COLOR_RGB2GRAY)
+        angle = estimate_skew(grey, dpi, options.deskew_max_angle)
+        if abs(angle) >= max(options.deskew_min_angle, 0.01):
+            array = rotate_by(array, angle, paper_colour(array))
+            report.deskewed = round(angle, 2)
             pixels_changed = True
 
     if options.cleanup:
