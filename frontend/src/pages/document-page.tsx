@@ -84,7 +84,7 @@ export function DocumentPage() {
         </div>
         <div className="min-h-0 flex-1">
           {viewable ? (
-            <DocumentViewer id={d.id} enhanced={d.enhanced} version={`${d.page_count}-${d.processing_state}`} />
+            <DocumentViewer id={d.id} enhanced={d.enhanced} hiddenPages={d.hidden_page_count} version={`${d.page_count}-${d.processing_state}-${d.visible_pages.join(",")}`} />
           ) : (
             <div className="flex h-full flex-col items-center justify-center gap-2 text-sm text-muted-foreground">
               <Spinner className="size-6" /> The document is still being processed…
@@ -257,7 +257,7 @@ function Header({ doc }: { doc: DocumentDetail }) {
         <PageEditor
           sourceIds={[doc.id]}
           heading="Pages of this document"
-          explanation="Cut it into several documents, take pages out or put them in another order. The original stays as it is: this document goes to the trash and the new ones take its place."
+          explanation="Hide or reorder pages without replacing this document or rerunning OCR. Splitting keeps the first part here and creates only the additional parts. The original stays complete."
           onApplied={(a) => {
             const made = a.results.find((r) => !r.trashed);
             if (made) navigate(`/documents/${made.id}`, { replace: true });

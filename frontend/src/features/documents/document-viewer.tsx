@@ -1,3 +1,4 @@
+import { useQueryClient } from "@tanstack/react-query";
 import { Download, Sparkles } from "lucide-react";
 import { useEffect, useState } from "react";
 import { cn } from "@/lib/utils";
@@ -6,7 +7,8 @@ import { PdfViewer } from "./pdf-viewer";
 type Variant = "archive" | "original";
 
 /** The PDF viewer with a switch between the enhanced version (default) and the untouched original. */
-export function DocumentViewer({ id, enhanced, version }: { id: string; enhanced?: boolean; version?: string }) {
+export function DocumentViewer({ id, enhanced, version, hiddenPages = 0 }: { id: string; enhanced?: boolean; version?: string; hiddenPages?: number }) {
+  const qc = useQueryClient();
   const [variant, setVariant] = useState<Variant>("archive");
   useEffect(() => setVariant("archive"), [id]);
 
@@ -39,6 +41,8 @@ export function DocumentViewer({ id, enhanced, version }: { id: string; enhanced
         <span className="truncate text-muted-foreground">
           {variant === "original"
             ? "The file exactly as it was scanned or uploaded"
+            : hiddenPages > 0
+              ? `${hiddenPages} page${hiddenPages === 1 ? "" : "s"} hidden in Enhanced; the original is complete`
             : enhanced === false
               ? "Nothing needed enhancing: same as the original"
               : "Straightened, cropped and cleaned up"}
@@ -54,7 +58,15 @@ export function DocumentViewer({ id, enhanced, version }: { id: string; enhanced
       <div className="min-h-0 flex-1">
         <PdfViewer
           key={variant}
-          url={`/api/v1/documents/${id}/file?variant=${variant}`}
+          url={`/api/v1/documents/${id}/file?variant=${variant}&v=${encodeURIComponent(version ?? "")}`}
+          onLoaded={(count) => {
+            if (variant !== "archive") return;
+            const detail = qc.getQueryData<{ page_count: number }>(["document", id]);
+            if (detail && detail.page_count !== count) {
+              void qc.invalidateQueries({ queryKey: ["document", id] });
+              void qc.invalidateQueries({ queryKey: ["documents"] });
+            }
+          }}
           // The thumbnail shows the enhanced first page: a preview while the PDF loads.
           placeholder={variant === "archive" ? `/api/v1/documents/${id}/thumbnail?v=${version ?? ""}` : undefined}
         />

@@ -4,12 +4,14 @@ streamed to the client, and deleted as soon as the response is closed."""
 from __future__ import annotations
 
 import hashlib
+import logging
 import os
 import shutil
 import tempfile
 import time
 from pathlib import Path
 
+import pikepdf
 from django.conf import settings
 
 from apps.crypto.aead import decrypt_file, encrypt_file
@@ -21,8 +23,10 @@ from apps.documents.intake import (
     intake_aad,
     intake_path_for,
 )
-from apps.documents.models import Document
+from apps.documents.models import Document, DocumentPage
 from apps.storage.backends import StoredObject, get_backend
+
+logger = logging.getLogger(__name__)
 
 
 class SelfDeletingFile:
@@ -61,13 +65,34 @@ def _cache_aad(document: Document, variant: str) -> bytes:
     return f"view-cache:{document.uuid}:{variant}".encode()
 
 
-def fetch(document: Document, variant: str) -> SelfDeletingFile:
+def fetch(document: Document, variant: str, *, apply_view: bool = True) -> SelfDeletingFile:
     """Return a readable, self-deleting plaintext copy of the requested file."""
     settings.WORK_DIR.mkdir(parents=True, exist_ok=True, mode=0o700)
     tmpdir = Path(tempfile.mkdtemp(prefix="dl-", dir=settings.WORK_DIR))
     target = tmpdir / f"{variant}.pdf"
     try:
         _materialize(document, variant, target)
+        if variant == "archive" and apply_view:
+            from apps.documents import pages
+
+            if (
+                document.processing_state == Document.State.DONE
+                and not document.page_view
+                and DocumentPage.objects.filter(document=document).count() != document.page_count
+            ):
+                try:
+                    # One-time visual preparation of old scans; never OCR or AI analysis.
+                    pages.build(document, target)
+                except Exception:
+                    logger.warning("could not prepare the page view", extra={"document": str(document.uuid)})
+            order = pages.visible_numbers(document)
+            if order != list(range(1, document.page_count + 1)):
+                shown = tmpdir / "shown.pdf"
+                with pikepdf.open(target) as source, pikepdf.new() as output:
+                    for number in order:
+                        output.pages.append(source.pages[number - 1])
+                    output.save(shown)
+                target = shown
     except BaseException:
         shutil.rmtree(tmpdir, ignore_errors=True)
         raise

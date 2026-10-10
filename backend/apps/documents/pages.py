@@ -22,13 +22,14 @@ import subprocess
 import tempfile
 from dataclasses import asdict, dataclass
 from pathlib import Path
+from typing import Any
 
 from django.conf import settings
 from django.db import transaction
 from PIL import Image
 
 from apps.crypto.aead import decrypt_bytes, encrypt_bytes
-from apps.documents import files
+from apps.documents import crypto_fields, files
 from apps.documents.models import Document, DocumentPage
 from apps.processing import pdf, queue
 from apps.processing.models import Job
@@ -44,6 +45,7 @@ MAX_NUMBERS = 300
 HASH_SIZE = 16  # difference hash of 16×16 = 256 bits
 INK_LEVEL = 160  # grey values below this are ink
 EMPTY = 0.002  # share of ink below which a page is empty (dust, punch holes, show-through)
+AUTO_BLANK = 0.0001  # automatic hiding must be much more conservative than a suggestion
 MIN_PAGE_TEXT = 60  # characters: a page with less is compared by its picture
 NUMBER = re.compile(r"\d(?:[\d.,/:-]*\d)?")
 MARK = re.compile(
@@ -164,6 +166,36 @@ def page_texts(pdf_path: Path) -> list[str]:
     return proc.stdout.decode("utf-8", errors="replace").split("\f")
 
 
+def recognized_texts(document: Document) -> list[str]:
+    """Reuse separately stored, page-scoped OCR (Docling), without recognizing anything again."""
+    result = [""] * document.page_count
+    for page in crypto_fields.get_layout(document).get("pages", []):
+        n = page.get("page_no", 0)
+        if isinstance(n, int) and 1 <= n <= len(result):
+            result[n - 1] = "\n".join(line.get("text", "") for line in page.get("lines", []))
+    structured = crypto_fields.get_structure(document)
+    if structured.get("schema_name") == "DoclingDocument" and any(not text.strip() for text in result):
+        try:
+            from docling_core.types.doc import DoclingDocument
+
+            parsed = DoclingDocument.model_validate(structured)
+            result = [
+                text
+                if text.strip()
+                else parsed.export_to_markdown(
+                    page_no=n,
+                    image_placeholder="",
+                    include_picture_classification=False,
+                )
+                for n, text in enumerate(result, start=1)
+            ]
+        except (ValueError, TypeError, KeyError):
+            logger.warning("could not reuse structured page text", extra={"document": str(document.uuid)})
+    if document.page_count == 1 and not result[0].strip():
+        result[0] = crypto_fields.get_content(document)
+    return result
+
+
 def render(pdf_path: Path, out_dir: Path) -> list[Path]:
     proc = subprocess.run(
         ["pdftoppm", "-png", "-scale-to", str(THUMB_WIDTH * 2), str(pdf_path), str(out_dir / "p")],
@@ -180,11 +212,16 @@ def build(document: Document, pdf_path: Path) -> int:
     """Pictures and fingerprints of every page of `pdf_path` (the archive as shown)."""
     version = hashlib.sha256(pdf_path.read_bytes()).hexdigest()
     texts = page_texts(pdf_path)
+    recognized = recognized_texts(document)
+    texts = [
+        texts[n] if n < len(texts) and texts[n].strip() else recognized[n] for n in range(document.page_count)
+    ]
     with tempfile.TemporaryDirectory(dir=settings.WORK_DIR) as tmp:
         images = render(pdf_path, Path(tmp))
         if len(images) != document.page_count:
             raise RuntimeError("The rendered page count does not match the document")
         rows = []
+        blank = []
         for number, png in enumerate(images, start=1):
             with Image.open(png) as image:
                 picture, ink = dhash(image)
@@ -194,6 +231,8 @@ def build(document: Document, pdf_path: Path) -> int:
                 thumb.save(out, format="WEBP", quality=60, method=4)
             sketch, numbers, chars, mark = text_fingerprint(texts[number - 1] if number <= len(texts) else "")
             fp = Fingerprint(sketch, numbers, picture, chars, mark, ink)
+            if fp.ink < AUTO_BLANK and fp.chars == 0:
+                blank.append(number)
             rows.append(
                 DocumentPage(
                     document=document,
@@ -206,13 +245,55 @@ def build(document: Document, pdf_path: Path) -> int:
                 )
             )
     with transaction.atomic():
+        current = Document.objects.select_for_update().get(pk=document.pk).page_view
         DocumentPage.objects.filter(document=document).delete()
         DocumentPage.objects.bulk_create(rows)
+        state: dict[str, Any] = {
+            "version": version,
+            "count": document.page_count,
+            "blank": blank,
+        }
+        if current.get("count") == document.page_count and "order" in current:
+            state["order"] = current["order"]
+        document.page_view = state
+        document.save(update_fields=["page_view"])
     return len(rows)
 
 
+def view_state(document: Document) -> dict[str, Any]:
+    """Stored presentation metadata, with a read-only fallback for pre-upgrade fingerprints."""
+    if document.page_view and document.page_view.get("count") == document.page_count:
+        return document.page_view
+    state = {"version": "", "count": document.page_count, "blank": []}
+    rows = list(DocumentPage.objects.filter(document=document).only("number", "version", "fingerprint_enc"))
+    if len(rows) != document.page_count:
+        return state
+    blank = []
+    for row in rows:
+        if row.fingerprint_enc:
+            fp = Fingerprint(
+                **json.loads(
+                    decrypt_bytes(bytes(row.fingerprint_enc), aad=_aad(document, row.number, "fingerprint"))
+                )
+            )
+            if fp.ink < AUTO_BLANK and fp.chars == 0:
+                blank.append(row.number)
+    return {**state, "version": rows[0].version if rows else "", "blank": blank}
+
+
+def visible_numbers(document: Document) -> list[int]:
+    """Physical archive pages shown in Enhanced; Original never uses this presentation."""
+    state = view_state(document)
+    if "order" in state:
+        return [n for n in state["order"] if 1 <= n <= document.page_count]
+    blank = set(state.get("blank", []))
+    shown = [n for n in range(1, document.page_count + 1) if n not in blank]
+    # A PDF cannot have zero pages; do not silently hide an entirely blank scan.
+    return shown or list(range(1, document.page_count + 1))
+
+
 def build_from_storage(document: Document) -> int:
-    fh = files.fetch(document, "archive")
+    fh = files.fetch(document, "archive", apply_view=False)
     try:
         return build(document, Path(fh.name))
     finally:
@@ -255,7 +336,7 @@ def large(document: Document, number: int) -> bytes | None:
     """A page big enough to read (for a closer look in the page editor); rendered on request."""
     if not 1 <= number <= document.page_count:
         return None
-    fh = files.fetch(document, "archive")
+    fh = files.fetch(document, "archive", apply_view=False)
     try:
         png = pdf.render_page(Path(fh.name), number, long_edge=LARGE_EDGE)
     finally:

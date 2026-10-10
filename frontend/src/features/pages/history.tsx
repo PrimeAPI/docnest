@@ -22,7 +22,7 @@ export function useHistory(id: string, enabled = true) {
   });
 }
 
-const ICONS = { compose: Layers, trash: Trash2, restore: RotateCcw, edit: PencilLine } as const;
+const ICONS = { compose: Layers, view: Layers, trash: Trash2, restore: RotateCcw, edit: PencilLine } as const;
 
 /** Every change to a document — its details, its pages, the trash — newest first, with undo. */
 export function AlterationHistory({ id }: { id: string }) {

@@ -80,8 +80,11 @@ class Document(models.Model):
     content_hash = models.CharField(max_length=64)  # HMAC-SHA256 of the uploaded file (dedupe)
     original_filename_enc = models.BinaryField(null=True)
     size = models.BigIntegerField(default=0)
-    page_count = models.PositiveIntegerField(default=0)  # of the enhanced version (what is shown)
+    page_count = models.PositiveIntegerField(default=0)  # physical pages of the stored archive
     original_page_count = models.PositiveIntegerField(default=0)  # of the untouched original
+    # A lightweight presentation of the stored archive, never a replacement file.
+    # {version, count, blank: [physical page numbers], order?: [visible physical page numbers]}
+    page_view = models.JSONField(default=dict, blank=True)
     processing_stage = models.CharField(max_length=20, choices=Stage.choices, default=Stage.RECEIVED)
     processing_state = models.CharField(
         max_length=20, choices=State.choices, default=State.PENDING, db_index=True
@@ -192,15 +195,16 @@ class Alteration(models.Model):
     """A change to which pages make up which documents — merging, splitting, removing pages,
     putting a document in the trash — kept so it can be shown and undone.
 
-    Original files are never changed: an alteration builds new documents from the pages
-    as shown and puts the documents they came from in the trash, files and all.
+    Original files are never changed. Page visibility/order is a same-document presentation;
+    only genuinely separate outputs require new documents. Superseded sources are retained.
     """
 
     class Kind(models.TextChoices):
-        COMPOSE = "compose"  # pages into new documents (merge, split, extract, remove, reorder)
+        COMPOSE = "compose"  # merge / split / extract, reusing processed pages and text
         TRASH = "trash"
         RESTORE = "restore"
         EDIT = "edit"  # details changed (title, sender, tags …): old and new values
+        VIEW = "view"  # hide / reorder archive pages in the same document, without OCR
 
     class Actor(models.TextChoices):
         USER = "user"  # done by hand

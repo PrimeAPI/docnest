@@ -1,12 +1,11 @@
 """Changing which pages make up which documents — without touching an original file.
 
-One operation covers merging, splitting, extracting, removing and reordering pages:
-**compose** takes the pages of some documents as shown (their archive files) and says
-which documents should come out, each a list of (document, page). An output that is a
-source document unchanged keeps that document as it is. Every other output becomes a new
-document — built from copies of the pages and processed like an upload — and every source
-not kept goes to the trash, with its original and archive files untouched. Putting a
-document in the trash is the same without outputs.
+Compose describes ordered outputs using stable physical archive page references.
+The first single-source output keeps its existing document: hiding/reordering is a
+lightweight presentation, not a new file or processing run. Further split parts and
+multi-source outputs are genuinely new documents made from already processed pages.
+They only need storage and indexing, not OCR or AI analysis. Sources with no retained
+output go to recoverable trash; original and archive files stay untouched.
 
 Every alteration is recorded with its page map, shown in each document's history, and can
 be undone while the documents it made still exist: they go to the trash, the sources come
@@ -28,9 +27,18 @@ from django.db import IntegrityError, transaction
 from django.utils import timezone
 
 from apps.crypto.aead import decrypt_bytes, encrypt_bytes, encrypt_file
-from apps.documents import crypto_fields, files
-from apps.documents.intake import IntakeRequest, content_hash_of, intake_aad, intake_path_for, register
+from apps.documents import crypto_fields, files, pages
+from apps.documents.intake import (
+    IntakeRequest,
+    archive_aad,
+    archive_intake_path_for,
+    content_hash_of,
+    intake_aad,
+    intake_path_for,
+    register,
+)
 from apps.documents.models import Alteration, Document, DocumentTag, Source
+from apps.processing import pdf
 from apps.processing.models import Job
 
 logger = logging.getLogger(__name__)
@@ -46,7 +54,7 @@ class AlterationError(ValueError):
 @dataclass
 class Output:
     pages: list[tuple[str, int]]  # (document uuid, 1-based page) in the new order
-    title: str = ""  # a title the user gave; "" = like the first source, then the analysis decides
+    title: str = ""  # a title the user gave; "" inherits the first source's title
 
 
 @dataclass
@@ -54,6 +62,7 @@ class Plan:
     sources: list[Document]
     outputs: list[Output]
     kept: dict[int, Document] = field(default_factory=dict)  # output index -> unchanged source
+    views: dict[int, list[int]] = field(default_factory=dict)  # same document, different presentation
     retired: list[Document] = field(default_factory=list)
 
 
@@ -102,15 +111,20 @@ def plan(source_ids: list[str], outputs: list[Output], *, lock: bool = False) ->
                 raise AlterationError("A page can only go into one document")
             seen.add((uuid, page))
     result = Plan([by_uuid[u] for u in wanted], outputs)
+    retained: set[str] = set()
     for i, output in enumerate(outputs):
         uuids = {u for u, _ in output.pages}
-        if len(uuids) == 1:
-            d = by_uuid[next(iter(uuids))]
-            if [p for _, p in output.pages] == list(range(1, d.page_count + 1)):
-                result.kept[i] = d
+        if len(uuids) == 1 and next(iter(uuids)) not in retained:
+            uuid = next(iter(uuids))
+            retained.add(uuid)
+            d = by_uuid[uuid]
+            result.kept[i] = d
+            order = [p for _, p in output.pages]
+            if order != pages.visible_numbers(d):
+                result.views[i] = order
     kept = {d.pk for d in result.kept.values()}
     result.retired = [d for d in result.sources if d.pk not in kept]
-    if not result.retired:
+    if not result.retired and not result.views and len(result.kept) == len(outputs):
         raise AlterationError("Nothing changes")
     return result
 
@@ -130,7 +144,9 @@ def _build_pdf(outputs: Output, archives: dict[str, Path], target: Path) -> None
             pdf.close()
 
 
-def _new_document(output: Output, pdf_path: Path, by_uuid: dict[str, Document]) -> Document:
+def _new_document(
+    output: Output, pdf_path: Path, by_uuid: dict[str, Document], created: list[Document]
+) -> Document:
     """Register the composed pages as a document, like an upload, with the first source's details."""
     first = by_uuid[output.pages[0][0]]
     with pdf_path.open("rb") as fh:
@@ -156,12 +172,35 @@ def _new_document(output: Output, pdf_path: Path, by_uuid: dict[str, Document]) 
         raise AlterationError(
             "An output already exists in the archive. Review that document before rearranging."
         )
-    # The pages are enhanced already: recognise and analyse them again, nothing else.
-    document.processing_plan = {"steps": ["ocr", "analyze"]}
+    created.append(document)
+    # These pages already have an OCR text layer. Only store and index the assembled PDF;
+    # neither OCR nor model analysis should run just because pages were rearranged.
+    document.processing_plan = {"steps": []}
+    document.processing_stage = Document.Stage.STORE
+    document.page_count = document.original_page_count = len(output.pages)
+    encrypt_file(pdf_path, archive_intake_path_for(str(document.uuid)), aad=archive_aad(str(document.uuid)))
+    embedded = pages.page_texts(pdf_path)
+    source_texts: dict[str, list[str]] = {}
+    texts = []
+    for n, (uuid, number) in enumerate(output.pages):
+        text = embedded[n] if n < len(embedded) else ""
+        if not text.strip():
+            if uuid not in source_texts:
+                source_texts[uuid] = pages.recognized_texts(by_uuid[uuid])
+            text = source_texts[uuid][number - 1]
+        texts.append(text)
+    crypto_fields.set_content(
+        document,
+        "\n\n".join(texts),
+        layout={
+            "pages": [{"page_no": n, "lines": [{"text": text}]} for n, text in enumerate(texts, start=1)]
+        },
+    )
+    thumb = pdf.thumbnail(pdf_path)
+    if thumb:
+        crypto_fields.set_thumbnail(document, thumb)
     document.ocr_backend = first.ocr_backend or document.ocr_backend
-    document.has_paper = first.has_paper
-    document.paper_location_id = first.paper_location_id
-    document.paper_placed_at = first.paper_placed_at
+    # A digital derivative does not create another physical paper original.
     document.mail_id = first.mail_id
     document.received_from_id = first.received_from_id
     sources = {"folder": Source.USER}
@@ -173,7 +212,7 @@ def _new_document(output: Output, pdf_path: Path, by_uuid: dict[str, Document]) 
     ):
         setattr(document, name + ("_id" if name not in ("document_date",) else ""), value)
         if first.source_of(name) == Source.USER:
-            sources[name] = Source.USER  # what the user set stays; the analysis fills in the rest
+            sources[name] = Source.USER  # retain the origin of explicitly chosen metadata
     title = output.title or crypto_fields.get_title(first)
     if title:
         crypto_fields.set_title(document, title)
@@ -192,9 +231,13 @@ def compose(
     actor: str = Alteration.Actor.USER,
     summary: str = "",
     origin: dict[str, Any] | None = None,
+    expected_views: dict[str, list[int]] | None = None,
 ) -> Alteration:
     p = plan(source_ids, outputs, lock=True)
     by_uuid = {str(d.uuid): d for d in p.sources}
+    for uuid, order in (expected_views or {}).items():
+        if uuid not in by_uuid or pages.visible_numbers(by_uuid[uuid]) != order:
+            raise AlterationError("The pages changed while the editor was open. Reopen it and try again.")
     needed = {u for i, o in enumerate(outputs) if i not in p.kept for u, _ in o.pages}
     settings.WORK_DIR.mkdir(parents=True, exist_ok=True, mode=0o700)
     with tempfile.TemporaryDirectory(dir=settings.WORK_DIR) as tmp:
@@ -203,7 +246,7 @@ def compose(
         handles = []
         try:
             for uuid in needed:
-                fh = files.fetch(by_uuid[uuid], "archive")
+                fh = files.fetch(by_uuid[uuid], "archive", apply_view=False)
                 handles.append(fh)
                 archives[uuid] = Path(fh.name)
             built: dict[int, Path] = {}
@@ -216,12 +259,25 @@ def compose(
             try:
                 results: dict[int, Document] = dict(p.kept)
                 for i, path in built.items():
-                    results[i] = _new_document(outputs[i], path, by_uuid)
-                    created.append(results[i])
+                    results[i] = _new_document(outputs[i], path, by_uuid, created)
+                views = {}
+                for i, order in p.views.items():
+                    document = p.kept[i]
+                    before = pages.view_state(document)
+                    after = {**before, "order": order}
+                    views[str(document.uuid)] = {"before": before, "after": after}
+                    document.page_view = after
+                    document.save(update_fields=["page_view", "updated_at"])
                 now = timezone.now()
                 Document.objects.filter(pk__in=[d.pk for d in p.retired]).update(deleted_at=now)
                 alteration = Alteration(
-                    kind=Alteration.Kind.COMPOSE if outputs else Alteration.Kind.TRASH,
+                    kind=(
+                        Alteration.Kind.VIEW
+                        if views and not created and not p.retired
+                        else Alteration.Kind.COMPOSE
+                        if outputs
+                        else Alteration.Kind.TRASH
+                    ),
                     actor=actor,
                     sources=[str(d.uuid) for d in p.sources],
                     results=[str(results[i].uuid) for i in sorted(results)],
@@ -232,6 +288,7 @@ def compose(
                     {
                         "summary": summary or describe(p, results),
                         "titles": {str(d.uuid): crypto_fields.get_title(d) for d in p.sources},
+                        "views": views,
                         "outputs": [
                             {
                                 "document": str(results[i].uuid),
@@ -248,6 +305,7 @@ def compose(
             except BaseException:
                 for document in created:
                     intake_path_for(str(document.uuid)).unlink(missing_ok=True)
+                    archive_intake_path_for(str(document.uuid)).unlink(missing_ok=True)
                 raise
         finally:
             for fh in handles:
@@ -258,6 +316,18 @@ def compose(
 def describe(p: Plan, results: dict[int, Document]) -> str:
     titles = {str(d.uuid): crypto_fields.get_title(d) or "Untitled" for d in p.sources}
     new = [i for i in results if i not in p.kept]
+    if p.views and not new and not p.retired:
+        if len(p.views) == 1:
+            i, order = next(iter(p.views.items()))
+            document = p.kept[i]
+            hidden = sorted(set(range(1, document.page_count + 1)) - set(order))
+            if hidden:
+                title = titles[str(document.uuid)]
+                return f"Hidden page {', '.join(map(str, hidden))} in Enhanced for “{title}”"
+            return f"Changed the Enhanced page view of “{titles[str(document.uuid)]}”"
+        return f"Changed the Enhanced page view of {len(p.views)} documents"
+    if new and p.views and not p.retired:
+        return f"Split into {len(p.outputs)} documents; kept the existing document for the first part"
     if not p.outputs:
         return "Put in the trash: " + ", ".join(f"“{titles[str(d.uuid)]}”" for d in p.retired)
     if len(new) == 1 and len(p.retired) > 1 and len(p.outputs) - len(p.kept) == 1:
@@ -340,7 +410,7 @@ def restore(document_ids: list[str]) -> Alteration:
 
 @transaction.atomic
 def undo(alteration: Alteration) -> None:
-    """The documents it made go to the trash; the ones it put there come back."""
+    """Restore page presentations, trash derived outputs and restore retired sources."""
     locked = Alteration.objects.select_for_update().get(pk=alteration.pk)
     if locked.undone_at:
         raise AlterationError("This was undone already")
@@ -351,7 +421,15 @@ def undo(alteration: Alteration) -> None:
         made, back = alteration.results, []
     else:
         back = alteration.retired
-    involved = list(Document.objects.select_for_update().filter(uuid__in=made + back).order_by("pk"))
+    views = detail_of(locked).get("views", {})
+    involved = list(
+        Document.objects.select_for_update().filter(uuid__in=made + back + list(views)).order_by("pk")
+    )
+    by_uuid = {str(d.uuid): d for d in involved}
+    for uuid, change in views.items():
+        d = by_uuid.get(uuid)
+        if d is None or d.deleted_at is not None or pages.view_state(d) != change["after"]:
+            raise AlterationError("The page view changed since; undo the newer change first")
     active_made = [d for d in involved if str(d.uuid) in made and d.deleted_at is None]
     if len(active_made) != len(made):
         raise AlterationError("A document it made was changed or removed since; undo that first")
@@ -362,6 +440,10 @@ def undo(alteration: Alteration) -> None:
     with transaction.atomic():
         Document.objects.filter(pk__in=[d.pk for d in active_made]).update(deleted_at=timezone.now())
         _restore(list(Document.objects.filter(uuid__in=back)))
+        for uuid, change in views.items():
+            document = by_uuid[uuid]
+            document.page_view = change["before"]
+            document.save(update_fields=["page_view", "updated_at"])
         alteration.undone_at = timezone.now()
         alteration.save(update_fields=["undone_at"])
         origin = detail_of(alteration)

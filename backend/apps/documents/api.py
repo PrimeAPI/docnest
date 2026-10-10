@@ -16,7 +16,7 @@ from ninja.files import UploadedFile
 from apps.analysis import ai
 from apps.audit.service import audit
 from apps.crypto.aead import decrypt_text
-from apps.documents import alterations, crypto_fields, files
+from apps.documents import alterations, crypto_fields, files, pages
 from apps.documents.intake import (
     IntakeError,
     IntakeRequest,
@@ -161,6 +161,8 @@ class DocumentDetail(DocumentListItem):
     stored: bool
     original_page_count: int
     enhanced: bool  # the shown file differs from the original
+    hidden_page_count: int  # hidden in Enhanced, still present in the stored archive
+    visible_pages: list[int]
     enhancement: dict[str, object]  # settings used and what was changed
     paper: PaperOut
     mail: MailOut | None
@@ -348,7 +350,7 @@ def to_list_item(
         is_read=document.read_at is not None,
         document_date=document.document_date,
         uploaded_at=document.uploaded_at,
-        page_count=document.page_count,
+        page_count=len(pages.visible_numbers(document)),
         processing_state=document.processing_state,
         processing_error=document.processing_error,
         has_series_suggestion=document.series_suggestion_id is not None,
@@ -380,6 +382,8 @@ def to_detail(document: Document) -> DocumentDetail:
         stored=bool(document.storage_original),
         original_page_count=document.original_page_count or document.page_count,
         enhanced=_is_enhanced(document),
+        hidden_page_count=document.page_count - len(pages.visible_numbers(document)),
+        visible_pages=pages.visible_numbers(document),
         enhancement={k: v for k, v in document.enhancement.items() if k in ("settings", "summary")},
         paper=_paper(document),
         mail=_mail(document),
@@ -447,7 +451,9 @@ def _paper(document: Document) -> PaperOut:
 
 def _is_enhanced(document: Document) -> bool:
     summary = document.enhancement.get("summary") or {}
-    return any(summary.get(key) for key in ("rotated", "deskewed", "cropped", "cleaned", "removed_blank"))
+    return pages.visible_numbers(document) != list(range(1, document.page_count + 1)) or any(
+        summary.get(key) for key in ("rotated", "deskewed", "cropped", "cleaned", "removed_blank")
+    )
 
 
 def apply_filters(qs: QuerySet[Document], f: DocumentFilters) -> QuerySet[Document]:
@@ -882,7 +888,9 @@ def document_file(
 @router.get("/{doc_id}/thumbnail")
 def document_thumbnail(request: HttpRequest, doc_id: UUID) -> HttpResponse:
     document = get_document(doc_id)
-    image = crypto_fields.get_thumbnail(document)
+    shown = pages.visible_numbers(document)
+    image = pages.thumbnail(document, shown[0]) if shown and shown[0] != 1 else None
+    image = image or crypto_fields.get_thumbnail(document)
     if image is None:
         raise HttpError(404, "No thumbnail")
     response = HttpResponse(image, content_type="image/webp")

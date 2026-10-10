@@ -39,10 +39,13 @@ import {
   nudge,
   type Output,
   type PageKey,
+  type PageSource,
   type Plan,
   pageKey,
   parseKey,
   planFrom,
+  putBack,
+  retainedSource,
   splitAt,
   toRequest,
   unchangedSource,
@@ -81,8 +84,8 @@ export function undoAlteration(id: number, onDone?: () => void) {
 /**
  * The page editor: which pages make up which documents. Merge, split, take pages out,
  * put them in order — by hand, or starting from a suggestion of the assistant.
- * Applying never changes an original: new documents are made from copies of the pages,
- * and the documents they came from go to the trash, where they can be restored.
+ * Visibility/order edits keep document identity; only additional or merged documents are new.
+ * Existing OCR text is reused, and originals never change.
  */
 export function PageEditor({
   sourceIds,
@@ -112,19 +115,26 @@ export function PageEditor({
     })),
   });
   const loading = results.some((r) => r.isPending);
+  const fetching = results.some((r) => r.isFetching);
   const failed = results.find((r) => r.error)?.error;
   const docs = results.map((r) => r.data).filter((d): d is Schemas["PagesOut"] => !!d);
-  const sources = useMemo(() => docs.map((d) => ({ id: d.id, pages: d.page_count })), [docs.map((d) => d.id).join()]); // eslint-disable-line react-hooks/exhaustive-deps
+  const fetchedSources = useMemo(() => docs.map((d) => ({ id: d.id, pages: d.page_count, visible: d.visible_pages })),
+    [docs.map((d) => `${d.id}:${d.visible_pages.join(",")}`).join(";")]); // eslint-disable-line react-hooks/exhaustive-deps
+  // Background refetches must not replace the baseline of a plan already being edited.
+  const [baseline, setBaseline] = useState<PageSource[] | null>(null);
+  const sources = baseline ?? fetchedSources;
 
   const [plan, setPlan] = useState<Plan | null>(null);
   const [initial, setInitial] = useState<Plan | null>(null);
   const [selected, setSelected] = useState<PageKey[]>([]);
   useEffect(() => {
-    if (loading || failed || plan) return;
+    // An invalidated cached layout is not a safe starting point after undo/apply.
+    if (loading || fetching || failed || plan) return;
     const start = suggestion ? planFrom(sources, suggestion) : initialPlan(sources);
+    setBaseline(sources);
     setPlan(start);
     setInitial(start);
-  }, [loading, failed, plan, sources, suggestion]);
+  }, [loading, fetching, failed, plan, sources, suggestion]);
 
   const info = useMemo(() => {
     const m = new Map<PageKey, { mark: string; blank: boolean; color: string; title: string }>();
@@ -152,7 +162,8 @@ export function PageEditor({
     onSuccess: (alteration) => {
       invalidate();
       toast.success(alteration.summary, {
-        description: "The originals are untouched; the documents they replace are in the trash.",
+        description: alteration.kind === "view" ? "Same document. No OCR or AI reprocessing. The original is unchanged."
+          : "Processed pages are reused; original files are unchanged.",
         action: { label: "Undo", onClick: () => void undoAlteration(alteration.id, invalidate) },
         duration: 10_000,
       });
@@ -204,6 +215,7 @@ export function PageEditor({
                   output={output}
                   index={index}
                   unchanged={unchangedSource(output, sources) !== null}
+                  retained={retainedSource(output, plan, sources) !== null}
                   info={info}
                   twins={twins}
                   selected={selected}
@@ -227,7 +239,7 @@ export function PageEditor({
                   twins={twins}
                   selected={selected}
                   onToggle={toggle}
-                  onPutBack={(keys) => update(movePages(plan, keys, null))}
+                  onPutBack={(keys) => update(putBack(plan, keys))}
                   onZoom={setZoom}
                 />
               )}
@@ -353,6 +365,7 @@ function OutputRow({
   output,
   index,
   unchanged,
+  retained,
   info,
   twins,
   selected,
@@ -368,6 +381,7 @@ function OutputRow({
   output: Output;
   index: number;
   unchanged: boolean;
+  retained: boolean;
   info: Map<PageKey, PageInfo>;
   twins: Map<PageKey, Twin>;
   selected: PageKey[];
@@ -403,17 +417,19 @@ function OutputRow({
       <div className="mb-2 flex flex-wrap items-center gap-2">
         <span className="text-sm font-semibold">Document {index + 1}</span>
         {unchanged ? (
-          <Badge variant="muted" title="All its pages, in order: this document stays as it is">
+          <Badge variant="muted" title="The current Enhanced page view: this document stays as it is">
             Unchanged
           </Badge>
+        ) : retained ? (
+          <Badge variant="muted">Same document · view only</Badge>
         ) : (
           <Badge variant="success">New · {output.pages.length} p.</Badge>
         )}
-        {!unchanged && (
+        {!retained && (
           <Input
             value={output.title}
             onChange={(e) => onTitle(e.target.value)}
-            placeholder={`Title (empty: like “${firstTitle || "Untitled"}”, then the analysis)`}
+            placeholder={`Title (empty: like “${firstTitle || "Untitled"}”)`}
             className="h-8 min-w-48 flex-1 text-sm"
             maxLength={200}
             aria-label={`Title of document ${index + 1}`}
@@ -590,7 +606,7 @@ function LeftOut({
         <EyeOff className="size-4 text-muted-foreground" />
         <span className="text-sm font-semibold">Left out</span>
         <span className="text-xs text-muted-foreground">
-          In no document afterwards — but still in the original, which stays in the trash.
+          Hidden from Enhanced. Still available in the original; no pages are destroyed.
         </span>
         <Button size="sm" variant="ghost" className="ml-auto" onClick={() => onPutBack(pages)}>
           Put all back
@@ -623,9 +639,9 @@ function EffectText({
             Makes <strong className="text-foreground">{e.created} new document{e.created === 1 ? "" : "s"}</strong>.{" "}
           </>
         )}
-        {e.trashed.map(title).join(", ")} {e.trashed.length === 1 ? "goes" : "go"} to the trash, where{" "}
-        {e.trashed.length === 1 ? "it" : "they"} can be restored.
-        {e.dropped > 0 && ` ${e.dropped} page${e.dropped === 1 ? " is" : "s are"} left out.`} Original files are never changed.
+        {e.updated.length > 0 && <>{e.updated.map(title).join(", ")} stays as the same document. Only the Enhanced page view changes; no OCR or AI reprocessing. </>}
+        {e.trashed.length > 0 && <>{e.trashed.map(title).join(", ")} {e.trashed.length === 1 ? "goes" : "go"} to recoverable trash. </>}
+        {e.dropped > 0 && ` ${e.dropped} page${e.dropped === 1 ? " is" : "s are"} hidden or left out.`} Original files are never changed.
       </span>
     </p>
   );

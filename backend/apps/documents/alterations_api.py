@@ -30,6 +30,7 @@ class PagesOut(Schema):
     title: str
     page_count: int
     pages: list[PageOut]
+    visible_pages: list[int]  # physical archive page numbers, in Enhanced order
 
 
 class PageRef(Schema):
@@ -47,6 +48,7 @@ class ComposeIn(Schema):
     sources: list[UUID] = Field(..., max_length=200)
     outputs: list[OutputIn] = Field(..., max_length=alterations.MAX_OUTPUTS)
     origin: AlterationOrigin | None = None
+    expected_views: dict[str, list[int]] = Field(default_factory=dict)
 
 
 class IdsIn(Schema):
@@ -131,6 +133,11 @@ def _out(alteration: Alteration, cache: dict[str, Document] | None = None) -> Al
         alteration.kind != Alteration.Kind.EDIT
         and alteration.undone_at is None
         and all(u in cache and cache[u].deleted_at is None for u in made)
+        and all(u in cache and cache[u].deleted_at is not None for u in alteration.retired)
+        and all(
+            u in cache and cache[u].deleted_at is None and pages.view_state(cache[u]) == change["after"]
+            for u, change in detail.get("views", {}).items()
+        )
     )
     return AlterationOut(
         id=alteration.pk,
@@ -141,7 +148,7 @@ def _out(alteration: Alteration, cache: dict[str, Document] | None = None) -> Al
         undone_at=alteration.undone_at,
         can_undo=can_undo,
         sources=_refs(alteration.sources, cache),
-        results=_refs(made, cache),
+        results=_refs(alteration.results, cache),
         changes=[ChangeOut(**c) for c in detail.get("changes", [])],
         task=detail.get("task"),
         finding=str(detail.get("finding", "")),
@@ -200,6 +207,7 @@ def document_pages(request: HttpRequest, doc_id: UUID) -> PagesOut:
         id=document.uuid,
         title=crypto_fields.get_title(document),
         page_count=document.page_count,
+        visible_pages=pages.visible_numbers(document),
         pages=[
             PageOut(
                 number=n, mark=f"{fp.mark[0]}/{fp.mark[1]}" if fp.mark else "", blank=fp.ink < pages.EMPTY
@@ -233,7 +241,13 @@ def compose(request: HttpRequest, data: ComposeIn) -> AlterationOut:
         for o in data.outputs
     ]
     try:
-        alteration = alterations.compose([str(u) for u in data.sources], outputs, actor=actor, origin=origin)
+        alteration = alterations.compose(
+            [str(u) for u in data.sources],
+            outputs,
+            actor=actor,
+            origin=origin,
+            expected_views=data.expected_views,
+        )
     except alterations.AlterationError as exc:
         raise HttpError(400, str(exc)) from exc
     except (FileNotFoundError, StorageError) as exc:

@@ -12,8 +12,14 @@ import pytest
 from apps.assist import page_analysis
 from apps.assist.checks import Item
 from apps.crypto.aead import encrypt_file
-from apps.documents import alterations, crypto_fields, pages
-from apps.documents.intake import archive_aad, archive_intake_path_for, ensure_dirs, intake_path_for
+from apps.documents import alterations, crypto_fields, files, pages
+from apps.documents.intake import (
+    archive_aad,
+    archive_intake_path_for,
+    ensure_dirs,
+    intake_aad,
+    intake_path_for,
+)
 from apps.documents.models import Alteration, Document, DocumentPage
 from apps.processing.models import Job
 from apps.storage.backends import StorageError
@@ -173,7 +179,9 @@ def test_merging_makes_a_new_document_and_keeps_the_sources_in_the_trash(api):
     [made] = out["results"]
     merged = Document.objects.get(uuid=made["id"])
     assert crypto_fields.get_title(merged) == "Teil 1" and merged.source_of("title") == "user"
-    assert merged.processing_plan == {"steps": ["ocr", "analyze"]}
+    assert merged.processing_plan == {"steps": []}
+    assert merged.processing_stage == Document.Stage.STORE
+    assert "Telekom" in crypto_fields.get_content(merged)
     assert intake_path_for(str(merged.uuid)).exists()
     assert page_count(merged) == 2
     assert Job.objects.filter(document=merged, kind=Job.Kind.INTAKE_DOCUMENT).exists()
@@ -206,7 +214,265 @@ def test_removing_a_page_and_validation():
     with pytest.raises(alterations.AlterationError, match="does not exist"):
         alterations.compose([uid], [alterations.Output([(uid, 9)])])
     a = alterations.compose([uid], [alterations.Output([(uid, 1), (uid, 2)])])
-    assert alterations.detail_of(a)["summary"] == "Removed page 3 of “Auszug”"
+    assert alterations.detail_of(a)["summary"] == "Hidden page 3 in Enhanced for “Auszug”"
+    assert a.kind == Alteration.Kind.VIEW and a.results == [uid] and not a.retired
+    assert Document.objects.count() == 1 and not Job.objects.exists()
+    d.refresh_from_db()
+    assert d.deleted_at is None and d.processing_state == "done"
+    assert pages.visible_numbers(d) == [1, 2]
+
+
+def test_blank_pages_are_hidden_in_enhanced_but_original_and_document_are_unchanged(api):
+    d = make("Blank backsides", [[], letter("Bank", "1", 1, 1), []])
+    uid = str(d.uuid)
+    physical = files.fetch(d, "archive", apply_view=False)
+    try:
+        uploaded = physical.read()
+        encrypt_file(Path(physical.name), intake_path_for(uid), aad=intake_aad(uid))
+    finally:
+        physical.close()
+    original = api.get(f"/api/v1/documents/{uid}/file?variant=original")
+    assert b"".join(original.streaming_content) == uploaded
+    enhanced = api.get(f"/api/v1/documents/{uid}/file?variant=archive")
+    with tempfile.TemporaryDirectory() as tmp:
+        path = Path(tmp) / "enhanced.pdf"
+        path.write_bytes(b"".join(enhanced.streaming_content))
+        with pikepdf.open(path) as shown:
+            assert len(shown.pages) == 1
+    detail = api.get(f"/api/v1/documents/{uid}").json()
+    assert detail["page_count"] == 1 and detail["hidden_page_count"] == 2
+    assert detail["visible_pages"] == [2] and detail["enhanced"]
+    editor = api.get(f"/api/v1/alterations/pages/{uid}").json()
+    assert editor["page_count"] == 3 and editor["visible_pages"] == [2]
+    assert len(editor["pages"]) == 3  # hidden pages can be inspected and put back
+    assert api.get(f"/api/v1/documents/{uid}/thumbnail").content == pages.thumbnail(d, 2)
+    assert not analyse([d])[0]  # no proposal to replace a document for blank pages
+    assert Document.objects.count() == 1 and not Job.objects.exists()
+    assert not Alteration.objects.exists()
+
+
+def test_hiding_and_reordering_keep_identity_metadata_and_files_and_can_be_undone(api):
+    d = make("Bank records", [letter("Bank", "1", n, 3) for n in range(1, 4)])
+    uid = str(d.uuid)
+    before_file = archive_intake_path_for(uid).read_bytes()
+    before_text = crypto_fields.get_content(d)
+    before_date = d.uploaded_at
+    response = api.post(
+        "/api/v1/alterations/compose",
+        {
+            "sources": [uid],
+            "outputs": [
+                {
+                    "pages": [
+                        {"document": uid, "page": 3},
+                        {"document": uid, "page": 1},
+                    ]
+                }
+            ],
+        },
+        content_type=J,
+    )
+    assert response.status_code == 200, response.content
+    change = response.json()
+    assert change["kind"] == "view" and change["results"][0]["id"] == uid
+    assert change["can_undo"]
+    d.refresh_from_db()
+    assert pages.visible_numbers(d) == [3, 1]
+    assert crypto_fields.get_title(d) == "Bank records" and d.uploaded_at == before_date
+    assert crypto_fields.get_content(d) == before_text and d.processing_state == "done"
+    assert archive_intake_path_for(uid).read_bytes() == before_file
+    assert Document.objects.count() == 1 and not Job.objects.exists()
+    assert api.post(f"/api/v1/alterations/{change['id']}/undo").status_code == 200
+    d.refresh_from_db()
+    assert pages.visible_numbers(d) == [1, 2, 3]
+    assert not Job.objects.exists() and d.deleted_at is None
+
+
+def test_newer_view_edits_must_be_undone_first():
+    d = make("Bank", [letter("Bank", "1", n, 3) for n in range(1, 4)])
+    uid = str(d.uuid)
+    first = alterations.compose([uid], [alterations.Output([(uid, 1), (uid, 2)])])
+    second = alterations.compose([uid], [alterations.Output([(uid, 1)])])
+    with pytest.raises(alterations.AlterationError, match="newer change"):
+        alterations.undo(first)
+    alterations.undo(second)
+    alterations.undo(first)
+    d.refresh_from_db()
+    assert pages.visible_numbers(d) == [1, 2, 3]
+
+
+def test_pre_upgrade_fingerprints_hide_blank_pages_without_reprocessing():
+    d = make("Old scan", [letter("Bank", "1", 1, 1), []])
+    d.page_view = {}
+    d.save(update_fields=["page_view"])
+    assert pages.visible_numbers(d) == [1]
+    assert not Job.objects.exists()
+
+
+def test_an_old_page_map_is_not_applied_to_a_different_physical_page_count():
+    d = make("Bank", [letter("Bank", "1", n, 3) for n in range(1, 4)])
+    uid = str(d.uuid)
+    alterations.compose([uid], [alterations.Output([(uid, 3)])])
+    d.refresh_from_db()
+    d.page_count = 1  # an explicit reprocess changed the physical archive
+    assert pages.visible_numbers(d) == [1]
+
+
+def test_auto_hiding_does_not_hide_a_whole_document_or_a_page_with_short_text():
+    d = make("Empty scan", [[], []])
+    assert pages.visible_numbers(d) == [1, 2]
+    short = make("Short note", [["Signature 7"]])
+    assert pages.visible_numbers(short) == [1]
+
+
+def test_legacy_scans_without_fingerprints_get_blank_hiding_when_opened():
+    d = make("Old scan", [letter("Bank", "1", 1, 1), []], build=False)
+    assert not DocumentPage.objects.filter(document=d).exists()
+    handle = files.fetch(d, "archive")
+    try:
+        with pikepdf.open(handle.name) as pdf:
+            assert len(pdf.pages) == 1
+    finally:
+        handle.close()
+    assert not Job.objects.exists()
+
+
+def test_an_outdated_editor_cannot_overwrite_a_newer_view(api):
+    d = make("Bank", [letter("Bank", "1", n, 3) for n in range(1, 4)])
+    uid = str(d.uuid)
+    alterations.compose([uid], [alterations.Output([(uid, 1), (uid, 2)])])
+    response = api.post(
+        "/api/v1/alterations/compose",
+        {
+            "sources": [uid],
+            "outputs": [{"pages": [{"document": uid, "page": 1}]}],
+            "expected_views": {uid: [1, 2, 3]},
+        },
+        content_type=J,
+    )
+    assert response.status_code == 400
+    assert "editor was open" in response.json()["detail"]
+    d.refresh_from_db()
+    assert pages.visible_numbers(d) == [1, 2]
+    assert Alteration.objects.count() == 1
+
+
+def test_split_keeps_first_part_identity_and_only_stores_the_extra_part():
+    d = make("Statement", [letter("Bank", "1", n, 2) for n in range(1, 3)])
+    uid = str(d.uuid)
+    change = alterations.compose([uid], [alterations.Output([(uid, 1)]), alterations.Output([(uid, 2)])])
+    assert change.results[0] == uid and not change.retired
+    assert Document.objects.count() == 2
+    d.refresh_from_db()
+    assert d.deleted_at is None and pages.visible_numbers(d) == [1]
+    assert not Job.objects.filter(document=d).exists()
+    extra = Document.objects.get(uuid=change.results[1])
+    assert extra.processing_stage == "store" and extra.processing_plan == {"steps": []}
+    alterations.undo(change)
+    d.refresh_from_db()
+    extra.refresh_from_db()
+    assert pages.visible_numbers(d) == [1, 2] and extra.deleted_at is not None
+
+
+def test_duplicate_removal_does_not_change_or_reprocess_the_kept_copy():
+    lines = [letter("Bank", "1", 1, 1)]
+    keep, duplicate = make("Kept", lines), make("Duplicate", lines)
+    before = Document.objects.filter(pk=keep.pk).values().get()
+    alteration = alterations.trash([str(duplicate.uuid)])
+    assert Document.objects.filter(pk=keep.pk).values().get() == before
+    assert alteration.results == [] and not Job.objects.exists()
+    duplicate.refresh_from_db()
+    assert duplicate.deleted_at is not None
+
+
+def test_hidden_duplicate_pages_are_not_proposed_again():
+    same = letter("Bank", "1", 1, 1)
+    d = make("Bank", [same, same])
+    uid = str(d.uuid)
+    assert any(f.kind == "duplicate_pages" for f in analyse([d])[0])
+    alterations.compose([uid], [alterations.Output([(uid, 1)])])
+    d.refresh_from_db()
+    assert not any(f.kind == "duplicate_pages" for f in analyse([d])[0])
+
+
+def test_real_merges_reuse_text_without_ocr_or_model_analysis(monkeypatch):
+    from apps.processing import pipeline
+    from apps.processing.worker import Worker
+
+    a = make("One", [letter("Bank", "1", 1, 2)])
+    b = make("Two", [letter("Bank", "1", 2, 2)])
+    au, bu = str(a.uuid), str(b.uuid)
+
+    def unexpected(*args):
+        pytest.fail("Page composition must not rerun OCR or AI analysis")
+
+    monkeypatch.setattr(pipeline, "stage_ocr", unexpected)
+    monkeypatch.setattr(pipeline, "stage_analyze", unexpected)
+    monkeypatch.setitem(pipeline.STAGES, Document.Stage.OCR, unexpected)
+    monkeypatch.setitem(pipeline.STAGES, Document.Stage.ANALYZE, unexpected)
+    change = alterations.compose([au, bu], [alterations.Output([(au, 1), (bu, 1)])])
+    merged = Document.objects.get(uuid=change.results[0])
+    assert "Bank" in crypto_fields.get_content(merged)
+    Worker().run_until_empty()
+    merged.refresh_from_db()
+    assert merged.processing_state == "done"
+    assert {e.stage for e in merged.events.all()} == {"store", "index"}
+    assert merged.storage_original and merged.storage_archive
+
+
+def test_extraction_reuses_docling_text_after_page_two_without_rerunning_ocr(monkeypatch):
+    from docling_core.types.doc import BoundingBox, DocItemLabel, DoclingDocument, ProvenanceItem
+    from docling_core.types.doc.base import Size
+
+    d = make("Docling scan", [letter("Bank", "1", n, 3) for n in range(1, 4)])
+    structured = DoclingDocument(name="Recognized scan")
+    for n, text in enumerate(
+        ["Private text on page one", "Page two text", "Target text on page three"], start=1
+    ):
+        structured.add_page(page_no=n, size=Size(width=595, height=842))
+        structured.add_text(
+            label=DocItemLabel.TEXT,
+            text=text,
+            prov=ProvenanceItem(
+                page_no=n,
+                bbox=BoundingBox(l=0, t=100, r=200, b=0),
+                charspan=(0, len(text)),
+            ),
+        )
+    crypto_fields.set_content(d, "All recognized text", structured=structured.model_dump(mode="json"))
+    d.ocr_backend = Document.OcrBackend.DOCLING
+    d.save(update_fields=["ocr_backend"])
+    assert "Target text" in pages.recognized_texts(d)[2]
+    monkeypatch.setattr(pages, "page_texts", lambda _: ["", "", ""])  # no embedded PDF text layer
+    uid = str(d.uuid)
+    change = alterations.compose(
+        [uid],
+        [
+            alterations.Output([(uid, 1), (uid, 2)]),
+            alterations.Output([(uid, 3)]),
+        ],
+    )
+    extracted = Document.objects.get(uuid=change.results[1])
+    text = crypto_fields.get_content(extracted)
+    assert "Target text on page three" in text and "Private text" not in text
+    assert pages.recognized_texts(extracted) == [text]
+    assert not Job.objects.filter(document=d).exists()
+
+
+def test_docling_retains_page_scoped_ocr_beyond_the_first_two_pages():
+    from types import SimpleNamespace
+
+    from apps.processing.docling_backend import _layout_pages
+
+    recognized = [
+        SimpleNamespace(
+            page_no=n,
+            size=SimpleNamespace(width=595, height=842),
+            parsed_page=SimpleNamespace(textline_cells=[]),
+        )
+        for n in range(1, 4)
+    ]
+    assert [p["page_no"] for p in _layout_pages(recognized)["pages"]] == [1, 2, 3]
 
 
 def test_delete_puts_in_the_trash_and_originals_cannot_be_purged(api):
@@ -299,13 +565,15 @@ def test_existing_output_is_never_adopted_or_trashed_by_compose(monkeypatch):
     existing = make("Existing output", [letter("Amt", "1", 1, 1)])
     monkeypatch.setattr(alterations, "register", lambda *a, **k: IntakeResult(existing, created=False))
     with pytest.raises(alterations.AlterationError, match="already exists"):
-        alterations.compose([str(a.uuid)], [alterations.Output([(str(a.uuid), 1)])])
+        alterations.compose(
+            [str(a.uuid)], [alterations.Output([(str(a.uuid), 1)]), alterations.Output([(str(a.uuid), 2)])]
+        )
     assert not Document.objects.filter(deleted_at__isnull=False).exists()
     assert not Alteration.objects.exists()
 
 
 def test_failed_composition_rolls_back_documents_and_generated_intake_files(monkeypatch, settings):
-    d = make("Source", [letter("Amt", "1", 1, 2), letter("Amt", "1", 2, 2)])
+    d = make("Source", [letter("Amt", "1", n, 3) for n in range(1, 4)])
     uid = str(d.uuid)
     before = set(settings.INTAKE_DIR.iterdir())
     create = alterations._new_document
@@ -319,7 +587,10 @@ def test_failed_composition_rolls_back_documents_and_generated_intake_files(monk
 
     monkeypatch.setattr(alterations, "_new_document", fail_second)
     with pytest.raises(StorageError):
-        alterations.compose([uid], [alterations.Output([(uid, 1)]), alterations.Output([(uid, 2)])])
+        alterations.compose(
+            [uid],
+            [alterations.Output([(uid, 1)]), alterations.Output([(uid, 2)]), alterations.Output([(uid, 3)])],
+        )
     assert Document.objects.count() == 1 and not Alteration.objects.exists()
     assert set(settings.INTAKE_DIR.iterdir()) == before
     d.refresh_from_db()

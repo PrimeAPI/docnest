@@ -278,7 +278,7 @@ export function BulkBar({ ids, onClear }: { ids: string[]; onClear: () => void }
         <PageEditor
           sourceIds={ids}
           heading={`Pages of ${ids.length} documents`}
-          explanation="Merge them, move pages from one to another, or take pages out. The originals stay as they are: documents that change go to the trash and new ones take their place."
+          explanation="Hide or reorder pages in the same document, split off additional parts, or merge processed pages. The summary shows which documents stay and which go to recoverable trash. Originals are never changed."
           onApplied={onClear}
           onClose={() => setPagesOpen(false)}
         />

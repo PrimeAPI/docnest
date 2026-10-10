@@ -46,10 +46,10 @@ def _languages() -> list[str]:
     return [part.strip() for part in str(settings.OCR_LANGUAGES).replace(",", "+").split("+") if part.strip()]
 
 
-def _layout_pages(pages: list[Any], limit: int = 2) -> dict:
-    """Keep a compact, encrypted copy of line geometry for field detection."""
+def _layout_pages(pages: list[Any]) -> dict:
+    """Keep encrypted page-scoped OCR for field detection and later page operations."""
     output: list[dict[str, Any]] = []
-    for page in pages[:limit]:
+    for page in pages:
         parsed = page.parsed_page
         if parsed is None:
             continue

@@ -6,7 +6,7 @@ DocNest can look through a folder, a selection or your archive and leave suggest
 
 From a document list or a folder, open **Assistant → Look through**. From the **Assistant** page, choose **Look through everything**.
 
-- **Quick, pages only** prepares page thumbnails and fingerprints and checks for duplicate documents or pages, complementary page numbers across scans, scans containing several letters, empty pages, missing pages and series gaps. It needs no model.
+- **Quick, pages only** prepares page thumbnails and fingerprints, automatically hides obvious blank pages in Enhanced, and checks for duplicate documents or pages, complementary page numbers across scans, scans containing several letters, missing pages and series gaps. It needs no model.
 - **Thorough, with the AI model** adds document reading, naming suggestions, criticism and a final report. Choose any installed model that fits your server, including your existing small model or an 8B model. Enable thinking only when the installed model supports it. More context consumes more memory.
 - Start now or choose a time. You may set a report deadline, for example 07:00. A run can finish earlier if its work is complete or it stops finding useful steps. It does not deliberately repeat reasoning to fill twelve hours.
 
@@ -26,7 +26,9 @@ Page numbers and similarities are evidence, not proof that scans belong together
 
 Use a document's **Pages** action, or select documents in a list and choose **Pages**. Click pages to select them, move them to a new or existing output, use the scissors to split, join adjacent outputs, reorder pages or leave pages out. These are the same operations used for assistant suggestions.
 
-An unchanged output keeps the existing document. Every changed output is a new document made from copies of the displayed archive pages. Superseded sources go to **Trash**, with their original files and processed versions intact. Leaving out a page excludes it from the new output; the page remains in the source. There is no permanent-delete action.
+Blank pages are hidden automatically in **Enhanced**, while **Original** stays complete. Hiding or reordering pages keeps the same document and metadata, without rewriting stored files or rerunning OCR or AI. The editor includes hidden pages so you can put them back.
+
+On a split, the first part keeps the existing document ID; only additional parts become new documents. Merging multiple sources creates a combined document and puts superseded sources in **Trash**. New outputs reuse processed pages and their OCR text; they only need storage, previews and indexing. Deleting a duplicate puts only that duplicate in trash, leaving the kept copy untouched. There is no permanent-delete action. See [the complete operation rules](document-operations.md).
 
 New PDF uploads retain their exact bytes as the original; sanitization and enhancement use processing copies. Raw image uploads are assembled into a PDF, which is their document original. Existing originals sanitized by older versions cannot be reconstructed without the source upload.
 

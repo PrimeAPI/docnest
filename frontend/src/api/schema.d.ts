@@ -2537,6 +2537,10 @@ export interface components {
             original_page_count: number;
             /** Enhanced */
             enhanced: boolean;
+            /** Hidden Page Count */
+            hidden_page_count: number;
+            /** Visible Pages */
+            visible_pages: number[];
             /** Enhancement */
             enhancement: {
                 [key: string]: unknown;
@@ -3713,6 +3717,8 @@ export interface components {
             page_count: number;
             /** Pages */
             pages: components["schemas"]["PageOut"][];
+            /** Visible Pages */
+            visible_pages: number[];
         };
         /** AlterationOut */
         AlterationOut: {
@@ -3772,6 +3778,10 @@ export interface components {
             /** Outputs */
             outputs: components["schemas"]["OutputIn"][];
             origin?: components["schemas"]["AlterationOrigin"] | null;
+            /** Expected Views */
+            expected_views?: {
+                [key: string]: number[];
+            };
         };
         /** OutputIn */
         OutputIn: {

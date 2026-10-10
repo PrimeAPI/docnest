@@ -9,13 +9,15 @@ import { ErrorNote, Spinner } from "@/components/ui/misc";
 pdfjs.GlobalWorkerOptions.workerSrc = workerUrl;
 
 /** `placeholder`: an image of the first page shown at full width until the PDF has loaded. */
-export function PdfViewer({ url, placeholder }: { url: string; placeholder?: string }) {
+export function PdfViewer({ url, placeholder, onLoaded }: { url: string; placeholder?: string; onLoaded?: (pages: number) => void }) {
   const [pdf, setPdf] = useState<PDFDocumentProxy | null>(null);
   const [placeholderFailed, setPlaceholderFailed] = useState(false);
   const [error, setError] = useState<unknown>(null);
   const [scale, setScale] = useState(1.2);
   const scroller = useRef<HTMLDivElement>(null);
   const [rotation, setRotation] = useState(0);
+  const loadedCallback = useRef(onLoaded);
+  loadedCallback.current = onLoaded;
 
   useEffect(() => {
     let cancelled = false;
@@ -46,6 +48,7 @@ export function PdfViewer({ url, placeholder }: { url: string; placeholder?: str
         const available = (scroller.current?.clientWidth ?? 800) - 40;
         setScale(Math.min(2, Math.max(0.5, Math.round((available / width) * 10) / 10)));
         setPdf(loaded);
+        loadedCallback.current?.(loaded.numPages);
       } catch (err) {
         if (!cancelled) setError(err);
       }

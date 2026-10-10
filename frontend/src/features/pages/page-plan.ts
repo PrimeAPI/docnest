@@ -1,9 +1,9 @@
 /**
  * What the page editor edits: which pages make up which documents afterwards.
  *
- * A page is "documentId:page". An output that holds all pages of one source, in order,
- * keeps that document unchanged; every other output becomes a new document, and every
- * source that is not kept unchanged goes to the trash — with its original file.
+ * A page is "documentId:physicalArchivePage". The first single-source output keeps its
+ * document identity; visibility/order edits are view-only. Additional split parts and
+ * multi-source outputs are new documents. Only sources with no retained output are trashed.
  */
 
 export type PageKey = `${string}:${number}`;
@@ -18,6 +18,15 @@ export interface Plan {
   outputs: Output[];
   leftOut: PageKey[];
 }
+
+export interface PageSource {
+  id: string;
+  pages: number;
+  visible?: number[];
+}
+
+const shownPages = (source: PageSource) =>
+  source.visible?.map((n) => pageKey(source.id, n)) ?? allPages(source.id, source.pages);
 
 let counter = 0;
 export const newKey = () => `o${++counter}`;
@@ -34,8 +43,10 @@ export function allPages(doc: string, count: number): PageKey[] {
 }
 
 /** Each source as it is. */
-export function initialPlan(sources: { id: string; pages: number }[]): Plan {
-  return { outputs: sources.map((s) => ({ key: newKey(), title: "", pages: allPages(s.id, s.pages) })), leftOut: [] };
+export function initialPlan(sources: PageSource[]): Plan {
+  const outputs = sources.map((s) => ({ key: newKey(), title: "", pages: shownPages(s) }));
+  const shown = new Set(outputs.flatMap((o) => o.pages));
+  return { outputs, leftOut: sources.flatMap((s) => allPages(s.id, s.pages)).filter((k) => !shown.has(k)) };
 }
 
 /** A suggestion's outputs; pages of the sources it does not use are left out. */
@@ -51,12 +62,33 @@ export function planFrom(
 }
 
 /** The source an output keeps unchanged, if it does. */
-export function unchangedSource(output: Output, sources: { id: string; pages: number }[]): string | null {
+export function unchangedSource(output: Output, sources: PageSource[]): string | null {
   if (!output.pages.length) return null;
   const doc = parseKey(output.pages[0])[0];
   const source = sources.find((s) => s.id === doc);
-  if (!source || output.pages.length !== source.pages) return null;
-  return output.pages.every((k, i) => k === pageKey(doc, i + 1)) ? doc : null;
+  if (!source) return null;
+  const baseline = shownPages(source);
+  if (output.pages.length !== baseline.length) return null;
+  return output.pages.every((k, i) => k === baseline[i]) ? doc : null;
+}
+
+/** The first single-source output keeps its identity; further split parts are new documents. */
+export function retainedSource(output: Output, plan: Plan, sources: PageSource[]): string | null {
+  if (!output.pages.length) return null;
+  const id = parseKey(output.pages[0])[0];
+  if (!sources.some((s) => s.id === id) || output.pages.some((p) => parseKey(p)[0] !== id)) return null;
+  return plan.outputs.find((o) => o.pages.length > 0 && o.pages.every((p) => parseKey(p)[0] === id))?.key === output.key ? id : null;
+}
+
+/** Restore hidden pages to their existing document instead of making another document. */
+export function putBack(plan: Plan, keys: PageKey[]): Plan {
+  let next = plan;
+  const ids = [...new Set(keys.map((k) => parseKey(k)[0]))];
+  for (const id of ids) {
+    const output = next.outputs.find((o) => o.pages.every((p) => parseKey(p)[0] === id));
+    next = movePages(next, keys.filter((k) => parseKey(k)[0] === id), output?.key ?? null);
+  }
+  return next;
 }
 
 function without(plan: Plan, keys: Set<PageKey>): Plan {
@@ -134,23 +166,27 @@ export function nudge(plan: Plan, page: PageKey, by: -1 | 1): Plan {
 
 export interface Effect {
   created: number; // new documents
-  kept: string[]; // sources that stay as they are
+  kept: string[]; // source identities retained, including view-only updates
+  updated: string[]; // same document, different Enhanced presentation
   trashed: string[]; // sources that go to the trash (restorable)
-  dropped: number; // pages in no document afterwards (still in the trashed originals)
+  dropped: number; // pages excluded from outputs, still retained in source files
   changes: boolean;
 }
 
-export function effect(plan: Plan, sources: { id: string; pages: number }[]): Effect {
-  const kept = plan.outputs.map((o) => unchangedSource(o, sources)).filter((d): d is string => d !== null);
+export function effect(plan: Plan, sources: PageSource[]): Effect {
+  const kept = plan.outputs.map((o) => retainedSource(o, plan, sources)).filter((d): d is string => d !== null);
+  const updated = plan.outputs.filter((o) => retainedSource(o, plan, sources) !== null && unchangedSource(o, sources) === null)
+    .map((o) => parseKey(o.pages[0])[0]);
   const trashed = sources.map((s) => s.id).filter((id) => !kept.includes(id));
-  const created = plan.outputs.filter((o) => unchangedSource(o, sources) === null).length;
-  return { created, kept, trashed, dropped: plan.leftOut.length, changes: trashed.length > 0 };
+  const created = plan.outputs.filter((o) => retainedSource(o, plan, sources) === null).length;
+  return { created, kept, updated, trashed, dropped: plan.leftOut.length, changes: created > 0 || trashed.length > 0 || updated.length > 0 };
 }
 
 /** The request body of POST /alterations/compose. */
-export function toRequest(plan: Plan, sources: { id: string }[]) {
+export function toRequest(plan: Plan, sources: PageSource[]) {
   return {
     sources: sources.map((s) => s.id),
+    expected_views: Object.fromEntries(sources.filter((s) => s.visible !== undefined).map((s) => [s.id, s.visible!])),
     outputs: plan.outputs.map((o) => ({
       title: o.title.trim(),
       pages: o.pages.map((k) => {

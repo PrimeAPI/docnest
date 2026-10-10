@@ -505,7 +505,16 @@ test("reviews and manual page changes retain originals and can be undone", async
   await page.goto("/documents?processing=done");
   await page.getByRole("radio", { name: "List", exact: true }).click();
   const listing = await (await page.request.get("/api/v1/documents?processing=done")).json();
-  const sources = listing.items.filter((d: { page_count: number }) => d.page_count === 1).slice(0, 2);
+  const sources = [];
+  for (const d of listing.items.filter((d: { page_count: number }) => d.page_count === 1)) {
+    const pages = await (await page.request.get(`/api/v1/alterations/pages/${d.id}`)).json();
+    // An entirely blank scan is deliberately retained, but is not a meaningful fixture
+    // for manually hiding one of two nonblank pages.
+    if (pages.visible_pages.length === 1 && pages.pages.some((p: { number: number; blank: boolean }) =>
+      p.number === pages.visible_pages[0] && !p.blank,
+    )) sources.push(d);
+    if (sources.length === 2) break;
+  }
   expect(sources).toHaveLength(2);
   const originals = await Promise.all(sources.map(async (d: { id: string }) =>
     (await page.request.get(`/api/v1/documents/${d.id}/file?variant=original`)).body(),
@@ -523,14 +532,46 @@ test("reviews and manual page changes retain originals and can be undone", async
   await expect.poll(async () => (await (await page.request.get(`/api/v1/documents/${mergedId}`)).json()).processing_state,
     { timeout: 120_000 },
   ).toBe("done");
+  expect((await (await page.request.get(`/api/v1/documents/${mergedId}`)).json()).page_count).toBe(2);
 
+  // Hiding one page keeps the same document, original bytes and document count.
   await page.goto(`/documents/${mergedId}`);
+  const mergedOriginal = await (await page.request.get(`/api/v1/documents/${mergedId}/file?variant=original`)).body();
+  const countBeforeHide = (await (await page.request.get("/api/v1/documents")).json()).total;
+  await page.getByRole("button", { name: "Pages", exact: true }).click();
+  await dialog.getByRole("img", { name: "Page 2 of Page workflow verification", exact: true }).click();
+  await dialog.getByRole("button", { name: "Leave out", exact: true }).click();
+  await expect(dialog.getByText("Same document · view only")).toBeVisible();
+  const hiddenResponse = page.waitForResponse((r) => r.url().endsWith("/api/v1/alterations/compose") && r.request().method() === "POST");
+  await dialog.getByRole("button", { name: "Apply", exact: true }).click();
+  const hidden = await (await hiddenResponse).json();
+  expect(hidden.kind).toBe("view");
+  expect(hidden.results.map((d: { id: string }) => d.id)).toEqual([mergedId]);
+  const afterHide = await (await page.request.get(`/api/v1/documents/${mergedId}`)).json();
+  expect(afterHide.processing_state).toBe("done");
+  expect(afterHide.page_count).toBe(1);
+  expect((await (await page.request.get("/api/v1/documents")).json()).total).toBe(countBeforeHide);
+  expect(await (await page.request.get(`/api/v1/documents/${mergedId}/file?variant=original`)).body()).toEqual(mergedOriginal);
+  await expect(page.locator(".pdf-page")).toHaveCount(1);
+  await page.getByRole("radio", { name: "Original", exact: true }).click();
+  await expect(page.locator(".pdf-page")).toHaveCount(2);
+  await page.getByRole("radio", { name: "Enhanced", exact: true }).click();
+  await expect(page.locator(".pdf-page")).toHaveCount(1);
+  await page.getByRole("tab", { name: "History" }).click();
+  const undoHide = page.waitForResponse((r) => r.url().endsWith(`/alterations/${hidden.id}/undo`));
+  await page.getByRole("tabpanel").locator("li").filter({ hasText: "Hidden page 2 in Enhanced" })
+    .getByRole("button", { name: "Undo", exact: true }).click();
+  expect((await undoHide).ok()).toBe(true);
+  await expect(page.locator(".pdf-page")).toHaveCount(2);
+
+  // Splitting keeps the first part's ID and creates only the extra part, without OCR.
   await page.getByRole("button", { name: "Pages", exact: true }).click();
   await dialog.getByLabel("Cut document 1 before page 2").click();
   const splitResponse = page.waitForResponse((r) => r.url().endsWith("/api/v1/alterations/compose") && r.request().method() === "POST");
   await dialog.getByRole("button", { name: "Apply", exact: true }).click();
   const split = await (await splitResponse).json();
   expect(split.results).toHaveLength(2);
+  expect(split.results[0].id).toBe(mergedId);
   for (let i = 0; i < sources.length; i++) {
     const file = await page.request.get(`/api/v1/documents/${sources[i].id}/file?variant=original`);
     expect(file.ok()).toBe(true);
@@ -543,9 +584,11 @@ test("reviews and manual page changes retain originals and can be undone", async
   }
 
   await page.goto(`/documents/${mergedId}`);
-  await expect(page.getByRole("heading", { name: /is in the trash/ })).toBeVisible();
+  await expect(page.getByRole("heading", { name: /is in the trash/ })).toHaveCount(0);
+  await page.getByRole("tab", { name: "History" }).click();
   const undoSplit = page.waitForResponse((r) => r.url().endsWith(`/alterations/${split.id}/undo`));
-  await page.getByRole("button", { name: "Undo", exact: true }).first().click();
+  await page.getByRole("tabpanel").locator("li").filter({ hasText: "Split into 2 documents" })
+    .getByRole("button", { name: "Undo", exact: true }).click();
   expect((await undoSplit).ok()).toBe(true);
   await page.reload();
   await page.getByRole("tab", { name: "History" }).click();

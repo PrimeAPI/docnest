@@ -6,7 +6,8 @@
 - **One letter in several scans** — page marks ("Seite 2 von 3") that complete each other.
 - **Several letters in one scan** — page marks that start again ("1/2 2/2 1/3 …").
 - **Pages missing** — marks of pages that are nowhere.
-- **Empty pages** left in a document.
+
+Obviously blank pages are hidden by the Enhanced view, without a replacement-document suggestion.
 
 Every suggestion is a composition (`apps.documents.alterations`): which pages make up which
 documents afterwards. Nothing is applied here, and applying one never touches an original.
@@ -19,7 +20,7 @@ from dataclasses import dataclass
 
 from apps.assist.checks import Finding, Item
 from apps.documents.models import Document, Source
-from apps.documents.pages import EMPTY, Fingerprint, fingerprints, same_page
+from apps.documents.pages import EMPTY, Fingerprint, fingerprints, same_page, visible_numbers
 
 COMMON = 40  # a sketch hash on more pages than this is boilerplate (a letterhead line)
 MIN_SHARED = 6  # sketch hashes two pages share before they are compared
@@ -109,6 +110,13 @@ def analyse(items: list[Item], documents: dict[str, Document]) -> tuple[list[Fin
     docs = [documents[i.uuid] for i in items]
     by_pk = fingerprints(docs)
     index = {n: by_pk[d.pk] for n, d in enumerate(docs) if d.pk in by_pk}
+    visible = {n: set(visible_numbers(d)) for n, d in enumerate(docs)}
+    # Preserve physical page references, but never rediscover pages the user already hid.
+    hidden = Fingerprint([], [], "0" * 64, 0, None, 0)
+    index = {
+        n: [fp if p in visible[n] else hidden for p, fp in enumerate(fps, start=1)]
+        for n, fps in index.items()
+    }
     covered = {items[n].uuid for n in index}
     findings: list[Finding] = []
     pairs = same_pages(index)
@@ -124,7 +132,8 @@ def analyse(items: list[Item], documents: dict[str, Document]) -> tuple[list[Fin
     for doc, twins in inner.items():
         item = items[doc]
         copies = {max(p, q) for p, q in twins}
-        remaining = [n for n in range(1, item.pages + 1) if n not in copies]
+        remaining = [n for n in visible[doc] if n not in copies]
+        remaining.sort()
         if not remaining:
             continue
         findings.append(
@@ -183,7 +192,8 @@ def analyse(items: list[Item], documents: dict[str, Document]) -> tuple[list[Fin
         # Some pages in both: remove them where they are the smaller part.
         share_a, share_b = len(in_a) / max(1, len(content_a)), len(in_b) / max(1, len(content_b))
         source, other, dup = (ib, ia, in_b) if share_b <= share_a else (ia, ib, in_a)
-        rest = [n for n in range(1, source.pages + 1) if n not in dup]
+        source_index = db if source is ib else da
+        rest = [n for n in sorted(visible[source_index]) if n not in dup]
         findings.append(
             Finding(
                 "duplicate_pages",
@@ -200,7 +210,8 @@ def analyse(items: list[Item], documents: dict[str, Document]) -> tuple[list[Fin
         )
 
     findings.extend(_marks(items, index, documents))
-    findings.extend(_empty_pages(items, index))
+    # Blank pages are a presentation concern: Enhanced hides them automatically.
+    # Do not ask the user to create replacement documents to remove blank backsides.
     return findings, covered
 
 
@@ -215,6 +226,8 @@ def _segments(fps: list[Fingerprint]) -> list[tuple[int, list[int], int]]:
     last = 0
     first = 0
     for n, fp in enumerate(fps, start=1):
+        if fp.ink < EMPTY and not fp.has_text:
+            continue
         mark = fp.mark
         if mark and current and (mark[1] != total or mark[0] < last):
             segments.append((total, current, first))
@@ -342,26 +355,4 @@ def _marks(
                         evidence=f"{item.ref} shows page marks {_pages(shown)} of {of}",
                     )
                 )
-    return findings
-
-
-def _empty_pages(items: list[Item], index: dict[int, list[Fingerprint]]) -> list[Finding]:
-    findings = []
-    for doc, fps in index.items():
-        item = items[doc]
-        empty = [n for n, fp in enumerate(fps, start=1) if fp.ink < EMPTY and not fp.has_text]
-        keep = [n for n in range(1, item.pages + 1) if n not in empty]
-        if not empty or not keep:
-            continue
-        findings.append(
-            Finding(
-                "empty_pages",
-                "Empty pages",
-                f"Page {_pages(empty)} of “{item.title}” {'is' if len(empty) == 1 else 'are'} empty.",
-                [item.uuid],
-                action=_compose([item], [[[item.uuid, n] for n in keep]]),
-                confidence="medium",
-                evidence=f"{item.ref}: pages {_pages(empty)} have no ink and no text",
-            )
-        )
     return findings

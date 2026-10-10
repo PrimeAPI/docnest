@@ -7214,6 +7214,17 @@
       "title": "Enhanced",
       "type": "boolean"
      },
+     "hidden_page_count": {
+      "title": "Hidden Page Count",
+      "type": "integer"
+     },
+     "visible_pages": {
+      "items": {
+       "type": "integer"
+      },
+      "title": "Visible Pages",
+      "type": "array"
+     },
      "enhancement": {
       "additionalProperties": true,
       "title": "Enhancement",
@@ -7270,6 +7281,8 @@
      "stored",
      "original_page_count",
      "enhanced",
+     "hidden_page_count",
+     "visible_pages",
      "enhancement",
      "paper",
      "mail",
@@ -10546,13 +10559,21 @@
       },
       "title": "Pages",
       "type": "array"
+     },
+     "visible_pages": {
+      "items": {
+       "type": "integer"
+      },
+      "title": "Visible Pages",
+      "type": "array"
      }
     },
     "required": [
      "id",
      "title",
      "page_count",
-     "pages"
+     "pages",
+     "visible_pages"
     ],
     "title": "PagesOut",
     "type": "object"
@@ -10725,6 +10746,16 @@
         "type": "null"
        }
       ]
+     },
+     "expected_views": {
+      "additionalProperties": {
+       "items": {
+        "type": "integer"
+       },
+       "type": "array"
+      },
+      "title": "Expected Views",
+      "type": "object"
      }
     },
     "required": [
