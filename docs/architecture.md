@@ -26,7 +26,8 @@ DocNest is a modular monolith: a Django backend and a React frontend in one repo
 | `apps/accounts` | Users, Argon2, TOTP, WebAuthn, recovery codes, throttling, sessions, auth API |
 | `apps/scanners` | Scanner clients, token auth, upload API (single request and page-by-page scan sessions), scanner management API |
 | `apps/documents` | Document model, encrypted field accessors, durable intake, file serving, document API |
-| `apps/taxonomy` | Folders (nested filing tree), types, tags + aliases, correspondents, series, rules; their API |
+| `apps/taxonomy` | Folders (nested filing tree), filing suggestions, types, tags + aliases, correspondents, series, rules; their API |
+| `apps/mail` | Email import inbox: IMAP settings (encrypted password), sender allowlist, fetching, email-to-PDF |
 | `apps/processing` | Job queue, worker, pipeline stages, image-to-PDF assembly, PDF sanitizing/OCR/text/thumbnail tools |
 | `apps/analysis` | Metadata extraction, keyword knowledge, Naive Bayes classifiers, series detection, titles |
 | `apps/paper` | Physical locations of paper originals (cabinet → binder), putting scanned documents away in batches, stack position of a document |
@@ -40,7 +41,7 @@ DocNest is a modular monolith: a Django backend and a React frontend in one repo
 
 ## Document lifecycle
 
-1. **Intake** (web process — from the scanner API or a drag & drop upload in the UI): detect the type from the content (PDF or page image), validate size, HMAC for dedupe, encrypt to the intake volume (fsync), create the `Document` and a `process_document` job in one transaction → `202`. A single PDF is stored as the original; page images or several files are stored as encrypted parts (`<uuid>.parts/` with a manifest). Scan sessions collect pages in `intake/scans/<session>/` and become such parts on completion.
+1. **Intake** (web process — from the scanner API or a drag & drop upload in the UI; worker — from the email inbox): detect the type from the content (PDF or page image), validate size, HMAC for dedupe, encrypt to the intake volume (fsync), create the `Document` and a `process_document` job in one transaction → `202`. A single PDF is stored as the original; page images or several files are stored as encrypted parts (`<uuid>.parts/` with a manifest). Scan sessions collect pages in `intake/scans/<session>/` and become such parts on completion.
 2. **assemble**: only for parts — builds the original PDF the way scan-to-PDF software would (EXIF rotation, colour normalization, JPEG passthrough / CCITT G4 / JPEG or Flate compression, page size from the resolution), stores it encrypted as the original and deletes the parts. Details: [scanner-api.md](scanner-api.md#what-docnest-does-with-your-files).
 3. **validate**: pikepdf opens the file strictly, rejects encrypted/oversized PDFs, strips active content; the sanitized file replaces the intake copy.
 4. **enhance**: improves scanned pages before any text recognition (`apps/processing/enhance.py`). Only pages that are one full-page raster image are touched; text/vector pages pass through unchanged. Pages with a hidden OCR text layer (scanner apps, OCRmyPDF) count as scans; rewritten pages lose that layer and are recognised again. Per page: orientation via Tesseract OSD (lossless `/Rotate` when nothing else changes); a sheet lying on a visible scanner backing is found as a shape, straightened by its own edges (refined by the text) and cut out, with backing wedges, edge shadows and corners beyond the scan area painted in the paper colour; otherwise deskew via jdeskew (Fourier-based Adaptive Radial Projection) and crop of uniform backing bands / paper-edge shadow; gentle cleanup (paper whitening, contrast, despeckle) and blank-page removal (only marks with a dark core count as content: show-through from the other side, fold creases, punch holes, edge marks and dust do not). Every step and its parameters are configurable under Settings → System and can be overridden once per reprocess. The result is stored encrypted as the *enhanced* intake copy; the original stays untouched. OCR, Docling, the VLM, the thumbnail and the page count use the enhanced version, which becomes the archive. If nothing changed, the original is used.
@@ -54,6 +55,27 @@ Stages 2–3 (*intake*) run in an `intake_document` job and take seconds; afterw
 Each stage is idempotent; `processing_stage` records where to resume. Failures retry with exponential backoff; permanent failures (invalid PDF) are shown in the UI. If Proton Drive needs a new login, storage jobs are deferred without consuming retries. A background heartbeat renews every active job lease throughout long OCR/model inference, so slow Docling work is not mistaken for a crashed worker. The worker runs up to the live concurrency limit from Settings; the bottom-left queue popup shows waiting, active and recent jobs with elapsed time. Finished queue history is operational data and expires after 24 hours by default.
 
 The worker also backs up the database once a day: a `backup_database` job runs `pg_dump` and uploads the dump to `<root>/backups/` in the storage backend, keeping the newest 14 (`apps/storage/backup.py`, see [operations.md](operations.md#automatic-database-backups)).
+
+## Filing suggestions
+
+On request only: the user selects documents (the Filing page can select every document lying directly in a folder, across pages) and chooses *Suggest filing*. A `suggest_filing` job (its own lane, so it never waits behind processing) computes a proposal (`apps/taxonomy/filing.py`); the dialog polls it and shows one card per target folder.
+
+- **Rule:** a document only ever moves deeper below its own folder; an unfiled document may go anywhere.
+- **Grouping:** same series → same sender and type, split by the first title word (“Verdienstabrechnung …” vs “Lohnsteuerbescheinigung …”) → same sender → same first title word.
+- **What a folder means:** every folder gets a profile from the documents in it and its subfolders (series, senders, types, frequent title words) plus its own name. A group goes into the best matching subfolder and further down while a deeper one matches as well.
+- **New folders:** groups that fit nowhere get a new subfolder (at least two documents). With an AI model chosen, one short request per folder names them — it sees the existing subfolder names and a few titles per group, may still choose an existing subfolder, and gives groups that belong together the same name, which merges them. Without a model (or when it fails) the name is the titles' common first word.
+- **Years:** where the target already has year subfolders, or a new folder gets recurring documents (monthly series, titles naming a month) or documents from several years, they go into one subfolder per document year.
+
+The proposal stores only document UUIDs and folder names (titles stay encrypted on the documents) and expires after a day. Applying it creates the folders and moves the documents as user decisions; the server enforces the downward-only rule again.
+
+## Email inbox
+
+Under Settings → Email the user connects an IMAP mailbox meant only for DocNest (SSL/TLS or STARTTLS; certificate checks can be switched off for a local bridge such as Proton Mail Bridge; the password is encrypted at rest; saving asks for the account password again). The worker queues a `fetch_mail` job at the configured interval (`apps/mail/inbox.py`):
+
+- Only mail whose `From` address — or its `@domain` — is on the **allowlist** is imported; with an empty list nothing is. Other mail stays in the mailbox untouched and is counted as ignored.
+- The email is rendered as a PDF (headers, list of attachments, text; HTML is reduced to text, never rendered) and becomes a document; every attached PDF or picture (pictures under 400 px are logos and are skipped) becomes a document of its own. They go through the normal intake and processing, are never filed into a folder, and are linked to the stored email (subject, sender and text encrypted), which the document page shows.
+- The AI model reads each attachment together with the email's subject and text (including the forwarded headers), so it can tell the original sender from the person who forwarded it.
+- Imported messages are deleted from the mailbox. An HMAC of the Message-ID prevents a second import if the deletion failed; an interrupted import resumes, the files already taken in being recognised as duplicates.
 
 ## Paper originals
 

@@ -23,6 +23,7 @@ from django.utils import timezone
 from apps.analysis import ai, classifier
 from apps.documents.intake import ensure_dirs
 from apps.documents.models import Document
+from apps.mail import inbox
 from apps.processing import pipeline, queue
 from apps.processing.models import Job, SystemState, WorkerHeartbeat
 from apps.processing.preferences import (
@@ -39,12 +40,16 @@ HEALTHCHECK_INTERVAL = 600
 TRAIN_INTERVAL = 120
 CLEANUP_INTERVAL = 3600
 HEARTBEAT_INTERVAL = 30
+MAIL_CHECK_INTERVAL = 30  # how often to look whether the email inbox is due (its own interval: Settings)
 # Each lane has its own slots. Processing is limited to the configured number of documents;
 # intake (seconds per scan) has a small lane of its own, so new scans are taken in meanwhile.
 LANES: dict[str, list[str]] = {
     "intake": [Job.Kind.INTAKE_DOCUMENT, Job.Kind.REINDEX_DOCUMENT],
     "process": [Job.Kind.PROCESS_DOCUMENT],
     "download": [Job.Kind.PULL_MODEL],
+    # Short jobs the user waits for or that bring in new documents: never behind a batch.
+    "assist": [Job.Kind.SUGGEST_FILING],
+    "mail": [Job.Kind.FETCH_MAIL],
 }
 INTAKE_SLOTS = 1
 LANE_OF = {kind: lane for lane, kinds in LANES.items() for kind in kinds}
@@ -60,6 +65,7 @@ class Worker:
         self._last_train = 0.0
         self._last_heartbeat = 0.0
         self._last_cleanup = 0.0
+        self._last_mail = 0.0
         self._listen_conn: psycopg.Connection | None = None
 
     # -- lifecycle
@@ -175,6 +181,12 @@ class Worker:
                     pipeline.reindex(Document.objects.get(pk=job.document_id or 0))
                 elif job.kind == Job.Kind.BACKUP_DATABASE:
                     self.backup_database()
+                elif job.kind == Job.Kind.SUGGEST_FILING:
+                    from apps.taxonomy import filing
+
+                    filing.run_proposal(int(job.payload.get("proposal", 0)))
+                elif job.kind == Job.Kind.FETCH_MAIL:
+                    inbox.fetch()
                 else:
                     raise pipeline.PermanentError(f"unknown job kind {job.kind}")
         except pipeline.StorageUnavailable as exc:
@@ -302,6 +314,10 @@ class Worker:
             self.check_storage()
             if backup.is_due():
                 backup.schedule()
+        if now - self._last_mail > MAIL_CHECK_INTERVAL:
+            self._last_mail = now
+            if inbox.is_due():
+                inbox.schedule()
         if now - self._last_cleanup > CLEANUP_INTERVAL:
             self._last_cleanup = now
             self.cleanup()
@@ -313,16 +329,18 @@ class Worker:
                 queue.enqueue(Job.Kind.TRAIN_CLASSIFIER)
 
     def cleanup(self) -> None:
-        """Retention: old audit entries, expired login throttles, finished jobs, stale scan sessions."""
+        """Retention: audit entries, login throttles, finished jobs, stale scan sessions, filing proposals."""
         from apps.accounts.models import LoginThrottle
         from apps.audit.models import AuditLog
         from apps.scanners import sessions
+        from apps.taxonomy.models import FilingProposal
 
         sessions.cleanup()
 
         now = timezone.now()
         AuditLog.objects.filter(created_at__lt=now - timedelta(days=settings.AUDIT_RETENTION_DAYS)).delete()
         LoginThrottle.objects.filter(window_started_at__lt=now - timedelta(days=1)).delete()
+        FilingProposal.objects.filter(created_at__lt=now - timedelta(days=1)).delete()
         history_cutoff = now - timedelta(hours=settings.JOB_HISTORY_HOURS)
         Job.objects.filter(
             state__in=[Job.State.DONE, Job.State.FAILED],

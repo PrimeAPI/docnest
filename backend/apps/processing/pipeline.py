@@ -45,6 +45,7 @@ from apps.documents.intake import (
     remove_parts,
 )
 from apps.documents.models import Document, ProcessingEvent
+from apps.mail import inbox
 from apps.processing import assemble, docling_backend, pdf, queue
 from apps.processing.enhance_settings import EnhanceSettings
 from apps.processing.models import Job, SystemState
@@ -448,7 +449,9 @@ def _model_fields(document: Document, work: Path, text: str) -> tuple[ai.ModelFi
     )
     started = time.monotonic()
     try:
-        fields = ai.analyze(model, images=images, text=text, types=types, tags=tags)
+        fields = ai.analyze(
+            model, images=images, text=text, types=types, tags=tags, context=_mail_context(document)
+        )
     except ai.ModelUnavailable as exc:
         raise AnalysisModelUnavailable(str(exc)) from exc
     except ai.ModelFailed as exc:
@@ -470,6 +473,14 @@ def _model_fields(document: Document, work: Path, text: str) -> tuple[ai.ModelFi
         message=f"Read by the AI model {model} in {seconds:.0f} s",
     )
     return fields, {"by": "ai", "model": model}
+
+
+def _mail_context(document: Document) -> str:
+    """The email an attachment arrived with; the email document itself needs no reminder of it."""
+    mail = inbox.document_mail(document)
+    if mail is None or mail.email_document_id == document.pk:
+        return ""
+    return inbox.context_text(mail)
 
 
 def stage_store(document: Document, work: Path) -> None:

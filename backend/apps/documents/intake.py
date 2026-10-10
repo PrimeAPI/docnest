@@ -64,6 +64,7 @@ class IntakeRequest:
     tags: list[str] = field(default_factory=list)
     metadata: dict[str, object] = field(default_factory=dict)
     filename: str = ""
+    mail_id: int | None = None  # the email the file arrived with
 
 
 @dataclass
@@ -326,6 +327,7 @@ def register(
         is_important=req.important,
         ocr_backend=get_default_ocr_backend(),
         received_from=scanner,  # type: ignore[misc]
+        mail_id=req.mail_id,
         has_paper=scanner is not None,  # scanned = there is a sheet of paper; web uploads are often digital
         scanner_metadata_enc=encrypt_bytes(metadata_json.encode()) if req.metadata else None,
         original_filename_enc=encrypt_text(req.filename[:200]) if req.filename else None,

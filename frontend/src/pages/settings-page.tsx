@@ -9,6 +9,7 @@ import {
   DatabaseBackup,
   HardDrive,
   KeyRound,
+  Mail,
   Monitor,
   Plus,
   RotateCw,
@@ -36,6 +37,7 @@ import { Input, Label, Select } from "@/components/ui/input";
 import { EmptyState, ErrorNote, PageHeader, Spinner } from "@/components/ui/misc";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { KeyEnroll, RecoveryCodes, TotpEnroll } from "@/features/auth/enroll";
+import { MailInboxCard } from "@/features/mail/mail-inbox";
 import { AiModelCard, ReprocessAllCard } from "@/features/processing/ai-model";
 import { EnhancementCard } from "@/features/processing/enhancement";
 import { StatsPanel } from "@/features/stats/stats-panel";
@@ -64,6 +66,9 @@ export function SettingsPage() {
           <TabsTrigger value="scanners">
             <ScanLine /> Scanners
           </TabsTrigger>
+          <TabsTrigger value="email">
+            <Mail /> Email
+          </TabsTrigger>
         </TabsList>
         <TabsContent value="stats">
           <StatsPanel />
@@ -87,6 +92,9 @@ export function SettingsPage() {
         </TabsContent>
         <TabsContent value="scanners">
           <Scanners />
+        </TabsContent>
+        <TabsContent value="email">
+          <MailInboxCard />
         </TabsContent>
       </Tabs>
     </>

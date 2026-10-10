@@ -15,8 +15,19 @@ from apps.analysis.series import refresh_series
 from apps.audit.service import audit
 from apps.documents import crypto_fields
 from apps.documents.models import Document
-from apps.processing.models import SystemState
-from apps.taxonomy.models import Correspondent, DocumentType, Folder, MatchRule, Series, Tag, TagAlias
+from apps.processing import queue
+from apps.processing.models import Job, SystemState
+from apps.taxonomy import filing
+from apps.taxonomy.models import (
+    Correspondent,
+    DocumentType,
+    FilingProposal,
+    Folder,
+    MatchRule,
+    Series,
+    Tag,
+    TagAlias,
+)
 from apps.taxonomy.services import folder_paths, folder_subtree, merge_tags, normalize_label
 
 router = Router(tags=["taxonomy"])
@@ -236,6 +247,137 @@ def delete_folder(request: HttpRequest, folder_id: int) -> dict[str, bool]:
     f.delete()  # subfolders cascade; trashed documents become unfiled
     audit("folder.deleted", request=request, target=f.name)
     return {"ok": True}
+
+
+# --- Filing suggestions ----------------------------------------------------------
+
+
+class FilingSuggestIn(Schema):
+    ids: list[UUID]
+
+
+class FilingDocOut(Schema):
+    id: UUID
+    title: str
+    document_date: date | None
+    correspondent: str | None
+    document_type: str | None
+    folder_path: str  # where it lies now ("" = unfiled)
+
+
+class FilingGroupOut(Schema):
+    anchor_id: int | None  # deepest existing folder of the target; null = top level
+    anchor_path: str
+    new: list[str]  # folders to create below the anchor
+    reason: str
+    documents: list[FilingDocOut]
+
+
+class FilingProposalOut(Schema):
+    id: int
+    state: str
+    error: str
+    note: str
+    named_by: str
+    groups: list[FilingGroupOut]
+    unassigned: list[FilingDocOut]
+
+
+class FilingMoveIn(Schema):
+    ids: list[UUID]
+    anchor_id: int | None = None
+    new: list[str] = []
+
+
+class FilingApplyIn(Schema):
+    moves: list[FilingMoveIn]
+
+
+class FilingApplyOut(Schema):
+    moved: int
+    created: int
+
+
+def _proposal_out(proposal: FilingProposal) -> FilingProposalOut:
+    result = proposal.result or {}
+    wanted = [*(u for g in result.get("groups", []) for u in g["documents"]), *result.get("unassigned", [])]
+    docs = {
+        str(d.uuid): d
+        for d in Document.objects.filter(uuid__in=wanted, deleted_at__isnull=True).select_related(
+            "correspondent", "document_type"
+        )
+    }
+    paths = folder_paths()
+
+    def out(uuids: list[str]) -> list[FilingDocOut]:
+        return [
+            FilingDocOut(
+                id=d.uuid,
+                title=crypto_fields.get_title(d) or "Processing…",
+                document_date=d.document_date,
+                correspondent=d.correspondent.name if d.correspondent else None,
+                document_type=d.document_type.name if d.document_type else None,
+                folder_path=paths.get(d.folder_id, "") if d.folder_id else "",
+            )
+            for u in uuids
+            if (d := docs.get(u)) is not None
+        ]
+
+    groups = []
+    for g in result.get("groups", []):
+        anchor = g.get("anchor_id")
+        if anchor is not None and anchor not in paths:
+            continue  # the folder was deleted meanwhile
+        documents = out(g["documents"])
+        if documents:
+            groups.append(
+                FilingGroupOut(
+                    anchor_id=anchor,
+                    anchor_path=paths.get(anchor, "") if anchor is not None else "",
+                    new=g.get("new", []),
+                    reason=g.get("reason", ""),
+                    documents=documents,
+                )
+            )
+    return FilingProposalOut(
+        id=proposal.pk,
+        state=proposal.state,
+        error=proposal.error,
+        note=result.get("note", ""),
+        named_by=result.get("named_by", ""),
+        groups=groups,
+        unassigned=out(result.get("unassigned", [])),
+    )
+
+
+@router.post("/filing/suggestions", response=FilingProposalOut)
+def suggest_filing(request: HttpRequest, data: FilingSuggestIn) -> FilingProposalOut:
+    """Start grouping the selected documents into subfolders; poll the result."""
+    ids = [str(i) for i in data.ids[: filing.MAX_DOCUMENTS]]
+    if not ids:
+        raise HttpError(400, "Select documents first")
+    proposal = FilingProposal.objects.create(documents=ids)
+    queue.enqueue(Job.Kind.SUGGEST_FILING, payload={"proposal": proposal.pk}, priority=10)
+    return _proposal_out(proposal)
+
+
+@router.get("/filing/suggestions/{proposal_id}", response=FilingProposalOut)
+def get_filing_suggestion(request: HttpRequest, proposal_id: int) -> FilingProposalOut:
+    proposal = FilingProposal.objects.filter(pk=proposal_id).first()
+    if proposal is None:
+        raise HttpError(404, "Not found")
+    return _proposal_out(proposal)
+
+
+@router.post("/filing/apply", response=FilingApplyOut)
+def apply_filing(request: HttpRequest, data: FilingApplyIn) -> dict[str, int]:
+    moves = [filing.Move([str(i) for i in m.ids], m.anchor_id, m.new) for m in data.moves[:200]]
+    try:
+        moved, created = filing.apply(moves)
+    except filing.ApplyError as exc:
+        raise HttpError(400, str(exc)) from exc
+    audit("filing.applied", request=request, count=moved, folders_created=created)
+    return {"moved": moved, "created": created}
 
 
 # --- Document types ---------------------------------------------------------------

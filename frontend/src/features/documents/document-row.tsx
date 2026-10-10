@@ -22,6 +22,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown";
+import { SuggestFilingButton } from "@/features/folders/filing-suggestions";
 import { MoveButton, MoveToFolderDialog } from "@/features/folders/folder-ui";
 import { dragDocuments } from "@/features/folders/tree";
 import { ReprocessDialog } from "@/features/processing/reprocess-dialog";
@@ -232,6 +233,7 @@ export function BulkBar({ ids, onClear }: { ids: string[]; onClear: () => void }
           <Star /> Important
         </Button>
         <MoveButton ids={ids} onMoved={onClear} />
+        <SuggestFilingButton ids={ids} onDone={onClear} />
         <Button size="sm" variant="outline" onClick={() => setReprocessOpen(true)}>
           <RefreshCw /> Reprocess…
         </Button>

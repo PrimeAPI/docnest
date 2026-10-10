@@ -1346,6 +1346,330 @@
     ]
    }
   },
+  "/api/v1/documents/ids": {
+   "get": {
+    "operationId": "apps_documents_api_document_ids",
+    "summary": "Document Ids",
+    "parameters": [
+     {
+      "in": "query",
+      "name": "q",
+      "schema": {
+       "default": "",
+       "title": "Q",
+       "type": "string"
+      },
+      "required": false
+     },
+     {
+      "in": "query",
+      "name": "folder",
+      "schema": {
+       "items": {
+        "type": "integer"
+       },
+       "title": "Folder",
+       "type": "array"
+      },
+      "required": false
+     },
+     {
+      "in": "query",
+      "name": "subfolders",
+      "schema": {
+       "default": false,
+       "title": "Subfolders",
+       "type": "boolean"
+      },
+      "required": false
+     },
+     {
+      "in": "query",
+      "name": "unfiled",
+      "schema": {
+       "default": false,
+       "title": "Unfiled",
+       "type": "boolean"
+      },
+      "required": false
+     },
+     {
+      "in": "query",
+      "name": "document_type",
+      "schema": {
+       "items": {
+        "type": "integer"
+       },
+       "title": "Document Type",
+       "type": "array"
+      },
+      "required": false
+     },
+     {
+      "in": "query",
+      "name": "correspondent",
+      "schema": {
+       "items": {
+        "type": "integer"
+       },
+       "title": "Correspondent",
+       "type": "array"
+      },
+      "required": false
+     },
+     {
+      "in": "query",
+      "name": "tag",
+      "schema": {
+       "items": {
+        "type": "integer"
+       },
+       "title": "Tag",
+       "type": "array"
+      },
+      "required": false
+     },
+     {
+      "in": "query",
+      "name": "series",
+      "schema": {
+       "anyOf": [
+        {
+         "type": "integer"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "title": "Series"
+      },
+      "required": false
+     },
+     {
+      "in": "query",
+      "name": "status",
+      "schema": {
+       "items": {
+        "enum": [
+         "new",
+         "todo",
+         "done"
+        ],
+        "type": "string"
+       },
+       "title": "Status",
+       "type": "array"
+      },
+      "required": false
+     },
+     {
+      "in": "query",
+      "name": "important",
+      "schema": {
+       "anyOf": [
+        {
+         "type": "boolean"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "title": "Important"
+      },
+      "required": false
+     },
+     {
+      "in": "query",
+      "name": "unread",
+      "schema": {
+       "anyOf": [
+        {
+         "type": "boolean"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "title": "Unread"
+      },
+      "required": false
+     },
+     {
+      "in": "query",
+      "name": "processing",
+      "schema": {
+       "items": {
+        "enum": [
+         "pending",
+         "running",
+         "done",
+         "failed"
+        ],
+        "type": "string"
+       },
+       "title": "Processing",
+       "type": "array"
+      },
+      "required": false
+     },
+     {
+      "in": "query",
+      "name": "uploaded_from",
+      "schema": {
+       "anyOf": [
+        {
+         "format": "date",
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "title": "Uploaded From"
+      },
+      "required": false
+     },
+     {
+      "in": "query",
+      "name": "uploaded_to",
+      "schema": {
+       "anyOf": [
+        {
+         "format": "date",
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "title": "Uploaded To"
+      },
+      "required": false
+     },
+     {
+      "in": "query",
+      "name": "date_from",
+      "schema": {
+       "anyOf": [
+        {
+         "format": "date",
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "title": "Date From"
+      },
+      "required": false
+     },
+     {
+      "in": "query",
+      "name": "date_to",
+      "schema": {
+       "anyOf": [
+        {
+         "format": "date",
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "title": "Date To"
+      },
+      "required": false
+     },
+     {
+      "in": "query",
+      "name": "paper_location",
+      "schema": {
+       "anyOf": [
+        {
+         "type": "integer"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "title": "Paper Location"
+      },
+      "required": false
+     },
+     {
+      "in": "query",
+      "name": "paper_pending",
+      "schema": {
+       "default": false,
+       "title": "Paper Pending",
+       "type": "boolean"
+      },
+      "required": false
+     },
+     {
+      "in": "query",
+      "name": "sort",
+      "schema": {
+       "default": "relevance",
+       "enum": [
+        "relevance",
+        "uploaded",
+        "-uploaded",
+        "date",
+        "-date"
+       ],
+       "title": "Sort",
+       "type": "string"
+      },
+      "required": false
+     },
+     {
+      "in": "query",
+      "name": "page",
+      "schema": {
+       "default": 1,
+       "minimum": 1,
+       "title": "Page",
+       "type": "integer"
+      },
+      "required": false
+     },
+     {
+      "in": "query",
+      "name": "page_size",
+      "schema": {
+       "default": 25,
+       "maximum": 100,
+       "minimum": 1,
+       "title": "Page Size",
+       "type": "integer"
+      },
+      "required": false
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "OK",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/DocumentIds"
+        }
+       }
+      }
+     }
+    },
+    "description": "Every matching document, for \"select all\" across pages (filters only, no text search).",
+    "tags": [
+     "documents"
+    ],
+    "security": [
+     {
+      "MfaSessionAuth": []
+     }
+    ]
+   }
+  },
   "/api/v1/documents/upload": {
    "post": {
     "operationId": "apps_documents_api_web_upload",
@@ -1994,6 +2318,118 @@
     "tags": [
      "taxonomy"
     ],
+    "security": [
+     {
+      "MfaSessionAuth": []
+     }
+    ]
+   }
+  },
+  "/api/v1/filing/suggestions": {
+   "post": {
+    "operationId": "apps_taxonomy_api_suggest_filing",
+    "summary": "Suggest Filing",
+    "parameters": [],
+    "responses": {
+     "200": {
+      "description": "OK",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/FilingProposalOut"
+        }
+       }
+      }
+     }
+    },
+    "description": "Start grouping the selected documents into subfolders; poll the result.",
+    "tags": [
+     "taxonomy"
+    ],
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/FilingSuggestIn"
+       }
+      }
+     },
+     "required": true
+    },
+    "security": [
+     {
+      "MfaSessionAuth": []
+     }
+    ]
+   }
+  },
+  "/api/v1/filing/suggestions/{proposal_id}": {
+   "get": {
+    "operationId": "apps_taxonomy_api_get_filing_suggestion",
+    "summary": "Get Filing Suggestion",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "proposal_id",
+      "schema": {
+       "title": "Proposal Id",
+       "type": "integer"
+      },
+      "required": true
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "OK",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/FilingProposalOut"
+        }
+       }
+      }
+     }
+    },
+    "tags": [
+     "taxonomy"
+    ],
+    "security": [
+     {
+      "MfaSessionAuth": []
+     }
+    ]
+   }
+  },
+  "/api/v1/filing/apply": {
+   "post": {
+    "operationId": "apps_taxonomy_api_apply_filing",
+    "summary": "Apply Filing",
+    "parameters": [],
+    "responses": {
+     "200": {
+      "description": "OK",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/FilingApplyOut"
+        }
+       }
+      }
+     }
+    },
+    "tags": [
+     "taxonomy"
+    ],
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/FilingApplyIn"
+       }
+      }
+     },
+     "required": true
+    },
     "security": [
      {
       "MfaSessionAuth": []
@@ -3205,6 +3641,134 @@
     },
     "tags": [
      "scanners"
+    ],
+    "security": [
+     {
+      "MfaSessionAuth": []
+     }
+    ]
+   }
+  },
+  "/api/v1/mail/settings": {
+   "get": {
+    "operationId": "apps_mail_api_get_settings",
+    "summary": "Get Settings",
+    "parameters": [],
+    "responses": {
+     "200": {
+      "description": "OK",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/MailSettingsOut"
+        }
+       }
+      }
+     }
+    },
+    "tags": [
+     "mail"
+    ],
+    "security": [
+     {
+      "MfaSessionAuth": []
+     }
+    ]
+   },
+   "put": {
+    "operationId": "apps_mail_api_put_settings",
+    "summary": "Put Settings",
+    "parameters": [],
+    "responses": {
+     "200": {
+      "description": "OK",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/MailSettingsOut"
+        }
+       }
+      }
+     }
+    },
+    "description": "Save the inbox. It brings documents in, so it asks for the password again like other credentials.",
+    "tags": [
+     "mail"
+    ],
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/MailSettingsIn"
+       }
+      }
+     },
+     "required": true
+    },
+    "security": [
+     {
+      "MfaSessionAuth": []
+     }
+    ]
+   }
+  },
+  "/api/v1/mail/test": {
+   "post": {
+    "operationId": "apps_mail_api_test_connection",
+    "summary": "Test Connection",
+    "parameters": [],
+    "responses": {
+     "200": {
+      "description": "OK",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/MailTestOut"
+        }
+       }
+      }
+     }
+    },
+    "description": "Try the given settings (the saved password if none is given) without saving them.",
+    "tags": [
+     "mail"
+    ],
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/MailSettingsIn"
+       }
+      }
+     },
+     "required": true
+    },
+    "security": [
+     {
+      "MfaSessionAuth": []
+     }
+    ]
+   }
+  },
+  "/api/v1/mail/check": {
+   "post": {
+    "operationId": "apps_mail_api_check_now",
+    "summary": "Check Now",
+    "parameters": [],
+    "responses": {
+     "200": {
+      "description": "OK",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/MailSettingsOut"
+        }
+       }
+      }
+     }
+    },
+    "tags": [
+     "mail"
     ],
     "security": [
      {
@@ -5437,6 +6001,28 @@
     "title": "TagRefOut",
     "type": "object"
    },
+   "DocumentIds": {
+    "properties": {
+     "ids": {
+      "items": {
+       "format": "uuid",
+       "type": "string"
+      },
+      "title": "Ids",
+      "type": "array"
+     },
+     "total": {
+      "title": "Total",
+      "type": "integer"
+     }
+    },
+    "required": [
+     "ids",
+     "total"
+    ],
+    "title": "DocumentIds",
+    "type": "object"
+   },
    "WebUploadOut": {
     "properties": {
      "id": {
@@ -5802,6 +6388,16 @@
      "paper": {
       "$ref": "#/components/schemas/PaperOut"
      },
+     "mail": {
+      "anyOf": [
+       {
+        "$ref": "#/components/schemas/MailOut"
+       },
+       {
+        "type": "null"
+       }
+      ]
+     },
      "events": {
       "items": {
        "$ref": "#/components/schemas/EventOut"
@@ -5842,6 +6438,7 @@
      "enhanced",
      "enhancement",
      "paper",
+     "mail",
      "events"
     ],
     "title": "DocumentDetail",
@@ -5879,6 +6476,75 @@
      "created_at"
     ],
     "title": "EventOut",
+    "type": "object"
+   },
+   "MailDocOut": {
+    "properties": {
+     "id": {
+      "format": "uuid",
+      "title": "Id",
+      "type": "string"
+     },
+     "title": {
+      "title": "Title",
+      "type": "string"
+     },
+     "is_email": {
+      "title": "Is Email",
+      "type": "boolean"
+     }
+    },
+    "required": [
+     "id",
+     "title",
+     "is_email"
+    ],
+    "title": "MailDocOut",
+    "type": "object"
+   },
+   "MailOut": {
+    "properties": {
+     "subject": {
+      "title": "Subject",
+      "type": "string"
+     },
+     "sender": {
+      "title": "Sender",
+      "type": "string"
+     },
+     "sent_at": {
+      "anyOf": [
+       {
+        "format": "date-time",
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Sent At"
+     },
+     "received_at": {
+      "format": "date-time",
+      "title": "Received At",
+      "type": "string"
+     },
+     "documents": {
+      "items": {
+       "$ref": "#/components/schemas/MailDocOut"
+      },
+      "title": "Documents",
+      "type": "array"
+     }
+    },
+    "required": [
+     "subject",
+     "sender",
+     "sent_at",
+     "received_at",
+     "documents"
+    ],
+    "title": "MailOut",
     "type": "object"
    },
    "NeighbourOut": {
@@ -6396,6 +7062,249 @@
      }
     },
     "title": "FolderPatch",
+    "type": "object"
+   },
+   "FilingDocOut": {
+    "properties": {
+     "id": {
+      "format": "uuid",
+      "title": "Id",
+      "type": "string"
+     },
+     "title": {
+      "title": "Title",
+      "type": "string"
+     },
+     "document_date": {
+      "anyOf": [
+       {
+        "format": "date",
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Document Date"
+     },
+     "correspondent": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Correspondent"
+     },
+     "document_type": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Document Type"
+     },
+     "folder_path": {
+      "title": "Folder Path",
+      "type": "string"
+     }
+    },
+    "required": [
+     "id",
+     "title",
+     "document_date",
+     "correspondent",
+     "document_type",
+     "folder_path"
+    ],
+    "title": "FilingDocOut",
+    "type": "object"
+   },
+   "FilingGroupOut": {
+    "properties": {
+     "anchor_id": {
+      "anyOf": [
+       {
+        "type": "integer"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Anchor Id"
+     },
+     "anchor_path": {
+      "title": "Anchor Path",
+      "type": "string"
+     },
+     "new": {
+      "items": {
+       "type": "string"
+      },
+      "title": "New",
+      "type": "array"
+     },
+     "reason": {
+      "title": "Reason",
+      "type": "string"
+     },
+     "documents": {
+      "items": {
+       "$ref": "#/components/schemas/FilingDocOut"
+      },
+      "title": "Documents",
+      "type": "array"
+     }
+    },
+    "required": [
+     "anchor_id",
+     "anchor_path",
+     "new",
+     "reason",
+     "documents"
+    ],
+    "title": "FilingGroupOut",
+    "type": "object"
+   },
+   "FilingProposalOut": {
+    "properties": {
+     "id": {
+      "title": "Id",
+      "type": "integer"
+     },
+     "state": {
+      "title": "State",
+      "type": "string"
+     },
+     "error": {
+      "title": "Error",
+      "type": "string"
+     },
+     "note": {
+      "title": "Note",
+      "type": "string"
+     },
+     "named_by": {
+      "title": "Named By",
+      "type": "string"
+     },
+     "groups": {
+      "items": {
+       "$ref": "#/components/schemas/FilingGroupOut"
+      },
+      "title": "Groups",
+      "type": "array"
+     },
+     "unassigned": {
+      "items": {
+       "$ref": "#/components/schemas/FilingDocOut"
+      },
+      "title": "Unassigned",
+      "type": "array"
+     }
+    },
+    "required": [
+     "id",
+     "state",
+     "error",
+     "note",
+     "named_by",
+     "groups",
+     "unassigned"
+    ],
+    "title": "FilingProposalOut",
+    "type": "object"
+   },
+   "FilingSuggestIn": {
+    "properties": {
+     "ids": {
+      "items": {
+       "format": "uuid",
+       "type": "string"
+      },
+      "title": "Ids",
+      "type": "array"
+     }
+    },
+    "required": [
+     "ids"
+    ],
+    "title": "FilingSuggestIn",
+    "type": "object"
+   },
+   "FilingApplyOut": {
+    "properties": {
+     "moved": {
+      "title": "Moved",
+      "type": "integer"
+     },
+     "created": {
+      "title": "Created",
+      "type": "integer"
+     }
+    },
+    "required": [
+     "moved",
+     "created"
+    ],
+    "title": "FilingApplyOut",
+    "type": "object"
+   },
+   "FilingApplyIn": {
+    "properties": {
+     "moves": {
+      "items": {
+       "$ref": "#/components/schemas/FilingMoveIn"
+      },
+      "title": "Moves",
+      "type": "array"
+     }
+    },
+    "required": [
+     "moves"
+    ],
+    "title": "FilingApplyIn",
+    "type": "object"
+   },
+   "FilingMoveIn": {
+    "properties": {
+     "ids": {
+      "items": {
+       "format": "uuid",
+       "type": "string"
+      },
+      "title": "Ids",
+      "type": "array"
+     },
+     "anchor_id": {
+      "anyOf": [
+       {
+        "type": "integer"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Anchor Id"
+     },
+     "new": {
+      "default": [],
+      "items": {
+       "type": "string"
+      },
+      "title": "New",
+      "type": "array"
+     }
+    },
+    "required": [
+     "ids"
+    ],
+    "title": "FilingMoveIn",
     "type": "object"
    },
    "TypeOut": {
@@ -7491,6 +8400,236 @@
      "name"
     ],
     "title": "ScannerIn",
+    "type": "object"
+   },
+   "MailSettingsOut": {
+    "properties": {
+     "enabled": {
+      "title": "Enabled",
+      "type": "boolean"
+     },
+     "host": {
+      "title": "Host",
+      "type": "string"
+     },
+     "port": {
+      "title": "Port",
+      "type": "integer"
+     },
+     "security": {
+      "enum": [
+       "ssl",
+       "starttls"
+      ],
+      "title": "Security",
+      "type": "string"
+     },
+     "verify_tls": {
+      "title": "Verify Tls",
+      "type": "boolean"
+     },
+     "username": {
+      "title": "Username",
+      "type": "string"
+     },
+     "has_password": {
+      "title": "Has Password",
+      "type": "boolean"
+     },
+     "folder": {
+      "title": "Folder",
+      "type": "string"
+     },
+     "interval_minutes": {
+      "title": "Interval Minutes",
+      "type": "integer"
+     },
+     "allowed_senders": {
+      "items": {
+       "type": "string"
+      },
+      "title": "Allowed Senders",
+      "type": "array"
+     },
+     "status": {
+      "$ref": "#/components/schemas/MailStatusOut"
+     }
+    },
+    "required": [
+     "enabled",
+     "host",
+     "port",
+     "security",
+     "verify_tls",
+     "username",
+     "has_password",
+     "folder",
+     "interval_minutes",
+     "allowed_senders",
+     "status"
+    ],
+    "title": "MailSettingsOut",
+    "type": "object"
+   },
+   "MailStatusOut": {
+    "properties": {
+     "checked_at": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Checked At"
+     },
+     "ok": {
+      "anyOf": [
+       {
+        "type": "boolean"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Ok"
+     },
+     "message": {
+      "default": "",
+      "title": "Message",
+      "type": "string"
+     },
+     "ignored": {
+      "default": 0,
+      "title": "Ignored",
+      "type": "integer"
+     },
+     "imported_total": {
+      "default": 0,
+      "title": "Imported Total",
+      "type": "integer"
+     },
+     "last_import_at": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Last Import At"
+     },
+     "last_documents": {
+      "default": 0,
+      "title": "Last Documents",
+      "type": "integer"
+     }
+    },
+    "title": "MailStatusOut",
+    "type": "object"
+   },
+   "MailSettingsIn": {
+    "properties": {
+     "enabled": {
+      "title": "Enabled",
+      "type": "boolean"
+     },
+     "host": {
+      "default": "",
+      "maxLength": 253,
+      "title": "Host",
+      "type": "string"
+     },
+     "port": {
+      "default": 993,
+      "maximum": 65535,
+      "minimum": 1,
+      "title": "Port",
+      "type": "integer"
+     },
+     "security": {
+      "default": "ssl",
+      "enum": [
+       "ssl",
+       "starttls"
+      ],
+      "title": "Security",
+      "type": "string"
+     },
+     "verify_tls": {
+      "default": true,
+      "title": "Verify Tls",
+      "type": "boolean"
+     },
+     "username": {
+      "default": "",
+      "maxLength": 320,
+      "title": "Username",
+      "type": "string"
+     },
+     "password": {
+      "anyOf": [
+       {
+        "maxLength": 500,
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Password"
+     },
+     "folder": {
+      "default": "INBOX",
+      "maxLength": 200,
+      "title": "Folder",
+      "type": "string"
+     },
+     "interval_minutes": {
+      "default": 5,
+      "maximum": 1440,
+      "minimum": 1,
+      "title": "Interval Minutes",
+      "type": "integer"
+     },
+     "allowed_senders": {
+      "items": {
+       "type": "string"
+      },
+      "maxItems": 50,
+      "title": "Allowed Senders",
+      "type": "array"
+     }
+    },
+    "required": [
+     "enabled"
+    ],
+    "title": "MailSettingsIn",
+    "type": "object"
+   },
+   "MailTestOut": {
+    "properties": {
+     "ok": {
+      "title": "Ok",
+      "type": "boolean"
+     },
+     "message": {
+      "title": "Message",
+      "type": "string"
+     },
+     "waiting": {
+      "default": 0,
+      "title": "Waiting",
+      "type": "integer"
+     }
+    },
+    "required": [
+     "ok",
+     "message"
+    ],
+    "title": "MailTestOut",
     "type": "object"
    }
   },

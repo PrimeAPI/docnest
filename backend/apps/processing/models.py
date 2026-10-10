@@ -15,6 +15,8 @@ class Job(models.Model):
         TRAIN_CLASSIFIER = "train_classifier"
         REINDEX_DOCUMENT = "reindex_document"
         BACKUP_DATABASE = "backup_database"
+        SUGGEST_FILING = "suggest_filing"  # group selected documents into subfolders, on request
+        FETCH_MAIL = "fetch_mail"  # import attachments from the email inbox
 
     class State(models.TextChoices):
         QUEUED = "queued"

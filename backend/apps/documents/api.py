@@ -16,6 +16,7 @@ from ninja.files import UploadedFile
 
 from apps.analysis import ai
 from apps.audit.service import audit
+from apps.crypto.aead import decrypt_text
 from apps.documents import crypto_fields, files
 from apps.documents.intake import (
     IntakeError,
@@ -136,6 +137,20 @@ class PaperOut(Schema):
     position: PaperPositionOut | None
 
 
+class MailDocOut(Schema):
+    id: UUID
+    title: str
+    is_email: bool  # the email itself rather than an attachment
+
+
+class MailOut(Schema):
+    subject: str
+    sender: str
+    sent_at: datetime | None
+    received_at: datetime
+    documents: list[MailDocOut]  # everything that arrived with this email
+
+
 class DocumentDetail(DocumentListItem):
     series_suggestion: RefOut | None
     field_sources: dict[str, object]
@@ -151,6 +166,7 @@ class DocumentDetail(DocumentListItem):
     enhanced: bool  # the shown file differs from the original
     enhancement: dict[str, object]  # settings used and what was changed
     paper: PaperOut
+    mail: MailOut | None
     events: list[EventOut]
 
 
@@ -341,7 +357,13 @@ def to_detail(document: Document) -> DocumentDetail:
         extracted=crypto_fields.get_extracted(document),
         scanner_metadata=crypto_fields.get_scanner_metadata(document),
         original_filename=crypto_fields.get_original_filename(document),
-        received_from=document.received_from.name if document.received_from else "Web upload",
+        received_from=(
+            document.received_from.name
+            if document.received_from
+            else "Email"
+            if document.mail_id
+            else "Web upload"
+        ),
         size=document.size,
         processing_stage=document.processing_stage,
         ocr_backend=document.ocr_backend or get_default_ocr_backend(),
@@ -350,6 +372,7 @@ def to_detail(document: Document) -> DocumentDetail:
         enhanced=_is_enhanced(document),
         enhancement={k: v for k, v in document.enhancement.items() if k in ("settings", "summary")},
         paper=_paper(document),
+        mail=_mail(document),
         events=[
             EventOut(
                 stage=e.stage,
@@ -359,6 +382,27 @@ def to_detail(document: Document) -> DocumentDetail:
                 created_at=e.created_at,
             )
             for e in events
+        ],
+    )
+
+
+def _mail(document: Document) -> MailOut | None:
+    mail = document.mail
+    if mail is None:
+        return None
+    siblings = Document.objects.filter(mail=mail, deleted_at__isnull=True).order_by("pk")
+    return MailOut(
+        subject=decrypt_text(mail.subject_enc),
+        sender=decrypt_text(mail.sender_enc),
+        sent_at=mail.sent_at,
+        received_at=mail.received_at,
+        documents=[
+            MailDocOut(
+                id=d.uuid,
+                title=crypto_fields.get_title(d) or crypto_fields.get_original_filename(d) or "Processing…",
+                is_email=d.pk == mail.email_document_id,
+            )
+            for d in siblings
         ],
     )
 
@@ -483,6 +527,23 @@ def list_documents(request: HttpRequest, filters: Query[DocumentFilters]) -> Doc
     )
 
 
+MAX_SELECTION = 500  # as many as one bulk action takes
+
+
+class DocumentIds(Schema):
+    ids: list[UUID]
+    total: int  # all matching documents; at most MAX_SELECTION ids are returned
+
+
+@router.get("/ids", response=DocumentIds)
+def document_ids(request: HttpRequest, filters: Query[DocumentFilters]) -> DocumentIds:
+    """Every matching document, for "select all" across pages (filters only, no text search)."""
+    qs = apply_filters(Document.objects.filter(deleted_at__isnull=True), filters)
+    order = _SORTS.get(filters.sort, _SORTS["-uploaded"])
+    ids = list(qs.order_by(*order).values_list("uuid", flat=True)[:MAX_SELECTION])
+    return DocumentIds(ids=ids, total=qs.count())
+
+
 class WebUploadOut(Schema):
     id: UUID
     duplicate: bool
@@ -542,7 +603,7 @@ def reprocess_all(request: HttpRequest, data: ReprocessIn) -> dict[str, int]:
 
 @router.post("/bulk", response=BulkOut)
 def bulk_update(request: HttpRequest, data: BulkAction) -> dict[str, int]:
-    qs = Document.objects.filter(uuid__in=data.ids[:500], deleted_at__isnull=True)
+    qs = Document.objects.filter(uuid__in=data.ids[:MAX_SELECTION], deleted_at__isnull=True)
     if data.action == "move":
         if data.folder_id is not None and not Folder.objects.filter(pk=data.folder_id).exists():
             raise HttpError(400, "Unknown folder")

@@ -841,6 +841,7 @@ dependencies = [
     { name = "psycopg", extra = ["binary"] },
     { name = "pyotp" },
     { name = "rapidfuzz" },
+    { name = "reportlab" },
     { name = "snowballstemmer" },
     { name = "supervisor" },
     { name = "torch", version = "2.14.1", source = { registry = "https://download.pytorch.org/whl/cpu" }, marker = "sys_platform == 'darwin'" },
@@ -859,7 +860,6 @@ dev = [
     { name = "pytest" },
     { name = "pytest-cov" },
     { name = "pytest-django" },
-    { name = "reportlab" },
     { name = "ruff" },
 ]
 
@@ -880,6 +880,7 @@ requires-dist = [
     { name = "psycopg", extras = ["binary"], specifier = ">=3.2,<4" },
     { name = "pyotp", specifier = ">=2.9" },
     { name = "rapidfuzz", specifier = ">=3.9" },
+    { name = "reportlab", specifier = ">=4.2" },
     { name = "snowballstemmer", specifier = ">=2.2" },
     { name = "supervisor", specifier = ">=4.2" },
     { name = "torch", specifier = ">=2.2.2,<3", index = "https://download.pytorch.org/whl/cpu" },
@@ -896,7 +897,6 @@ dev = [
     { name = "pytest", specifier = ">=8" },
     { name = "pytest-cov", specifier = ">=5" },
     { name = "pytest-django", specifier = ">=4.9" },
-    { name = "reportlab", specifier = ">=4.2" },
     { name = "ruff", specifier = ">=0.6" },
 ]
 

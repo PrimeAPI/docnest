@@ -77,6 +77,16 @@ If Ollama is unreachable or the chosen model is not installed, documents wait (s
 
 Document images and text go only to `DOCNEST_OLLAMA_URL` — by default the Ollama container on the same host, which publishes no ports. Pointing it at another machine sends document contents there over plain HTTP; only do that inside a network you trust.
 
+## Email inbox
+
+Forwarded emails can be imported: attachments become documents, the email itself is kept as a PDF.
+
+1. Create a mailbox (or an alias with its own IMAP login) that is used **only** by DocNest: imported emails are deleted from it.
+2. Under Settings → Email enter the IMAP server, port, encryption, user and password, and the addresses you forward from as *Allowed senders* (`me@example.org`, or `@example.org` for a whole domain). Nothing is imported while that list is empty; mail from other senders stays in the mailbox untouched.
+3. *Test connection*, then tick *Import from this inbox* and save. The worker checks at the chosen interval (default every 5 minutes); *Check now* checks at once.
+
+For Proton Mail, run Proton Mail Bridge where DocNest can reach it, choose STARTTLS with the Bridge's port and password, and switch off the certificate check (the Bridge uses a self-signed certificate; keep it on for any server across the internet). The sender check relies on the `From` header, which a determined attacker can forge; keep the inbox address private.
+
 ## Queue and statistics
 
 The processing queue (bottom left) shows running, waiting and recent jobs. Waiting jobs can be cancelled one by one or all at once; a running job finishes its current step. A cancelled reanalysis leaves the document as it was; a cancelled new scan is marked *Cancelled* and can be finished later with *Reprocess*.

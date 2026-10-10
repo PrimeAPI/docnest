@@ -61,6 +61,9 @@ const ACTIONS: Record<string, string> = {
   "folder.created": "Created folder",
   "folder.moved": "Moved folder",
   "folder.deleted": "Deleted folder",
+  "filing.applied": "Filed documents into subfolders",
+  "mail.settings": "Changed email inbox",
+  "mail.imported": "Imported an email",
 };
 
 export function describeAction(action: string): string {

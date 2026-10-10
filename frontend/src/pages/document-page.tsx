@@ -439,6 +439,34 @@ function Details({ doc }: { doc: DocumentDetail }) {
         )}
       </Card>
 
+      {doc.mail && (
+        <Card className="p-3 text-sm">
+          <h4 className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Arrived by email</h4>
+          <p className="font-medium">{doc.mail.subject || "(no subject)"}</p>
+          <p className="text-xs text-muted-foreground">
+            {doc.mail.sender}
+            {doc.mail.sent_at ? ` · ${formatDateTime(doc.mail.sent_at)}` : ""}
+          </p>
+          {doc.mail.documents.length > 1 && (
+            <ul className="mt-2 flex flex-col gap-1">
+              {doc.mail.documents.map((d) => (
+                <li key={d.id} className="flex items-center gap-2">
+                  {d.id === doc.id ? (
+                    <span className="truncate">{d.title}</span>
+                  ) : (
+                    <Link to={`/documents/${d.id}`} className="truncate hover:underline">
+                      {d.title}
+                    </Link>
+                  )}
+                  {d.is_email && <Badge variant="muted">email</Badge>}
+                  {d.id === doc.id && <Badge variant="outline">this</Badge>}
+                </li>
+              ))}
+            </ul>
+          )}
+        </Card>
+      )}
+
       <Card className="p-3 text-sm">
         <h4 className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">File details</h4>
         <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1">
@@ -450,7 +478,7 @@ function Details({ doc }: { doc: DocumentDetail }) {
           <dd>{formatDateTime(doc.uploaded_at)}</dd>
           {doc.received_from && (
             <>
-              <dt className="text-muted-foreground">Scanner</dt>
+              <dt className="text-muted-foreground">Source</dt>
               <dd>{doc.received_from}</dd>
             </>
           )}

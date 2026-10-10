@@ -237,6 +237,11 @@ tags: 1 to 4 short German keywords to find the document again by topic (e.g. "St
   them covers. Not the sender, not the document type, no dates. Existing tags: {tags}
 """
 
+CONTEXT_NOTE = (
+    "\nThe owner forwarded this document by email. The email can tell what the document is "
+    "and who sent it originally; the owner who forwarded it is never the sender:\n"
+)
+MAX_CONTEXT_CHARS = 1200
 TEXT_NOTE = " and the OCR text below; the OCR text may contain recognition errors, so trust the images"
 
 
@@ -265,8 +270,12 @@ def analyze(
     text: str,
     types: list[DocumentType],
     tags: list[str] | None = None,
+    context: str = "",
 ) -> ModelFields:
-    """Ask `model` about one document. No timeout beyond DOCNEST_AI_TIMEOUT_SECONDS: slow is fine."""
+    """Ask `model` about one document. No timeout beyond DOCNEST_AI_TIMEOUT_SECONDS: slow is fine.
+
+    `context`: how the document arrived, e.g. the email it was attached to.
+    """
     listing = (
         "".join(
             f'\n    "{t.slug}": {t.name}' + (f" — {TYPE_HINTS[t.slug]}" if t.slug in TYPE_HINTS else "")
@@ -278,6 +287,8 @@ def analyze(
     prompt = INSTRUCTIONS.format(text_note=TEXT_NOTE if text.strip() else "", types=listing, tags=known)
     if text.strip():
         prompt += "\nOCR text:\n<<<\n" + text.strip()[: settings.AI_TEXT_CHARS] + "\n>>>\n"
+    if context.strip():
+        prompt += CONTEXT_NOTE + "<<<\n" + context.strip()[:MAX_CONTEXT_CHARS] + "\n>>>\n"
     message: dict[str, Any] = {"role": "user", "content": prompt}
     if images:
         message["images"] = [base64.b64encode(image).decode() for image in images]
@@ -294,6 +305,11 @@ def analyze(
             "num_predict": MAX_ANSWER_TOKENS,
         },
     }
+    return _fields(_chat(payload), model, {t.slug for t in types})
+
+
+def _chat(payload: dict[str, Any]) -> dict[str, Any]:
+    """Run a chat request that must answer with a JSON object."""
     try:
         response = _request("/api/chat", payload, timeout=settings.AI_TIMEOUT_SECONDS)
     except ModelFailed as exc:
@@ -314,7 +330,7 @@ def analyze(
         raise ModelFailed("The model did not answer with JSON") from exc
     if not isinstance(data, dict):
         raise ModelFailed("The model did not answer with a JSON object")
-    return _fields(data, model, {t.slug for t in types})
+    return data
 
 
 def _strip_fences(content: str) -> str:
@@ -383,3 +399,101 @@ def _date(value: object) -> date | None:
     if not date(1950, 1, 1) <= parsed <= date.today() + timedelta(days=400):
         return None
     return parsed
+
+
+# --- Folder names for filing suggestions -----------------------------------------------
+
+FOLDER_SYSTEM_PROMPT = (
+    "You organise a private person's document archive into folders. "
+    "The documents are mostly German. You answer with JSON only."
+)
+
+FOLDER_INSTRUCTIONS = """\
+Documents in the folder "{parent}" should be sorted into its subfolders.
+Existing subfolders: {existing}
+
+Groups of documents that are not sorted yet:
+{groups}
+
+For each group give the subfolder it belongs in:
+- the name of an existing subfolder when the group fits it, spelled exactly as listed;
+- otherwise a new short German folder name: a plural noun for what the documents are,
+  e.g. "Verdienstabrechnungen", "Kontoauszüge", "Versicherungen", "Arbeitsverträge".
+  No sender name unless needed to tell folders apart, no year, at most 3 words;
+- the same name for groups that belong together;
+- null when a group does not fit any folder and is too unlike the others for a new one.
+"""
+
+MAX_FOLDER_NAME = 60
+
+
+@dataclass(frozen=True)
+class FolderGroup:
+    titles: list[str]
+    sender: str | None
+    doc_type: str | None
+    count: int
+
+
+def name_folders(
+    model: str, *, parent: str, existing: list[str], groups: list[FolderGroup]
+) -> list[str | None]:
+    """Ask `model` for a subfolder name per group: an existing one, a new one, or None."""
+    lines = []
+    for number, group in enumerate(groups, start=1):
+        about = ", ".join(
+            part
+            for part in (
+                f"{group.count} document{'s' if group.count != 1 else ''}",
+                f"sender {group.sender}" if group.sender else "",
+                f"type {group.doc_type}" if group.doc_type else "",
+            )
+            if part
+        )
+        titles = "; ".join(f'"{t}"' for t in group.titles[:4])
+        lines.append(f"{number}. {about}: {titles}")
+    prompt = FOLDER_INSTRUCTIONS.format(
+        parent=parent or "(top level)",
+        existing=", ".join(f'"{name}"' for name in existing[:40]) or "none",
+        groups="\n".join(lines),
+    )
+    payload: dict[str, Any] = {
+        "model": model,
+        "messages": [
+            {"role": "system", "content": FOLDER_SYSTEM_PROMPT},
+            {"role": "user", "content": prompt},
+        ],
+        "format": {
+            "type": "object",
+            "properties": {
+                "groups": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "properties": {"group": {"type": "integer"}, "folder": {"type": ["string", "null"]}},
+                        "required": ["group", "folder"],
+                    },
+                }
+            },
+            "required": ["groups"],
+        },
+        "stream": False,
+        "think": False,
+        "keep_alive": "10m",
+        "options": {
+            "temperature": 0,
+            "num_ctx": settings.AI_CONTEXT_TOKENS,
+            "num_predict": MAX_ANSWER_TOKENS,
+        },
+    }
+    data = _chat(payload)
+    names: list[str | None] = [None] * len(groups)
+    answers = data.get("groups")
+    for item in answers if isinstance(answers, list) else []:
+        if not isinstance(item, dict) or not isinstance(item.get("group"), int):
+            continue
+        index = item["group"] - 1
+        name = clean(item.get("folder"), limit=MAX_FOLDER_NAME)
+        if 0 <= index < len(groups) and name:
+            names[index] = name.replace("/", "-").replace("\\", "-")
+    return names

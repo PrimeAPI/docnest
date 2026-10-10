@@ -578,6 +578,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/documents/ids": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Document Ids
+         * @description Every matching document, for "select all" across pages (filters only, no text search).
+         */
+        get: operations["apps_documents_api_document_ids"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/documents/upload": {
         parameters: {
             query?: never;
@@ -790,6 +810,60 @@ export interface paths {
         head?: never;
         /** Update Folder */
         patch: operations["apps_taxonomy_api_update_folder"];
+        trace?: never;
+    };
+    "/api/v1/filing/suggestions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Suggest Filing
+         * @description Start grouping the selected documents into subfolders; poll the result.
+         */
+        post: operations["apps_taxonomy_api_suggest_filing"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/filing/suggestions/{proposal_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Filing Suggestion */
+        get: operations["apps_taxonomy_api_get_filing_suggestion"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/filing/apply": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Apply Filing */
+        post: operations["apps_taxonomy_api_apply_filing"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
         trace?: never;
     };
     "/api/v1/document-types": {
@@ -1160,6 +1234,64 @@ export interface paths {
         post?: never;
         /** Delete Scanner */
         delete: operations["apps_scanners_api_delete_scanner"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/mail/settings": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Settings */
+        get: operations["apps_mail_api_get_settings"];
+        /**
+         * Put Settings
+         * @description Save the inbox. It brings documents in, so it asks for the password again like other credentials.
+         */
+        put: operations["apps_mail_api_put_settings"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/mail/test": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Test Connection
+         * @description Try the given settings (the saved password if none is given) without saving them.
+         */
+        post: operations["apps_mail_api_test_connection"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/mail/check": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Check Now */
+        post: operations["apps_mail_api_check_now"];
+        delete?: never;
         options?: never;
         head?: never;
         patch?: never;
@@ -1930,6 +2062,13 @@ export interface components {
             /** Source */
             source: string;
         };
+        /** DocumentIds */
+        DocumentIds: {
+            /** Ids */
+            ids: string[];
+            /** Total */
+            total: number;
+        };
         /** WebUploadOut */
         WebUploadOut: {
             /**
@@ -2045,6 +2184,7 @@ export interface components {
                 [key: string]: unknown;
             };
             paper: components["schemas"]["PaperOut"];
+            mail: components["schemas"]["MailOut"] | null;
             /** Events */
             events: components["schemas"]["EventOut"][];
         };
@@ -2063,6 +2203,34 @@ export interface components {
              * Format: date-time
              */
             created_at: string;
+        };
+        /** MailDocOut */
+        MailDocOut: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Title */
+            title: string;
+            /** Is Email */
+            is_email: boolean;
+        };
+        /** MailOut */
+        MailOut: {
+            /** Subject */
+            subject: string;
+            /** Sender */
+            sender: string;
+            /** Sent At */
+            sent_at: string | null;
+            /**
+             * Received At
+             * Format: date-time
+             */
+            received_at: string;
+            /** Documents */
+            documents: components["schemas"]["MailDocOut"][];
         };
         /** NeighbourOut */
         NeighbourOut: {
@@ -2228,6 +2396,83 @@ export interface components {
              * @default false
              */
             move_to_root: boolean;
+        };
+        /** FilingDocOut */
+        FilingDocOut: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Title */
+            title: string;
+            /** Document Date */
+            document_date: string | null;
+            /** Correspondent */
+            correspondent: string | null;
+            /** Document Type */
+            document_type: string | null;
+            /** Folder Path */
+            folder_path: string;
+        };
+        /** FilingGroupOut */
+        FilingGroupOut: {
+            /** Anchor Id */
+            anchor_id: number | null;
+            /** Anchor Path */
+            anchor_path: string;
+            /** New */
+            new: string[];
+            /** Reason */
+            reason: string;
+            /** Documents */
+            documents: components["schemas"]["FilingDocOut"][];
+        };
+        /** FilingProposalOut */
+        FilingProposalOut: {
+            /** Id */
+            id: number;
+            /** State */
+            state: string;
+            /** Error */
+            error: string;
+            /** Note */
+            note: string;
+            /** Named By */
+            named_by: string;
+            /** Groups */
+            groups: components["schemas"]["FilingGroupOut"][];
+            /** Unassigned */
+            unassigned: components["schemas"]["FilingDocOut"][];
+        };
+        /** FilingSuggestIn */
+        FilingSuggestIn: {
+            /** Ids */
+            ids: string[];
+        };
+        /** FilingApplyOut */
+        FilingApplyOut: {
+            /** Moved */
+            moved: number;
+            /** Created */
+            created: number;
+        };
+        /** FilingApplyIn */
+        FilingApplyIn: {
+            /** Moves */
+            moves: components["schemas"]["FilingMoveIn"][];
+        };
+        /** FilingMoveIn */
+        FilingMoveIn: {
+            /** Ids */
+            ids: string[];
+            /** Anchor Id */
+            anchor_id?: number | null;
+            /**
+             * New
+             * @default []
+             */
+            new: string[];
         };
         /** TypeOut */
         TypeOut: {
@@ -2579,6 +2824,119 @@ export interface components {
             allowed_ips: string[];
             /** Expires At */
             expires_at?: string | null;
+        };
+        /** MailSettingsOut */
+        MailSettingsOut: {
+            /** Enabled */
+            enabled: boolean;
+            /** Host */
+            host: string;
+            /** Port */
+            port: number;
+            /**
+             * Security
+             * @enum {string}
+             */
+            security: "ssl" | "starttls";
+            /** Verify Tls */
+            verify_tls: boolean;
+            /** Username */
+            username: string;
+            /** Has Password */
+            has_password: boolean;
+            /** Folder */
+            folder: string;
+            /** Interval Minutes */
+            interval_minutes: number;
+            /** Allowed Senders */
+            allowed_senders: string[];
+            status: components["schemas"]["MailStatusOut"];
+        };
+        /** MailStatusOut */
+        MailStatusOut: {
+            /** Checked At */
+            checked_at?: string | null;
+            /** Ok */
+            ok?: boolean | null;
+            /**
+             * Message
+             * @default
+             */
+            message: string;
+            /**
+             * Ignored
+             * @default 0
+             */
+            ignored: number;
+            /**
+             * Imported Total
+             * @default 0
+             */
+            imported_total: number;
+            /** Last Import At */
+            last_import_at?: string | null;
+            /**
+             * Last Documents
+             * @default 0
+             */
+            last_documents: number;
+        };
+        /** MailSettingsIn */
+        MailSettingsIn: {
+            /** Enabled */
+            enabled: boolean;
+            /**
+             * Host
+             * @default
+             */
+            host: string;
+            /**
+             * Port
+             * @default 993
+             */
+            port: number;
+            /**
+             * Security
+             * @default ssl
+             * @enum {string}
+             */
+            security: "ssl" | "starttls";
+            /**
+             * Verify Tls
+             * @default true
+             */
+            verify_tls: boolean;
+            /**
+             * Username
+             * @default
+             */
+            username: string;
+            /** Password */
+            password?: string | null;
+            /**
+             * Folder
+             * @default INBOX
+             */
+            folder: string;
+            /**
+             * Interval Minutes
+             * @default 5
+             */
+            interval_minutes: number;
+            /** Allowed Senders */
+            allowed_senders?: string[];
+        };
+        /** MailTestOut */
+        MailTestOut: {
+            /** Ok */
+            ok: boolean;
+            /** Message */
+            message: string;
+            /**
+             * Waiting
+             * @default 0
+             */
+            waiting: number;
         };
     };
     responses: never;
@@ -3339,6 +3697,48 @@ export interface operations {
             };
         };
     };
+    apps_documents_api_document_ids: {
+        parameters: {
+            query?: {
+                q?: string;
+                folder?: number[];
+                subfolders?: boolean;
+                unfiled?: boolean;
+                document_type?: number[];
+                correspondent?: number[];
+                tag?: number[];
+                series?: number | null;
+                status?: ("new" | "todo" | "done")[];
+                important?: boolean | null;
+                unread?: boolean | null;
+                processing?: ("pending" | "running" | "done" | "failed")[];
+                uploaded_from?: string | null;
+                uploaded_to?: string | null;
+                date_from?: string | null;
+                date_to?: string | null;
+                paper_location?: number | null;
+                paper_pending?: boolean;
+                sort?: "relevance" | "uploaded" | "-uploaded" | "date" | "-date";
+                page?: number;
+                page_size?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DocumentIds"];
+                };
+            };
+        };
+    };
     apps_documents_api_web_upload: {
         parameters: {
             query?: never;
@@ -3730,6 +4130,76 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["FolderOut"];
+                };
+            };
+        };
+    };
+    apps_taxonomy_api_suggest_filing: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["FilingSuggestIn"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FilingProposalOut"];
+                };
+            };
+        };
+    };
+    apps_taxonomy_api_get_filing_suggestion: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                proposal_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FilingProposalOut"];
+                };
+            };
+        };
+    };
+    apps_taxonomy_api_apply_filing: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["FilingApplyIn"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FilingApplyOut"];
                 };
             };
         };
@@ -4495,6 +4965,94 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+        };
+    };
+    apps_mail_api_get_settings: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MailSettingsOut"];
+                };
+            };
+        };
+    };
+    apps_mail_api_put_settings: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["MailSettingsIn"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MailSettingsOut"];
+                };
+            };
+        };
+    };
+    apps_mail_api_test_connection: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["MailSettingsIn"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MailTestOut"];
+                };
+            };
+        };
+    };
+    apps_mail_api_check_now: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MailSettingsOut"];
+                };
             };
         };
     };

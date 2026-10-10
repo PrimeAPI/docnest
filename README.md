@@ -10,6 +10,8 @@
 - **Upload from anywhere** — scanners use the upload API and may send raw page images (PNG, JPEG, TIFF, PNM, …) page by page; DocNest builds the PDF itself, so a Raspberry Pi next to a USB scanner needs no processing at all. In the browser just drag & drop PDFs onto DocNest.
 - **Full-text search over scans** — finds words that exist only as pixels in a scanned letter, with prefix and German compound-word matching (`versicherung` finds `Fahrzeugversicherung`).
 - **Automatic analysis, no AI service** — rules, heuristics and a small classifier that learns from your corrections. Nothing leaves your server.
+- **Upload by email** — forward an email to a mailbox set up for DocNest: attachments become documents, the email is kept as a PDF and gives the AI model context. Only senders on your allowlist are imported.
+- **Filing suggestions** — select the loose documents of a folder and DocNest proposes subfolders for them (`Work` → `Work/Verdienstabrechnungen/2026`), learning what each folder means from what is already in it. You review and rename before anything moves.
 - **Series** — monthly payslips, phone bills or bank statements are grouped and labelled (“March 2026”), with gaps highlighted.
 - **Human override** — every automatic value can be corrected; your edits are never overwritten.
 - **Proton Drive storage** — documents are stored end-to-end encrypted in your Proton Drive; DocNest holds files only temporarily.

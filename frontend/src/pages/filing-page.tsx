@@ -570,17 +570,42 @@ function DocumentList({
 }) {
   const [page, setPage] = useState(1);
   const [selected, setSelected] = useState<string[]>([]);
+  // "Select all": every document of the list, also those on other pages.
+  const [all, setAll] = useState<string[] | null>(null);
   const docs = useDocuments({ ...query, sort: "-uploaded", page, page_size: PAGE_SIZE });
   const key = JSON.stringify(query);
+  const total = docs.data?.total ?? 0;
   useEffect(() => {
     setPage(1);
     setSelected([]);
+    setAll(null);
   }, [key]);
-  const total = docs.data?.total ?? 0;
+  useEffect(() => {
+    // Documents were moved away or added: "all" no longer means the same documents.
+    if (all && total !== all.length) {
+      setAll(null);
+      setSelected([]);
+    }
+  }, [all, total]);
   const pages = Math.max(1, Math.ceil(total / PAGE_SIZE));
   // Documents that moved away disappear from the list; drop them from the selection.
   const visible = new Set(docs.data?.items.map((d) => d.id));
-  const selection = selected.filter((id) => visible.has(id));
+  const selection = all ? selected : selected.filter((id) => visible.has(id));
+  const clear = () => {
+    setSelected([]);
+    setAll(null);
+  };
+  const selectAll = async (on: boolean) => {
+    if (!on) return clear();
+    try {
+      const r = await call(() => client.GET("/api/v1/documents/ids", { params: { query: { ...query, sort: "-uploaded" } } }));
+      setAll(r.ids);
+      setSelected(r.ids);
+      if (r.total > r.ids.length) toast.info(`Selected the first ${r.ids.length} of ${r.total} documents.`);
+    } catch (e) {
+      toast.error((e as Error).message);
+    }
+  };
 
   if (docs.isPending) return <Spinner />;
   if (!docs.data?.items.length) {
@@ -588,7 +613,12 @@ function DocumentList({
   }
   return (
     <>
-      <BulkBar ids={selection} onClear={() => setSelected([])} />
+      <BulkBar ids={selection} onClear={clear} />
+      <label className="mb-2 flex w-fit cursor-pointer items-center gap-2 px-3 text-sm text-muted-foreground">
+        <Checkbox checked={all !== null && selection.length === all.length} onCheckedChange={(v) => selectAll(v === true)} />
+        Select all {total} document{total === 1 ? "" : "s"}
+        {query.folder && !query.subfolders ? " in this folder" : ""}
+      </label>
       <Card className={cn("overflow-hidden", docs.isFetching && "opacity-70")}>
         {docs.data.items.map((d) => {
           const isSelected = selection.includes(d.id);

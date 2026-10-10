@@ -30,7 +30,7 @@ def model(settings):
 def fake_model(monkeypatch, fields: ai.ModelFields | Exception) -> list[dict]:
     calls: list[dict] = []
 
-    def analyze(model, *, images, text, types, tags=None):
+    def analyze(model, *, images, text, types, tags=None, context=""):
         calls.append({"model": model, "images": images, "text": text, "types": types, "tags": tags})
         if isinstance(fields, Exception):
             raise fields

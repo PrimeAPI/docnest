@@ -115,3 +115,22 @@ class MatchRule(models.Model):
     document_type = models.ForeignKey(DocumentType, null=True, blank=True, on_delete=models.CASCADE)
     tags = models.ManyToManyField(Tag, blank=True)
     created_at = models.DateTimeField(default=timezone.now)
+
+
+class FilingProposal(models.Model):
+    """Suggested subfolders for documents the user selected; computed by a job, applied by the user.
+
+    Holds document UUIDs and folder names only: titles stay encrypted on their documents.
+    """
+
+    class State(models.TextChoices):
+        PENDING = "pending"
+        DONE = "done"
+        FAILED = "failed"
+
+    state = models.CharField(max_length=10, choices=State.choices, default=State.PENDING)
+    documents = models.JSONField(default=list)  # UUIDs of the selected documents
+    result = models.JSONField(default=dict, blank=True)  # see apps.taxonomy.filing.suggest
+    error = models.CharField(max_length=500, blank=True)
+    created_at = models.DateTimeField(default=timezone.now)
+    finished_at = models.DateTimeField(null=True, blank=True)

@@ -67,6 +67,9 @@ class Document(models.Model):
     received_from = models.ForeignKey(
         "scanners.ScannerClient", null=True, blank=True, on_delete=models.SET_NULL, related_name="documents"
     )
+    mail = models.ForeignKey(
+        "mail.MailMessage", null=True, blank=True, on_delete=models.SET_NULL, related_name="documents"
+    )  # arrived by email: the email itself and its attachments
 
     # Inbox state
     status = models.CharField(max_length=10, choices=Status.choices, default=Status.NEW, db_index=True)
