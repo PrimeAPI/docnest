@@ -1,9 +1,9 @@
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { keepPreviousData, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ArrowRight, ChevronRight, FolderTree, PencilLine, Sparkles, Telescope, Undo2, Wand2 } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import { call, client, type Schemas } from "@/api/client";
-import { keys, useDocuments, useInvalidateDocuments } from "@/api/queries";
+import { type DocumentListItem, keys, useInvalidateDocuments } from "@/api/queries";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -16,7 +16,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Input, Textarea } from "@/components/ui/input";
-import { Spinner } from "@/components/ui/misc";
+import { ErrorNote, Spinner } from "@/components/ui/misc";
 import { DocItems, useViewMode, ViewSwitch } from "@/features/documents/document-views";
 import { SuggestFilingDialog } from "@/features/folders/filing-suggestions";
 import { StartReviewDialog } from "@/features/assist/start-review";
@@ -27,7 +27,8 @@ type Group = Schemas["AssistGroupOut"];
 type Operation = "filing" | "rename" | "custom" | "review";
 
 const MAX_INSTRUCTION = 300;
-const MAX_DOCUMENTS = 100;
+const PICKER_PAGE_SIZE = 100;
+const MAX_FILING_DOCUMENTS = 500; // the separate interactive filing proposal is bounded
 
 /**
  * "Assistant": the AI model proposes changes for some documents — this one, the documents
@@ -37,12 +38,14 @@ const MAX_DOCUMENTS = 100;
 export function AssistantButton({
   ids,
   folderId,
+  subfolders = false,
   scope,
   size = "sm",
   onDone,
 }: {
   ids?: string[];
   folderId?: number;
+  subfolders?: boolean;
   scope: string; // "this document", "the documents in “Work”", "3 selected documents"
   size?: "sm" | "default";
   onDone?: () => void;
@@ -57,6 +60,7 @@ export function AssistantButton({
         <AssistantDialog
           ids={ids}
           folderId={folderId}
+          subfolders={subfolders}
           scope={scope}
           onClose={() => setOpen(false)}
           onDone={onDone}
@@ -69,40 +73,51 @@ export function AssistantButton({
 function AssistantDialog({
   ids,
   folderId,
+  subfolders: initialSubfolders,
   scope,
   onClose,
   onDone,
 }: {
   ids?: string[];
   folderId?: number;
+  subfolders: boolean;
   scope: string;
   onClose: () => void;
   onDone?: () => void;
 }) {
-  // A folder means the documents lying directly in it, like "Select all in this folder".
-  const folderIds = useQuery({
-    queryKey: ["documents", "ids", folderId],
-    enabled: folderId !== undefined && !ids,
+  const isFolder = folderId !== undefined && !ids;
+  const [subfolders, setSubfolders] = useState(initialSubfolders);
+  const [page, setPage] = useState(1);
+  const selection = ids ?? [];
+  const query = isFolder
+    ? { folder: [folderId], subfolders, page, page_size: PICKER_PAGE_SIZE, sort: "-uploaded" as const }
+    : { id: selection.slice((page - 1) * PICKER_PAGE_SIZE, page * PICKER_PAGE_SIZE), page_size: PICKER_PAGE_SIZE, sort: "-uploaded" as const };
+  const documents = useQuery({
+    queryKey: ["documents", "assist-picker", query],
+    enabled: isFolder || selection.length > 0,
+    placeholderData: keepPreviousData,
     queryFn: () =>
-      call(() =>
-        client.GET("/api/v1/documents/ids", { params: { query: { folder: [folderId ?? 0], sort: "-uploaded" } } }),
-      ),
+      call(() => client.GET("/api/v1/documents", { params: { query } })),
   });
-  const all = useMemo(() => (ids ?? folderIds.data?.ids ?? []).slice(0, MAX_DOCUMENTS), [ids, folderIds.data]);
+  const total = isFolder ? documents.data?.total ?? 0 : selection.length;
   const [excluded, setExcluded] = useState<Set<string>>(new Set());
-  const chosen = all.filter((id) => !excluded.has(id));
+  const chosen = selection.filter((id) => !excluded.has(id));
+  const chosenCount = total - excluded.size;
 
   const [operation, setOperation] = useState<Operation>("rename");
   const [instruction, setInstruction] = useState("");
   const [taskId, setTaskId] = useState<number | null>(null);
-  const [filing, setFiling] = useState(false);
+  const [filingIds, setFilingIds] = useState<string[] | null>(null);
   const [reviewing, setReviewing] = useState(false);
 
   const start = useMutation({
     mutationFn: () =>
       call(() =>
         client.POST("/api/v1/assist/tasks", {
-          body: { ids: chosen, operation: operation as "rename" | "custom", instruction },
+          body: {
+            ...(isFolder ? { folder_id: folderId, subfolders, excluded_ids: [...excluded] } : { ids: chosen, subfolders: false }),
+            operation: operation as "rename" | "custom", instruction,
+          },
         }),
       ),
     onSuccess: (t) => setTaskId(t.id),
@@ -121,12 +136,13 @@ function AssistantDialog({
   });
 
   if (reviewing) {
-    return <StartReviewDialog ids={chosen} scopeLabel={scope} onClose={onClose} />;
+    return <StartReviewDialog ids={isFolder ? undefined : chosen} folderId={isFolder ? folderId : undefined}
+      subfolders={subfolders} excludedIds={[...excluded]} documentCount={chosenCount} scopeLabel={scope} onClose={onClose} />;
   }
-  if (filing) {
+  if (filingIds) {
     return (
       <SuggestFilingDialog
-        ids={chosen}
+        ids={filingIds}
         onClose={onClose}
         onDone={() => {
           onDone?.();
@@ -136,11 +152,23 @@ function AssistantDialog({
     );
   }
 
-  const next = () => (operation === "filing" ? setFiling(true) : operation === "review" ? setReviewing(true) : start.mutate());
+  const next = async () => {
+    if (operation === "review") return setReviewing(true);
+    if (operation !== "filing") return start.mutate();
+    if (!isFolder) return setFilingIds(chosen);
+    try {
+      const result = await call(() => client.GET("/api/v1/documents/ids", {
+        params: { query: { folder: [folderId], subfolders, sort: "-uploaded" } },
+      }));
+      if (result.total > result.ids.length) throw new Error("This folder is too large for interactive filing. Use Look through instead.");
+      setFilingIds(result.ids.filter((id) => !excluded.has(id)));
+    } catch (e) { toast.error((e as Error).message); }
+  };
   const t = task.data;
   const phase = taskId === null ? "ask" : t && ["done", "failed", "cancelled"].includes(t.state) ? "review" : "working";
-  const loading = folderId !== undefined && !ids && folderIds.isPending;
-  const canStart = chosen.length > 0 && (operation !== "custom" || instruction.trim().length > 0);
+  const loading = (isFolder || selection.length > 0) && documents.isPending;
+  const filingTooLarge = operation === "filing" && (isFolder ? total : chosenCount) > MAX_FILING_DOCUMENTS;
+  const canStart = !loading && !documents.isPlaceholderData && !documents.error && chosenCount > 0 && !filingTooLarge && (operation !== "custom" || instruction.trim().length > 0);
 
   return (
     <Dialog open onOpenChange={(v) => !v && onClose()}>
@@ -157,9 +185,16 @@ function AssistantDialog({
         <div className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden px-6 py-4">
           {loading ? (
             <Spinner />
-          ) : phase === "ask" ? (
+          ) : documents.error ? <ErrorNote error={documents.error} /> : phase === "ask" ? (
             <div className="flex flex-col gap-5">
-              <DocumentPicker all={all} excluded={excluded} onChange={setExcluded} />
+              {isFolder && <label className="flex items-center gap-2 text-sm">
+                <Checkbox checked={subfolders} onCheckedChange={(v) => {
+                  setSubfolders(v === true); setExcluded(new Set()); setPage(1);
+                }} /> Include subfolders
+              </label>}
+              <DocumentPicker items={documents.data?.items ?? []} total={total} excluded={excluded}
+                onChange={setExcluded} page={page} onPage={setPage} refreshing={documents.isFetching} />
+              <p className="text-xs text-muted-foreground">All {chosenCount} included documents will be processed, not just the preview page. Larger tasks take longer.</p>
               <OperationPicker
                 operation={operation}
                 onOperation={setOperation}
@@ -167,6 +202,7 @@ function AssistantDialog({
                 onInstruction={setInstruction}
                 onSubmit={() => canStart && next()}
               />
+              {filingTooLarge && <p className="text-sm text-amber-700">Interactive filing supports up to {MAX_FILING_DOCUMENTS} documents. Choose Look through for a background review of the whole folder.</p>}
             </div>
           ) : phase === "working" ? (
             <Working task={t} />
@@ -187,7 +223,7 @@ function AssistantDialog({
               >
                 <Sparkles />{" "}
                 {operation === "filing" ? "Suggest filing" : operation === "review" ? "Next" : "Ask the AI model"} (
-                {chosen.length})
+                {chosenCount})
               </Button>
             </>
           )}
@@ -208,20 +244,27 @@ function AssistantDialog({
 }
 
 function DocumentPicker({
-  all,
+  items,
+  total,
   excluded,
   onChange,
+  page,
+  onPage,
+  refreshing,
 }: {
-  all: string[];
+  items: DocumentListItem[];
+  total: number;
   excluded: Set<string>;
   onChange: (s: Set<string>) => void;
+  page: number;
+  onPage: (page: number) => void;
+  refreshing: boolean;
 }) {
-  const [open, setOpen] = useState(all.length <= 5);
+  const [open, setOpen] = useState(total <= 5);
   const [view, setView] = useViewMode("dialog");
-  const docs = useDocuments({ id: all, page_size: 100, sort: "-date" }, undefined);
-  const items = docs.data?.items ?? [];
-  const chosen = all.length - excluded.size;
-  if (!all.length) {
+  const chosen = total - excluded.size;
+  const pages = Math.max(1, Math.ceil(total / PICKER_PAGE_SIZE));
+  if (!total) {
     return <p className="text-sm text-muted-foreground">There are no documents here.</p>;
   }
   return (
@@ -229,14 +272,11 @@ function DocumentPicker({
       <div className="flex items-center gap-2">
         <button type="button" className="flex flex-1 items-center gap-1 text-left font-medium" onClick={() => setOpen(!open)}>
           <ChevronRight className={cn("size-4 transition-transform", open && "rotate-90")} />
-          {chosen === all.length ? `${all.length} document${all.length === 1 ? "" : "s"}` : `${chosen} of ${all.length} documents`}
+          {chosen === total ? `${total} document${total === 1 ? "" : "s"}` : `${chosen} of ${total} documents`}
         </button>
         {open && <ViewSwitch mode={view} onChange={setView} />}
       </div>
-      {open &&
-        (docs.isPending ? (
-          <Spinner />
-        ) : (
+      {open && <>
           <DocItems
             className="mt-2"
             mode={view}
@@ -258,7 +298,12 @@ function DocumentPicker({
               ),
             }))}
           />
-        ))}
+          {pages > 1 && <div className="mt-3 flex items-center justify-between gap-2">
+            <Button variant="outline" size="sm" disabled={refreshing || page === 1} onClick={() => onPage(page - 1)}>Previous</Button>
+            <span>Preview page {page} of {pages}</span>
+            <Button variant="outline" size="sm" disabled={refreshing || page === pages} onClick={() => onPage(page + 1)}>Next page</Button>
+          </div>}
+        </>}
     </section>
   );
 }

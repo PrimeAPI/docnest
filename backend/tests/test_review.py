@@ -16,7 +16,7 @@ from apps.documents.models import Document, DocumentPage
 from apps.processing import pipeline
 from apps.processing.models import Job
 from apps.processing.preferences import set_ai_model
-from apps.taxonomy.models import Correspondent
+from apps.taxonomy.models import Correspondent, Folder
 from tests.test_alterations import letter, make
 
 pytestmark = pytest.mark.django_db
@@ -244,6 +244,84 @@ def test_a_review_of_everything_and_stopping_one_not_started(api, model):
     r = api.post("/api/v1/assist/reviews", {"scope": "all", "start": later}, content_type=J)
     stopped = api.post(f"/api/v1/assist/reviews/{r.json()['id']}/stop").json()
     assert stopped["state"] == "cancelled"
+
+
+def test_folder_review_snapshots_every_document_beyond_preview_and_bulk_limits(api):
+    work = Folder.objects.create(name="Large folder")
+    docs = Document.objects.bulk_create(
+        [Document(folder=work, content_hash=f"folder-{n}", processing_state="done") for n in range(551)]
+    )
+    outsider = Document.objects.create(content_hash="outside")
+    trashed = Document.objects.create(folder=work, content_hash="trashed", deleted_at=timezone.now())
+    response = api.post(
+        "/api/v1/assist/reviews", {"scope": "folder", "folder_id": work.pk, "ai": False}, content_type=J
+    )
+    assert response.status_code == 200, response.content
+    assert response.json()["documents"] == 551 and response.json()["until"] is None
+    task = AssistTask.objects.get(pk=response.json()["id"])
+    assert set(task.documents) == {str(d.uuid) for d in docs}
+    assert str(outsider.uuid) not in task.documents and str(trashed.uuid) not in task.documents
+    Document.objects.create(folder=work, content_hash="uploaded-after-scheduling")
+    review.run(task.pk)
+    task.refresh_from_db()
+    assert task.state == "done", task.error
+    assert tasks.result_of(task)["documents"] == 551
+
+
+@pytest.mark.parametrize("subfolders", [False, True])
+def test_folder_scope_honors_subfolders_and_exclusions(api, subfolders):
+    parent = Folder.objects.create(name="Parent")
+    child = Folder.objects.create(name="Child", parent=parent)
+    grandchild = Folder.objects.create(name="Grandchild", parent=child)
+    direct = Document.objects.create(folder=parent, content_hash="direct")
+    omitted = Document.objects.create(folder=parent, content_hash="omitted")
+    nested = Document.objects.create(folder=grandchild, content_hash="nested")
+    response = api.post(
+        "/api/v1/assist/reviews",
+        {
+            "scope": "folder",
+            "folder_id": parent.pk,
+            "subfolders": subfolders,
+            "excluded_ids": [str(omitted.uuid)],
+            "ai": False,
+        },
+        content_type=J,
+    )
+    assert response.status_code == 200, response.content
+    task = AssistTask.objects.get(pk=response.json()["id"])
+    assert set(task.documents) == ({str(direct.uuid), str(nested.uuid)} if subfolders else {str(direct.uuid)})
+
+
+def test_archive_and_selection_reviews_no_longer_truncate_at_5000(api, monkeypatch):
+    docs = Document.objects.bulk_create([Document(content_hash=f"archive-{n}") for n in range(5001)])
+    monkeypatch.setattr(notes, "load", lambda *args: None)  # no OCR or cached notes in this scope test
+    for scope in ("all", "selection"):
+        payload = {"scope": scope, "ai": False}
+        if scope == "selection":
+            payload["ids"] = [str(d.uuid) for d in docs]
+        response = api.post("/api/v1/assist/reviews", payload, content_type=J)
+        assert response.status_code == 200, response.content
+        assert response.json()["documents"] == 5001
+        task = AssistTask.objects.get(pk=response.json()["id"])
+        run = review.Run(task, "")
+        review.load(run)
+        assert len(run.items) == 5001 and len(run.documents) == 5001
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [
+        {"scope": "folder"},
+        {"scope": "folder", "folder_id": 987654},
+        {"scope": "selection", "folder_id": 987654},
+        {"scope": "all", "folder_id": 987654},
+    ],
+)
+def test_invalid_folder_scope_never_falls_back_to_reviewing_everything(api, payload):
+    Document.objects.create(content_hash="not-selected")
+    response = api.post("/api/v1/assist/reviews", {**payload, "ai": False}, content_type=J)
+    assert response.status_code == 400
+    assert not AssistTask.objects.exists()
 
 
 def test_reviews_prepare_existing_documents_without_a_separate_request():

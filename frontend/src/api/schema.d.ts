@@ -3408,7 +3408,16 @@ export interface components {
         /** AssistTaskIn */
         AssistTaskIn: {
             /** Ids */
-            ids: string[];
+            ids?: string[];
+            /** Folder Id */
+            folder_id?: number | null;
+            /**
+             * Subfolders
+             * @default false
+             */
+            subfolders: boolean;
+            /** Excluded Ids */
+            excluded_ids?: string[];
             /**
              * Operation
              * @enum {string}
@@ -3479,12 +3488,21 @@ export interface components {
         ReviewIn: {
             /** Ids */
             ids?: string[];
+            /** Folder Id */
+            folder_id?: number | null;
+            /**
+             * Subfolders
+             * @default false
+             */
+            subfolders: boolean;
+            /** Excluded Ids */
+            excluded_ids?: string[];
             /**
              * Scope
              * @default selection
              * @enum {string}
              */
-            scope: "selection" | "all";
+            scope: "selection" | "folder" | "all";
             /**
              * Instruction
              * @default

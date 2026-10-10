@@ -61,10 +61,18 @@ export function PreparePagesNote() {
  */
 export function StartReviewDialog({
   ids,
+  folderId,
+  subfolders = false,
+  excludedIds = [],
+  documentCount,
   scopeLabel,
   onClose,
 }: {
   ids?: string[]; // none: every document
+  folderId?: number; // resolved completely by the server, never a paginated ID selection
+  subfolders?: boolean;
+  excludedIds?: string[];
+  documentCount?: number;
   scopeLabel: string;
   onClose: () => void;
 }) {
@@ -81,7 +89,7 @@ export function StartReviewDialog({
   const [explore, setExplore] = useState(true);
   const [when, setWhen] = useState<"now" | "tonight">("tonight");
   const [startAt, setStartAt] = useState("01:00");
-  const [stopBy, setStopBy] = useState(true);
+  const [stopBy, setStopBy] = useState(false);
   const [until, setUntil] = useState("07:00");
   const [context, setContext] = useState(8192);
 
@@ -105,7 +113,10 @@ export function StartReviewDialog({
         client.POST("/api/v1/assist/reviews", {
           body: {
             ids: ids ?? [],
-            scope: ids ? "selection" : "all",
+            scope: folderId !== undefined ? "folder" : ids ? "selection" : "all",
+            folder_id: folderId,
+            subfolders,
+            excluded_ids: folderId !== undefined ? excludedIds : [],
             instruction,
             model: ai ? model : "",
             ai,
@@ -140,6 +151,10 @@ export function StartReviewDialog({
             is a report with suggestions; nothing changes until you apply one.
           </DialogDescription>
         </DialogHeader>
+        <p className="text-sm text-muted-foreground">
+          {documentCount !== undefined ? `${documentCount} documents included. ` : "The complete selected scope is included. "}
+          Larger reviews take longer; documents are read one at a time, not in one huge model request.
+        </p>
 
         <div className="grid gap-2 sm:grid-cols-2" role="radiogroup" aria-label="How thorough">
           <ModeCard
@@ -265,6 +280,7 @@ export function StartReviewDialog({
               {hours !== null && <span className="text-xs text-muted-foreground">({hours} hours)</span>}
             </label>
           )}
+          {(!ai || !stopBy) && <p className="text-xs text-muted-foreground">Run until finished. You can close the browser and return later, or stop and get a partial report from the Assistant page.</p>}
         </div>
 
         <DialogFooter>

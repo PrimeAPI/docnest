@@ -48,7 +48,6 @@ from apps.storage.backends import StorageError
 
 logger = logging.getLogger(__name__)
 
-MAX_DOCUMENTS = 5000  # the whole archive: the code checks all; the model reads what time allows
 JOURNAL_AAD = b"assist-journal"
 STATE_AAD = b"assist-state"
 MAX_JOURNAL = 3000
@@ -414,7 +413,7 @@ class Run:
 
 def load(run: Run) -> None:
     documents = list(
-        Document.objects.filter(uuid__in=run.task.documents[:MAX_DOCUMENTS], deleted_at__isnull=True)
+        Document.objects.filter(uuid__in=run.task.documents, deleted_at__isnull=True)
         .select_related("correspondent", "document_type", "series", "folder")
         .prefetch_related("tags")
         .order_by("document_date", "uploaded_at")
@@ -1026,7 +1025,7 @@ def report(run: Run, *, stopped: str = "") -> dict[str, Any]:
 def _readable(run: Run, text: str) -> str:
     """“D3” means nothing to the user: the document's title instead."""
     titles = {i.ref: i.title for i in run.items}
-    return re.sub(r"\bD(\d{1,4})\b", lambda m: f"“{titles.get(m.group(0), m.group(0))}”", text)
+    return re.sub(r"\bD(\d+)\b", lambda m: f"“{titles.get(m.group(0), m.group(0))}”", text)
 
 
 # --- Running --------------------------------------------------------------------------------------

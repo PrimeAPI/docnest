@@ -458,7 +458,7 @@ function FolderView({
         last={folder.name}
         actions={
           <>
-            <AssistantButton folderId={folder.id} scope={`the documents in “${folder.name}”`} />
+            <AssistantButton folderId={folder.id} subfolders={withSubfolders} scope={`the documents in “${folder.name}”`} />
             <Button size="sm" variant="outline" onClick={onCreate}>
               <FolderPlus /> Subfolder
             </Button>

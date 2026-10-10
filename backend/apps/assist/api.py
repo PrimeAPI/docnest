@@ -21,13 +21,42 @@ from apps.documents.models import Document
 from apps.processing import queue
 from apps.processing.models import Job
 from apps.processing.preferences import get_ai_model
-from apps.taxonomy.models import DocumentType
+from apps.taxonomy.models import DocumentType, Folder
+from apps.taxonomy.services import folder_subtree
 
 router = Router(tags=["assist"])
 
 
-class AssistTaskIn(Schema):
-    ids: list[UUID]
+class AssistSelection(Schema):
+    ids: list[UUID] = Field(default_factory=list)
+    folder_id: int | None = None
+    subfolders: bool = False
+    excluded_ids: list[UUID] = Field(default_factory=list)
+
+
+def selected_ids(data: AssistSelection, scope: str) -> list[str]:
+    """Snapshot the complete scope; preview pagination and bulk-action limits do not apply."""
+    qs = Document.objects.filter(deleted_at__isnull=True)
+    if scope == "folder":
+        if data.folder_id is None or not Folder.objects.filter(pk=data.folder_id).exists():
+            raise HttpError(400, "The selected folder is missing")
+        if data.ids:
+            raise HttpError(400, "Choose a folder or selected documents, not both")
+        folders = folder_subtree([data.folder_id]) if data.subfolders else [data.folder_id]
+        qs = qs.filter(folder_id__in=folders).exclude(uuid__in=data.excluded_ids)
+    elif data.folder_id is not None or data.excluded_ids:
+        raise HttpError(400, "Folder options require a folder scope")
+    elif scope == "selection":
+        ids = list(dict.fromkeys(str(i) for i in data.ids))
+        if qs.filter(uuid__in=ids).count() != len(ids):
+            raise HttpError(400, "A selected document is missing or in the trash")
+        return ids
+    elif data.ids:
+        raise HttpError(400, "Choose all documents or a selection, not both")
+    return [str(u) for u in qs.order_by("document_date", "uploaded_at", "pk").values_list("uuid", flat=True)]
+
+
+class AssistTaskIn(AssistSelection):
     operation: Literal["rename", "custom"]
     instruction: str = Field("", max_length=1000)
 
@@ -134,7 +163,7 @@ def _out(task: AssistTask) -> AssistTaskOut:
 @router.post("/tasks", response=AssistTaskOut)
 def start_task(request: HttpRequest, data: AssistTaskIn) -> AssistTaskOut:
     """Ask the AI model for changes to the selected documents; poll the result. Nothing changes by itself."""
-    ids = [str(i) for i in data.ids[: tasks.MAX_DOCUMENTS]]
+    ids = selected_ids(data, "folder" if data.folder_id is not None else "selection")
     if not ids:
         raise HttpError(400, "Select documents first")
     instruction = " ".join(data.instruction.split())[: ai.MAX_INSTRUCTIONS]
@@ -167,9 +196,8 @@ def cancel_task(request: HttpRequest, task_id: int) -> AssistTaskOut:
 # --- Reviews: the assistant looks through documents for hours ------------------------------------
 
 
-class ReviewIn(Schema):
-    ids: list[UUID] = Field(default_factory=list, max_length=review.MAX_DOCUMENTS)
-    scope: Literal["selection", "all"] = "selection"  # all: every document in the archive
+class ReviewIn(AssistSelection):
+    scope: Literal["selection", "folder", "all"] = "selection"
     instruction: str = Field("", max_length=1000)
     model: str = Field("", max_length=200)  # "": the model chosen in Settings
     ai: bool = True  # False: only what code finds (pages, duplicates, gaps) — minutes
@@ -395,17 +423,7 @@ def models(request: HttpRequest) -> list[ModelOut]:
 @router.post("/reviews", response=ReviewSummary)
 def start_review(request: HttpRequest, data: ReviewIn) -> ReviewSummary:
     """Let the assistant look through documents — now or later, for hours. It only suggests."""
-    if data.scope == "all":
-        ids = [
-            str(u)
-            for u in Document.objects.filter(deleted_at__isnull=True)
-            .order_by("document_date", "uploaded_at")
-            .values_list("uuid", flat=True)[: review.MAX_DOCUMENTS]
-        ]
-    else:
-        ids = list(dict.fromkeys(str(i) for i in data.ids))
-        if Document.objects.filter(uuid__in=ids, deleted_at__isnull=True).count() != len(ids):
-            raise HttpError(400, "A selected document is missing or in the trash")
+    ids = selected_ids(data, data.scope)
     if not ids:
         raise HttpError(400, "Select documents first")
     model = data.model.strip() or (get_ai_model() if data.ai else "")
@@ -431,6 +449,8 @@ def start_review(request: HttpRequest, data: ReviewIn) -> ReviewSummary:
             "start": start.isoformat() if start else None,
             "until": data.until.isoformat() if data.until else None,
             "scope": data.scope,
+            "folder_id": data.folder_id,
+            "subfolders": data.subfolders,
         },
     )
     delay = int((start - now).total_seconds()) if start else 0

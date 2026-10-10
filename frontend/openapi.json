@@ -9758,6 +9758,30 @@
       "title": "Ids",
       "type": "array"
      },
+     "folder_id": {
+      "anyOf": [
+       {
+        "type": "integer"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Folder Id"
+     },
+     "subfolders": {
+      "default": false,
+      "title": "Subfolders",
+      "type": "boolean"
+     },
+     "excluded_ids": {
+      "items": {
+       "format": "uuid",
+       "type": "string"
+      },
+      "title": "Excluded Ids",
+      "type": "array"
+     },
      "operation": {
       "enum": [
        "rename",
@@ -9774,7 +9798,6 @@
      }
     },
     "required": [
-     "ids",
      "operation"
     ],
     "title": "AssistTaskIn",
@@ -9951,14 +9974,38 @@
        "format": "uuid",
        "type": "string"
       },
-      "maxItems": 5000,
       "title": "Ids",
+      "type": "array"
+     },
+     "folder_id": {
+      "anyOf": [
+       {
+        "type": "integer"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Folder Id"
+     },
+     "subfolders": {
+      "default": false,
+      "title": "Subfolders",
+      "type": "boolean"
+     },
+     "excluded_ids": {
+      "items": {
+       "format": "uuid",
+       "type": "string"
+      },
+      "title": "Excluded Ids",
       "type": "array"
      },
      "scope": {
       "default": "selection",
       "enum": [
        "selection",
+       "folder",
        "all"
       ],
       "title": "Scope",

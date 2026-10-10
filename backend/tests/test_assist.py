@@ -130,6 +130,27 @@ def test_without_a_model_names_come_from_the_titles():
     assert "No AI model" in result["note"]
 
 
+@pytest.mark.parametrize("folder_scope", [False, True])
+def test_renaming_processes_every_document_beyond_the_old_100_limit(api, folder_scope):
+    work = folder("Large folder")
+    docs = [make_doc(f"Old title {n}", work, day=date(2026, 1, 1)) for n in range(121)]
+    outside = make_doc("Outside", None)
+    scope = {"folder_id": work.pk} if folder_scope else {"ids": [str(d.uuid) for d in docs]}
+    response = api.post(
+        "/api/v1/assist/tasks",
+        {**scope, "operation": "rename", "instruction": 'Name them "New title YYYY-MM"'},
+        content_type=J,
+    )
+    assert response.status_code == 200, response.content
+    task = AssistTask.objects.get(pk=response.json()["id"])
+    assert len(task.documents) == 121 and str(outside.uuid) not in task.documents
+    tasks.run(task.pk)
+    task.refresh_from_db()
+    assert task.state == "done", task.error
+    proposed = [i["document"] for g in tasks.result_of(task)["groups"] for i in g["items"]]
+    assert set(proposed) == {str(d.uuid) for d in docs}
+
+
 # --- Custom ------------------------------------------------------------------------------------
 
 

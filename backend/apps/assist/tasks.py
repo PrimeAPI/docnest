@@ -46,7 +46,6 @@ from apps.taxonomy.models import DocumentType
 
 logger = logging.getLogger(__name__)
 
-MAX_DOCUMENTS = 100
 RESULT_AAD = b"assist-result"
 INSTRUCTION_AAD = b"assist-instruction"
 MONTH_NAMES = "Januar Februar März April Mai Juni Juli August September Oktober November Dezember".split()  # noqa: SIM905
@@ -378,7 +377,7 @@ def run(task_id: int) -> None:
     AssistTask.objects.filter(pk=task.pk).update(state=AssistTask.State.RUNNING)
     model = get_ai_model() if ai.configured() else ""
     documents = list(
-        Document.objects.filter(uuid__in=task.documents[:MAX_DOCUMENTS], deleted_at__isnull=True)
+        Document.objects.filter(uuid__in=task.documents, deleted_at__isnull=True)
         .select_related("correspondent", "document_type", "series")
         .prefetch_related("tags")
         .order_by("document_date", "uploaded_at")
