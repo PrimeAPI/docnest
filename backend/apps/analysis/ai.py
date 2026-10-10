@@ -412,17 +412,24 @@ FOLDER_INSTRUCTIONS = """\
 Documents in the folder "{parent}" should be sorted into its subfolders.
 Existing subfolders: {existing}
 
-Groups of documents that are not sorted yet:
+Groups of documents:
 {groups}
 
 For each group give the subfolder it belongs in:
-- the name of an existing subfolder when the group fits it, spelled exactly as listed;
-- otherwise a new short German folder name: a plural noun for what the documents are,
-  e.g. "Verdienstabrechnungen", "Kontoauszüge", "Versicherungen", "Arbeitsverträge".
-  No sender name unless needed to tell folders apart, no year, at most 3 words;
-- the same name for groups that belong together;
-- null when a group does not fit any folder and is too unlike the others for a new one.
+{rules}
 """
+
+FOLDER_RULE_EXISTING = (
+    "- the name of an existing subfolder when the group fits it, spelled exactly as listed;"
+)
+FOLDER_RULE_NEW = """\
+- otherwise a new short {language} folder name: a plural noun for what the documents are,
+  e.g. {examples}.
+  No sender name unless needed to tell folders apart, no year, at most 3 words;
+- the same name for groups that belong together;"""
+FOLDER_EXAMPLES = '"Verdienstabrechnungen", "Kontoauszüge", "Versicherungen", "Arbeitsverträge"'
+FOLDER_RULE_NO_NEW = "- no new folders: only existing subfolders;"
+FOLDER_RULE_NULL = "- null when a group does not fit any folder{new}."
 
 MAX_FOLDER_NAME = 60
 
@@ -436,9 +443,18 @@ class FolderGroup:
 
 
 def name_folders(
-    model: str, *, parent: str, existing: list[str], groups: list[FolderGroup]
+    model: str,
+    *,
+    parent: str,
+    existing: list[str],
+    groups: list[FolderGroup],
+    style: str | None = None,
+    allow_new: bool = True,
 ) -> list[str | None]:
-    """Ask `model` for a subfolder name per group: an existing one, a new one, or None."""
+    """Ask `model` for a subfolder name per group: an existing one, a new one, or None.
+
+    `style` is how the user wants new names ("English", "kurz"), from `read_filing_wishes`.
+    """
     lines = []
     for number, group in enumerate(groups, start=1):
         about = ", ".join(
@@ -452,10 +468,21 @@ def name_folders(
         )
         titles = "; ".join(f'"{t}"' for t in group.titles[:4])
         lines.append(f"{number}. {about}: {titles}")
+    new_rule = FOLDER_RULE_NEW.format(
+        language="German", examples=FOLDER_EXAMPLES if not style else f"{FOLDER_EXAMPLES}, but {style}"
+    )
+    if style:
+        new_rule = new_rule.replace("short German folder name", f"short folder name ({style})")
+    rules = [
+        FOLDER_RULE_EXISTING,
+        new_rule if allow_new else FOLDER_RULE_NO_NEW,
+        FOLDER_RULE_NULL.format(new=" and is too unlike the others for a new one" if allow_new else ""),
+    ]
     prompt = FOLDER_INSTRUCTIONS.format(
         parent=parent or "(top level)",
         existing=", ".join(f'"{name}"' for name in existing[:40]) or "none",
         groups="\n".join(lines),
+        rules="\n".join(rules),
     )
     payload: dict[str, Any] = {
         "model": model,
@@ -497,3 +524,116 @@ def name_folders(
         if 0 <= index < len(groups) and name:
             names[index] = name.replace("/", "-").replace("\\", "-")
     return names
+
+
+# --- The user's filing wishes ---------------------------------------------------------------
+#
+# A small model does not follow free-text wishes while it does another job (naming folders):
+# it answers as if they were not there. It does turn a wish into simple rules well. So the
+# wish is read on its own, into rules the code applies, and every rule is checked against
+# the wish's own words so that nothing the model makes up gets through.
+
+WISHES_SYSTEM_PROMPT = "You turn a user's wish about filing documents into rules. You answer with JSON only."
+
+WISHES_INSTRUCTIONS = """\
+The user files documents into folders and wrote this wish:
+"{wish}"
+
+Turn it into rules. Each rule says which documents it is about and the folder they go into.
+- "documents": a sender, document type or title word named in the wish
+- "folder": the folder name from the wish (use "/" for a subfolder), or null when the
+  documents should stay where they are
+- "style": how new folder names should look (e.g. "English", "short"), or null
+Only use what the wish says. No rules when it says nothing about which documents go where."""
+
+MAX_INSTRUCTIONS = 300
+MAX_WISH_RULES = 10
+MENTIONED = 85  # a rule's words count as being in the wish from this rapidfuzz partial ratio on
+
+
+@dataclass(frozen=True)
+class WishRule:
+    documents: str  # a sender, type or title word ("ACME", "Rechnungen")
+    folder: str | None  # "Wohnung/Nebenkosten"; None: stay where they are
+
+
+@dataclass(frozen=True)
+class FilingWishes:
+    rules: list[WishRule]
+    style: str | None
+
+
+def _mentioned(words: str, wish: str) -> bool:
+    words, wish = words.casefold().strip(), wish.casefold()
+    return len(words) >= 2 and (
+        words in wish or (len(words) >= 4 and fuzz.partial_ratio(words, wish) >= MENTIONED)
+    )
+
+
+def read_filing_wishes(model: str, wish: str) -> FilingWishes:
+    """Rules from the user's wish ("Stadtwerke nach Wohnung/Nebenkosten"); only what the wish names."""
+    wish = " ".join(wish.split())[:MAX_INSTRUCTIONS]
+    if not wish:
+        return FilingWishes([], None)
+    payload: dict[str, Any] = {
+        "model": model,
+        "messages": [
+            {"role": "system", "content": WISHES_SYSTEM_PROMPT},
+            {"role": "user", "content": WISHES_INSTRUCTIONS.format(wish=wish.replace('"', "'"))},
+        ],
+        "format": {
+            "type": "object",
+            "properties": {
+                "rules": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "documents": {"type": "string"},
+                            "folder": {"type": ["string", "null"]},
+                        },
+                        "required": ["documents", "folder"],
+                    },
+                },
+                "style": {"type": ["string", "null"]},
+            },
+            "required": ["rules", "style"],
+        },
+        "stream": False,
+        "think": False,
+        "keep_alive": "10m",
+        "options": {
+            "temperature": 0,
+            "num_ctx": settings.AI_CONTEXT_TOKENS,
+            "num_predict": MAX_ANSWER_TOKENS,
+        },
+    }
+    data = _chat(payload)
+    style = clean(data.get("style"), limit=40)
+    if style and not _mentioned(style, wish):
+        style = None
+    rules: list[WishRule] = []
+    answers = data.get("rules")
+    for item in answers if isinstance(answers, list) else []:
+        if not isinstance(item, dict):
+            continue
+        documents = clean(item.get("documents"), limit=80)
+        if (
+            not documents
+            or documents.casefold() in ("all", "alle", "alles")
+            or not _mentioned(documents, wish)
+        ):
+            continue  # "all documents" is never a rule: that is what the suggestion itself is for
+        folder = clean(item.get("folder"), limit=MAX_FOLDER_NAME * 2)
+        if folder is not None:
+            segments = [s.strip() for s in folder.replace("\\", "/").split("/") if s.strip()]
+            # Every folder name must come from the wish, and a style is not a folder ("English").
+            if not segments or not all(_mentioned(s, wish) for s in segments):
+                continue
+            if folder.casefold() in {documents.casefold(), (style or "").casefold()}:
+                continue  # "leave the X" read as "X into X", or the style taken for a folder
+            folder = "/".join(seg[:MAX_FOLDER_NAME] for seg in segments)
+        rules.append(WishRule(documents, folder))
+        if len(rules) >= MAX_WISH_RULES:
+            break
+    return FilingWishes(rules, style)

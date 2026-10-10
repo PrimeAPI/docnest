@@ -59,8 +59,8 @@ def payslips(work: Folder, year: int, months: range) -> list[Document]:
     ]
 
 
-def suggestion_for(docs: list[Document]) -> filing.Suggestion:
-    return filing.suggest([str(d.uuid) for d in docs])
+def suggestion_for(docs: list[Document], **options) -> filing.Suggestion:
+    return filing.suggest([str(d.uuid) for d in docs], filing.Options(**options))
 
 
 def target(group: filing.Group) -> str:
@@ -138,7 +138,7 @@ def test_the_ai_model_names_new_folders_and_may_merge_groups(settings, monkeypat
     ]
     asked = {}
 
-    def fake(model, *, parent, existing, groups):
+    def fake(model, *, parent, existing, groups, **options):
         asked.update(parent=parent, groups=groups)
         return ["Lohn und Gehalt"] * len(groups)
 
@@ -230,3 +230,181 @@ def test_select_all_takes_the_folder_but_not_its_subfolders(api):
     make_doc("Tiefer", folder("Archiv", work))
     body = api.get(f"/api/v1/documents/ids?folder={work.pk}").json()
     assert body["total"] == 30 and set(body["ids"]) == {str(d.uuid) for d in direct}
+
+
+def test_instructions_become_rules_that_place_the_documents_they_name(settings, monkeypatch):
+    settings.OLLAMA_URL = "http://ollama:11434"
+    set_ai_model("qwen3-vl:4b-instruct")
+    work = folder("Work")
+    contracts = folder("Arbeitsvertrag", work)
+    make_doc("Arbeitsvertrag", contracts, sender="ACME GmbH", type_slug="contract", day=date(2024, 1, 1))
+    change = make_doc("Änderung Arbeitsvertrag", work, sender="ACME GmbH", type_slug="contract")
+    slips = payslips(work, 2026, range(1, 4))
+    menu = make_doc("Kantinenplan", work, sender="Kantine")
+    menu2 = make_doc("Kantinenplan Juli", work, sender="Kantine")
+    bank = [make_doc(f"Kontoauszug {i}", work, sender="Sparkasse") for i in (1, 2)]
+    asked = {}
+
+    def read(model, wish):
+        asked["wish"] = wish
+        return ai.FilingWishes(
+            [
+                ai.WishRule("Verdienstabrechnungen", "Arbeit/Gehalt"),
+                ai.WishRule("Kantine", None),
+                ai.WishRule("Vodafone", "Handy"),
+            ],
+            "English",
+        )
+
+    def name(model, *, groups, style=None, **kw):
+        asked["style"] = style
+        return ["Bank statements"] * len(groups)
+
+    monkeypatch.setattr(ai, "read_filing_wishes", read)
+    monkeypatch.setattr(ai, "name_folders", name)
+    result = suggestion_for(
+        [*slips, change, menu, menu2, *bank], instructions="  Gehalt  nach Arbeit/Gehalt "
+    )
+
+    assert asked == {"wish": "Gehalt nach Arbeit/Gehalt", "style": "English"}
+    targets = {target(g): {d.uuid for d in g.docs} for g in result.groups}
+    # The rule's folders are new below the base; a monthly series still gets its year.
+    assert targets["Work/Arbeit/Gehalt/2026"] == {str(d.uuid) for d in slips}
+    # Documents the instructions do not name are suggested as usual.
+    assert targets["Arbeitsvertrag"] == {str(change.uuid)}
+    assert targets["Work/Bank statements"] == {str(d.uuid) for d in bank}
+    assert {d.uuid for d in result.unassigned} == {str(menu.uuid), str(menu2.uuid)}
+    assert result.understood == [
+        "Verdienstabrechnungen → Arbeit/Gehalt (3 documents)",
+        "Kantine → stay where they are (2 documents)",
+        "Vodafone → Handy (0 documents)",
+        "New folder names: English",
+    ]
+
+
+def test_a_rule_reuses_an_existing_folder_anywhere_below_the_base(settings, monkeypatch):
+    settings.OLLAMA_URL = "http://ollama:11434"
+    set_ai_model("qwen3-vl:4b-instruct")
+    work = folder("Work")
+    contract = folder("Vertrag", folder("Arbeit", work))
+    change = make_doc("Änderung Arbeitsvertrag", work, sender="ACME GmbH", type_slug="contract")
+    monkeypatch.setattr(
+        ai, "read_filing_wishes", lambda m, w: ai.FilingWishes([ai.WishRule("ACME", "Vertrag")], None)
+    )
+    monkeypatch.setattr(ai, "name_folders", lambda model, *, groups, **kw: [None] * len(groups))
+
+    [group] = suggestion_for([change], instructions="ACME in Vertrag").groups
+    assert group.anchor_id == contract.pk and group.new == []
+    # One document is enough when the user asked for it, also for a new folder.
+    [group] = suggestion_for([change], instructions="ACME in Vertrag", new_folders=True).groups
+    assert group.reason.startswith("as you asked")
+
+
+def test_wish_rules_only_keep_what_the_wish_says(monkeypatch):
+    answer = {
+        "rules": [
+            {"documents": "ACME", "folder": "Arbeit"},
+            {"documents": "all", "folder": None},  # never "everything"
+            {"documents": "Vodafone", "folder": "Telefon"},  # not in the wish
+            {"documents": "Stadtwerke", "folder": "English"},  # the style, not a folder
+            {"documents": "ACME", "folder": "ACME"},  # "leave ACME" misread
+        ],
+        "style": "English",
+    }
+    monkeypatch.setattr(ai, "_chat", lambda payload: answer)
+    wishes = ai.read_filing_wishes("m", "Alles von ACME nach Arbeit, Stadtwerke auch. English names")
+    assert wishes == ai.FilingWishes([ai.WishRule("ACME", "Arbeit")], "English")
+    assert ai.read_filing_wishes("m", "   ") == ai.FilingWishes([], None)
+
+
+def test_switches_turn_off_year_folders_and_new_folders():
+    work = folder("Work")
+    slips = payslips(work, 2026, range(1, 4))
+    assert [target(g) for g in suggestion_for(slips, year_folders=False).groups] == [
+        "Work/Verdienstabrechnung"
+    ]
+    assert suggestion_for(slips, new_folders=False).groups == []
+
+    # Without new folders, documents still go into existing ones, and their existing year folders only.
+    statements = folder("Verdienstabrechnungen", work)
+    folder("2026", statements)
+    payslips(statements, 2025, range(1, 2))
+    older = make_doc(
+        "Verdienstabrechnung Mai 2024", work, sender="ACME GmbH", type_slug="statement", day=date(2024, 5, 28)
+    )
+    targets = {target(g) for g in suggestion_for([*slips, older], new_folders=False).groups}
+    assert targets == {"2026", "Verdienstabrechnungen"}
+
+
+def test_instructions_without_a_model_are_not_used_and_say_so():
+    slips = payslips(folder("Work"), 2026, range(1, 4))
+    result = suggestion_for(slips, instructions="Alles nach Gehalt")
+    assert [target(g) for g in result.groups] == ["Work/Verdienstabrechnung/2026"]
+    assert "need an AI model" in result.note
+
+
+def test_the_naming_prompt_takes_the_style_and_no_new_folders(monkeypatch):
+    sent = {}
+
+    def chat(payload):
+        sent["prompt"] = payload["messages"][-1]["content"]
+        return {"groups": [{"group": 1, "folder": "Strom/Gas"}]}
+
+    monkeypatch.setattr(ai, "_chat", chat)
+    names = ai.name_folders(
+        "m",
+        parent="Wohnung",
+        existing=["Miete"],
+        groups=[ai.FolderGroup(["Abschlag Strom"], "Stadtwerke", None, 2)],
+        style="English",
+    )
+    assert names == ["Strom-Gas"]
+    assert "short folder name (English)" in sent["prompt"] and "German folder" not in sent["prompt"]
+    ai.name_folders("m", parent="", existing=[], groups=[], allow_new=False)
+    assert "no new folders" in sent["prompt"] and "short folder name" not in sent["prompt"]
+
+
+def test_remembered_options_are_the_default_and_stay_encrypted(api):
+    from apps.processing.models import SystemState
+
+    assert api.get("/api/v1/filing/preferences").json() == {
+        "instructions": "",
+        "year_folders": True,
+        "new_folders": True,
+    }
+    slips = payslips(folder("Work"), 2026, range(1, 3))
+    body = {
+        "ids": [str(d.uuid) for d in slips],
+        "instructions": "Keine Jahresordner für Stadtwerke",
+        "year_folders": False,
+        "remember": True,
+    }
+    r = api.post("/api/v1/filing/suggestions", body, content_type=J)
+    assert r.json()["options"]["instructions"] == "Keine Jahresordner für Stadtwerke"
+    assert api.get("/api/v1/filing/preferences").json() == {
+        "instructions": "Keine Jahresordner für Stadtwerke",
+        "year_folders": False,
+        "new_folders": True,
+    }
+    assert "Stadtwerke" not in str(SystemState.objects.get(key=filing.PREFERENCES_KEY).value)
+
+    # Without "remember" a request does not change the default.
+    api.post("/api/v1/filing/suggestions", {"ids": body["ids"], "instructions": "x"}, content_type=J)
+    assert api.get("/api/v1/filing/preferences").json()["instructions"] == "Keine Jahresordner für Stadtwerke"
+
+
+@pytest.mark.parametrize(
+    ("term", "matches"),
+    [
+        ("ACME", True),
+        ("acme verträge", True),
+        ("Arbeitsverträge", True),
+        ("Verträge", True),
+        ("Vodafone Verträge", False),
+        ("Rechnungen", False),
+        ("der", False),
+    ],
+)
+def test_which_documents_a_wish_names(term, matches):
+    doc = filing._doc(make_doc("Änderung Arbeitsvertrag", None, sender="ACME GmbH", type_slug="contract"))
+    assert filing.wish_matches(term, doc) is matches

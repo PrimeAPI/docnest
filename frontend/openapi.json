@@ -2325,6 +2325,34 @@
     ]
    }
   },
+  "/api/v1/filing/preferences": {
+   "get": {
+    "operationId": "apps_taxonomy_api_filing_preferences",
+    "summary": "Filing Preferences",
+    "parameters": [],
+    "responses": {
+     "200": {
+      "description": "OK",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/FilingOptionsOut"
+        }
+       }
+      }
+     }
+    },
+    "description": "The instructions and switches saved as the default for suggestions.",
+    "tags": [
+     "taxonomy"
+    ],
+    "security": [
+     {
+      "MfaSessionAuth": []
+     }
+    ]
+   }
+  },
   "/api/v1/filing/suggestions": {
    "post": {
     "operationId": "apps_taxonomy_api_suggest_filing",
@@ -7064,6 +7092,29 @@
     "title": "FolderPatch",
     "type": "object"
    },
+   "FilingOptionsOut": {
+    "properties": {
+     "instructions": {
+      "title": "Instructions",
+      "type": "string"
+     },
+     "year_folders": {
+      "title": "Year Folders",
+      "type": "boolean"
+     },
+     "new_folders": {
+      "title": "New Folders",
+      "type": "boolean"
+     }
+    },
+    "required": [
+     "instructions",
+     "year_folders",
+     "new_folders"
+    ],
+    "title": "FilingOptionsOut",
+    "type": "object"
+   },
    "FilingDocOut": {
     "properties": {
      "id": {
@@ -7193,6 +7244,16 @@
       "title": "Named By",
       "type": "string"
      },
+     "understood": {
+      "items": {
+       "type": "string"
+      },
+      "title": "Understood",
+      "type": "array"
+     },
+     "options": {
+      "$ref": "#/components/schemas/FilingOptionsOut"
+     },
      "groups": {
       "items": {
        "$ref": "#/components/schemas/FilingGroupOut"
@@ -7214,6 +7275,8 @@
      "error",
      "note",
      "named_by",
+     "understood",
+     "options",
      "groups",
      "unassigned"
     ],
@@ -7222,6 +7285,22 @@
    },
    "FilingSuggestIn": {
     "properties": {
+     "instructions": {
+      "default": "",
+      "maxLength": 1000,
+      "title": "Instructions",
+      "type": "string"
+     },
+     "year_folders": {
+      "default": true,
+      "title": "Year Folders",
+      "type": "boolean"
+     },
+     "new_folders": {
+      "default": true,
+      "title": "New Folders",
+      "type": "boolean"
+     },
      "ids": {
       "items": {
        "format": "uuid",
@@ -7229,6 +7308,11 @@
       },
       "title": "Ids",
       "type": "array"
+     },
+     "remember": {
+      "default": false,
+      "title": "Remember",
+      "type": "boolean"
      }
     },
     "required": [

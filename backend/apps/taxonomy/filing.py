@@ -19,7 +19,11 @@ How a suggestion comes about, per folder the selected documents lie in (the *bas
    it names them (and may still put a group into an existing subfolder, or give
    two groups the same name to merge them); otherwise the name comes from the
    titles. A new folder needs at least two documents.
-4. **Years.** Where the target already has year subfolders ("2025", "2026"), or a
+4. **The user's say.** Instructions ("Stadtwerke nach Wohnung/Nebenkosten") are
+   read by the model into rules — which documents go where, or stay — that are
+   applied before anything else, plus a style for new names. Switches turn off
+   year folders or new folders altogether.
+5. **Years.** Where the target already has year subfolders ("2025", "2026"), or a
    new folder receives documents from several years or recurring ones (a monthly
    series, titles naming a month), the documents go into a subfolder per year of
    their document date.
@@ -30,6 +34,7 @@ applies it (`apply`), and folders are created then.
 
 from __future__ import annotations
 
+import base64
 import logging
 import re
 from collections import Counter, defaultdict
@@ -41,8 +46,10 @@ from django.utils import timezone
 from rapidfuzz import fuzz
 
 from apps.analysis import ai
+from apps.crypto.aead import decrypt_text, encrypt_text
 from apps.documents import crypto_fields
 from apps.documents.models import Document, Source
+from apps.processing.models import SystemState
 from apps.processing.preferences import get_ai_model
 from apps.search import tokenizer
 from apps.taxonomy.models import FilingProposal, Folder, Series
@@ -53,6 +60,7 @@ logger = logging.getLogger(__name__)
 MAX_DOCUMENTS = 500
 MATCH_THRESHOLD = 2.0  # a group belongs in a folder from this score on (see `_score`)
 NAME_SIMILARITY = 85  # a title word "is" a folder name word from this rapidfuzz ratio on
+COMPOUND_SIMILARITY = 85  # a word is part of a longer title word ("vertrage" in "arbeitsvertrag")
 FREQUENT_WORD_SHARE = 0.3  # a folder's word counts as typical when this share of its documents has it
 MIN_NEW_FOLDER = 2  # documents needed for a new folder
 MIN_YEAR_SPLIT = 3  # documents needed before a new folder is divided into years
@@ -67,6 +75,56 @@ MONTHS = frozenset(
     ).split()
 )
 SKIP_TYPES = {"other"}  # "Other" says nothing about where a document belongs
+
+
+# --- What the user asks for ------------------------------------------------------------
+
+PREFERENCES_KEY = "filing_preferences"
+INSTRUCTIONS_AAD = b"filing-instructions"
+
+
+@dataclass(frozen=True)
+class Options:
+    instructions: str = ""  # free text for the AI model; it may name sender, folder or document names
+    year_folders: bool = True
+    new_folders: bool = True
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "instructions", " ".join(self.instructions.split())[: ai.MAX_INSTRUCTIONS])
+
+    def to_store(self) -> dict[str, object]:
+        """For storage: the instructions are encrypted like the titles they talk about."""
+        return {
+            "instructions_enc": base64.b64encode(
+                encrypt_text(self.instructions, aad=INSTRUCTIONS_AAD)
+            ).decode()
+            if self.instructions
+            else "",
+            "year_folders": self.year_folders,
+            "new_folders": self.new_folders,
+        }
+
+    @classmethod
+    def from_store(cls, value: object) -> Options:
+        if not isinstance(value, dict):
+            return cls()
+        encrypted = value.get("instructions_enc") or ""
+        return cls(
+            instructions=decrypt_text(base64.b64decode(encrypted), aad=INSTRUCTIONS_AAD) if encrypted else "",
+            year_folders=value.get("year_folders") is not False,
+            new_folders=value.get("new_folders") is not False,
+        )
+
+
+def load_preferences() -> Options:
+    """The options the user saved as their default."""
+    return Options.from_store(
+        SystemState.objects.filter(key=PREFERENCES_KEY).values_list("value", flat=True).first()
+    )
+
+
+def save_preferences(options: Options) -> None:
+    SystemState.objects.update_or_create(key=PREFERENCES_KEY, defaults={"value": options.to_store()})
 
 
 # --- Inputs ---------------------------------------------------------------------------
@@ -115,6 +173,7 @@ class Group:
     anchor_id: int | None = None  # deepest existing folder of the target (None: top level)
     new: list[str] = field(default_factory=list)  # folders to create below the anchor
     matched: bool = False  # placed into an existing subfolder
+    wished: bool = False  # placed by the user's instructions
 
     def top_words(self) -> set[str]:
         counts = Counter(w for d in self.docs for w in set(d.words))
@@ -362,13 +421,13 @@ def rule_name(group: Group) -> str | None:
     return first.series_name or first.corr_name or first.type_name
 
 
-def _apply_name(group: Group, name: str, tree: Tree, base: int | None) -> None:
+def _apply_name(group: Group, name: str, tree: Tree, base: int | None, *, allow_new: bool = True) -> None:
     existing = tree.child_named(base, name)
     if existing is not None:
         group.anchor_id = existing
         group.matched = True
         group.reason = f"{group.reason} — fits “{tree.folders[existing].name}”"
-    else:
+    elif allow_new:
         group.anchor_id = base
         group.new = [normalize_label(name)[:80]]
 
@@ -390,10 +449,11 @@ def _merge_same_target(groups: list[Group]) -> list[Group]:
 # --- Years ---------------------------------------------------------------------------------
 
 
-def split_years(group: Group, tree: Tree) -> list[Group]:
+def split_years(group: Group, tree: Tree, options: Options | None = None) -> list[Group]:
     """Divide a group into year subfolders where that is the folder's habit or the documents call for it."""
+    options = options or Options()
     years = {d.year for d in group.docs if d.year}
-    if not years:
+    if not years or not options.year_folders:
         return [group]
     if group.new:
         recurring = sum(d.recurring for d in group.docs) * 2 >= len(group.docs)
@@ -412,10 +472,12 @@ def split_years(group: Group, tree: Tree) -> list[Group]:
     for d in group.docs:
         by_year[d.year].append(d)
     for year, docs in sorted(by_year.items(), key=lambda item: item[0] or 0):
-        part = Group(docs, group.reason, group.anchor_id, list(group.new), group.matched)
+        part = Group(docs, group.reason, group.anchor_id, list(group.new), group.matched, group.wished)
         if year is not None:
             if not group.new and str(year) in existing_years:
                 part.anchor_id = existing_years[str(year)]
+            elif not group.new and not options.new_folders:
+                pass  # no folder for this year yet, and none may be created: it stays in the target
             else:
                 part.new = [*group.new, str(year)]
         out.append(part)
@@ -431,14 +493,25 @@ class Suggestion:
     unassigned: list[Doc]
     named_by: str  # "ai" | "rules"
     note: str = ""
+    understood: list[str] = field(default_factory=list)  # how the instructions were read, for the user
 
 
-def suggest(uuids: list[str]) -> Suggestion:
+def suggest(uuids: list[str], options: Options | None = None) -> Suggestion:
+    options = options or Options()
     docs = _load_docs(uuids)
     tree = Tree(exclude={d.pk for d in docs})
     model = get_ai_model() if ai.configured() else ""
     named_by = "ai" if model else "rules"
-    note = ""
+    notes: list[str] = []
+    wishes = ai.FilingWishes([], None)
+    if options.instructions and not model:
+        notes.append("Your instructions need an AI model (Settings → AI); without one they are not used.")
+    elif options.instructions:
+        try:
+            wishes = ai.read_filing_wishes(model, options.instructions)
+        except (ai.ModelUnavailable, ai.ModelFailed, ai.ModelCrashed) as exc:
+            notes.append(f"The AI model could not read your instructions ({str(exc)[:200]}).")
+    hits: Counter[int] = Counter()
     placed: list[Group] = []
     unassigned: list[Doc] = []
 
@@ -450,55 +523,164 @@ def suggest(uuids: list[str]) -> Suggestion:
             by_base[d.folder_id].append(d)
 
     for base, members in by_base.items():
+        wished, members = _apply_wishes(wishes.rules, members, tree, base, options, hits, unassigned)
         groups = group_documents(members)
         for g in groups:
             place(g, tree, base)
         open_groups = [g for g in groups if not g.matched]
         if open_groups and model:
             try:
-                _name_with_model(model, open_groups, tree, base)
+                _name_with_model(model, open_groups, tree, base, options, wishes.style)
             except (ai.ModelUnavailable, ai.ModelFailed, ai.ModelCrashed) as exc:
                 logger.warning(
                     "AI folder naming failed; names come from the titles", extra={"error": str(exc)}
                 )
                 named_by = "rules"
-                note = (
+                notes.append(
                     f"The AI model could not name the folders ({str(exc)[:200]}); names come from the titles."
                 )
                 for g in open_groups:
                     g.new = []
-                _name_with_rules(open_groups, tree, base)
+                _name_with_rules(open_groups, tree, base, options)
         elif open_groups:
-            _name_with_rules(open_groups, tree, base)
-        candidates = _merge_same_target([g for g in groups if g.matched or g.new])
+            _name_with_rules(open_groups, tree, base, options)
+        # What the user asked for comes first, so a merge keeps their reason.
+        candidates = _merge_same_target([*wished, *(g for g in groups if g.matched or g.new)])
         for g in groups:
             if not g.matched and not g.new:
                 unassigned.extend(g.docs)
         for g in candidates:
-            if g.new and len(g.docs) < MIN_NEW_FOLDER:
+            if g.new and len(g.docs) < MIN_NEW_FOLDER and not g.wished:
                 unassigned.extend(g.docs)
                 continue
-            placed.extend(split_years(g, tree))
+            placed.extend(split_years(g, tree, options))
 
     placed = [g for g in _merge_same_target(placed) if any(_moves(d, g) for d in g.docs)]
     for g in placed:
         unassigned.extend(d for d in g.docs if not _moves(d, g))
         g.docs = [d for d in g.docs if _moves(d, g)]
     placed.sort(key=lambda g: (tree.path(g.anchor_id).casefold(), [n.casefold() for n in g.new]))
-    return Suggestion(placed, unassigned, named_by, note)
+    understood = [
+        f"{rule.documents} → {rule.folder or 'stay where they are'}"
+        + f" ({hits[i]} document{'' if hits[i] == 1 else 's'})"
+        for i, rule in enumerate(wishes.rules)
+    ]
+    if wishes.style:
+        understood.append(f"New folder names: {wishes.style}")
+    if re.search(r"jahr|year", options.instructions, re.I) and model:
+        notes.append("Year folders are turned on and off with the switch below the instructions.")
+    if options.instructions and model and not understood and not notes:
+        notes.append(
+            "The AI model found nothing in your instructions it could act on. Name senders and folders."
+        )
+    return Suggestion(placed, unassigned, named_by, " ".join(notes), understood)
+
+
+# --- The user's instructions ----------------------------------------------------------------
+
+
+def wish_matches(term: str, d: Doc) -> bool:
+    """Whether a rule's "documents" ("ACME", "Rechnungen", "ACME Verträge") names this document.
+
+    Every word of the term must be found: in the sender, type or series name, or among the
+    title words, also inside a compound ("Verträge" in "Arbeitsvertrag").
+    """
+    names = [tokenizer.fold(n.casefold()) for n in (d.corr_name, d.type_name, d.series_name) if n]
+    title_words = [tokenizer.fold(w) for w in tokenizer.words(d.title)]
+    words = [tokenizer.fold(w) for w in tokenizer.words(term) if tokenizer.fold(w) not in tokenizer.STOPWORDS]
+
+    def found(t: str) -> bool:
+        if any(t in n or (len(t) >= 4 and fuzz.partial_ratio(t, n) >= NAME_SIMILARITY) for n in names):
+            return True
+        return any(
+            _similar(t, w)
+            or (len(t) >= 5 and len(w) > len(t) and fuzz.partial_ratio(t, w) >= COMPOUND_SIMILARITY)
+            for w in title_words
+        )
+
+    return bool(words) and all(found(t) for t in words)
+
+
+def _find_below(tree: Tree, base: int | None, name: str) -> int | None:
+    """The shallowest folder called `name` below `base`."""
+    level = [base]
+    while level:
+        for parent in level:
+            if (pk := tree.child_named(parent, name)) is not None:
+                return pk
+        level = [child for parent in level for child in tree.children.get(parent, [])]
+    return None
+
+
+def _wish_target(path: str, tree: Tree, base: int | None) -> tuple[int | None, list[str]]:
+    """(anchor, new folders) for "Wohnung/Nebenkosten" below `base`, reusing existing folders."""
+    names = [normalize_label(n)[:80] for n in path.split("/") if normalize_label(n)]
+    anchor = _find_below(tree, base, names[0]) if names else None
+    if anchor is None:
+        return base, names
+    rest = names[1:]
+    while rest and (child := tree.child_named(anchor, rest[0])) is not None:
+        anchor, rest = child, rest[1:]
+    return anchor, rest
+
+
+def _apply_wishes(
+    rules: list[ai.WishRule],
+    docs: list[Doc],
+    tree: Tree,
+    base: int | None,
+    options: Options,
+    hits: Counter[int],
+    unassigned: list[Doc],
+) -> tuple[list[Group], list[Doc]]:
+    """Take the documents the instructions name out of `docs`: (their groups, the rest)."""
+    if not rules:
+        return [], docs
+    groups: dict[int, Group] = {}
+    rest: list[Doc] = []
+    for d in docs:
+        index = next((i for i, rule in enumerate(rules) if wish_matches(rule.documents, d)), None)
+        if index is None:
+            rest.append(d)
+            continue
+        hits[index] += 1
+        rule = rules[index]
+        if rule.folder is None:
+            unassigned.append(d)
+            continue
+        if index not in groups:
+            anchor, new = _wish_target(rule.folder, tree, base)
+            if (new and not options.new_folders) or tree.depth(anchor) + len(new) > MAX_FOLDER_DEPTH:
+                anchor, new = None, []  # cannot be done: the document is left alone
+            groups[index] = Group(
+                [],
+                f"as you asked: {rule.documents} → {rule.folder}",
+                anchor,
+                new,
+                matched=not new,
+                wished=True,
+            )
+        group = groups[index]
+        if group.anchor_id is None and not group.new:
+            unassigned.append(d)
+        else:
+            group.docs.append(d)
+    return [g for g in groups.values() if g.docs], rest
 
 
 def _moves(d: Doc, g: Group) -> bool:
     return bool(g.new) or g.anchor_id != d.folder_id
 
 
-def _name_with_rules(groups: list[Group], tree: Tree, base: int | None) -> None:
+def _name_with_rules(groups: list[Group], tree: Tree, base: int | None, options: Options) -> None:
     for g in groups:
-        if len(g.docs) >= MIN_NEW_FOLDER and (name := rule_name(g)):
-            _apply_name(g, name, tree, base)
+        if not g.matched and len(g.docs) >= MIN_NEW_FOLDER and (name := rule_name(g)):
+            _apply_name(g, name, tree, base, allow_new=options.new_folders)
 
 
-def _name_with_model(model: str, groups: list[Group], tree: Tree, base: int | None) -> None:
+def _name_with_model(
+    model: str, groups: list[Group], tree: Tree, base: int | None, options: Options, style: str | None
+) -> None:
     # Biggest groups first: when there are too many to ask about, the small ones wait.
     ordered = sorted(groups, key=lambda g: -len(g.docs))[:MAX_MODEL_GROUPS]
     existing = [tree.folders[pk].name for pk in tree.subfolders(base)]
@@ -506,6 +688,8 @@ def _name_with_model(model: str, groups: list[Group], tree: Tree, base: int | No
         model,
         parent=tree.path(base),
         existing=existing,
+        style=style,
+        allow_new=options.new_folders,
         groups=[
             ai.FolderGroup(
                 titles=[d.title for d in g.docs[:4]],
@@ -518,9 +702,9 @@ def _name_with_model(model: str, groups: list[Group], tree: Tree, base: int | No
     )
     for g, name in zip(ordered, names, strict=True):
         if name and not YEAR.match(name):
-            _apply_name(g, name, tree, base)
+            _apply_name(g, name, tree, base, allow_new=options.new_folders)
     # A group the model left out of a new folder still gets one when it is big enough on its own.
-    _name_with_rules([g for g in groups if g not in ordered], tree, base)
+    _name_with_rules([g for g in groups if g not in ordered], tree, base, options)
 
 
 # --- Job and storage --------------------------------------------------------------------------
@@ -540,6 +724,7 @@ def to_result(s: Suggestion) -> dict[str, object]:
         "unassigned": [d.uuid for d in s.unassigned],
         "named_by": s.named_by,
         "note": s.note,
+        "understood": s.understood,
     }
 
 
@@ -548,7 +733,9 @@ def run_proposal(proposal_id: int) -> None:
     if proposal is None or proposal.state != FilingProposal.State.PENDING:
         return
     try:
-        result = to_result(suggest([str(u) for u in proposal.documents]))
+        result = to_result(
+            suggest([str(u) for u in proposal.documents], Options.from_store(proposal.options))
+        )
     except Exception as exc:
         logger.exception("filing suggestion failed", extra={"proposal": proposal_id})
         proposal.state = FilingProposal.State.FAILED

@@ -812,6 +812,26 @@ export interface paths {
         patch: operations["apps_taxonomy_api_update_folder"];
         trace?: never;
     };
+    "/api/v1/filing/preferences": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Filing Preferences
+         * @description The instructions and switches saved as the default for suggestions.
+         */
+        get: operations["apps_taxonomy_api_filing_preferences"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/filing/suggestions": {
         parameters: {
             query?: never;
@@ -2397,6 +2417,15 @@ export interface components {
              */
             move_to_root: boolean;
         };
+        /** FilingOptionsOut */
+        FilingOptionsOut: {
+            /** Instructions */
+            instructions: string;
+            /** Year Folders */
+            year_folders: boolean;
+            /** New Folders */
+            new_folders: boolean;
+        };
         /** FilingDocOut */
         FilingDocOut: {
             /**
@@ -2440,6 +2469,9 @@ export interface components {
             note: string;
             /** Named By */
             named_by: string;
+            /** Understood */
+            understood: string[];
+            options: components["schemas"]["FilingOptionsOut"];
             /** Groups */
             groups: components["schemas"]["FilingGroupOut"][];
             /** Unassigned */
@@ -2447,8 +2479,28 @@ export interface components {
         };
         /** FilingSuggestIn */
         FilingSuggestIn: {
+            /**
+             * Instructions
+             * @default
+             */
+            instructions: string;
+            /**
+             * Year Folders
+             * @default true
+             */
+            year_folders: boolean;
+            /**
+             * New Folders
+             * @default true
+             */
+            new_folders: boolean;
             /** Ids */
             ids: string[];
+            /**
+             * Remember
+             * @default false
+             */
+            remember: boolean;
         };
         /** FilingApplyOut */
         FilingApplyOut: {
@@ -4130,6 +4182,26 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["FolderOut"];
+                };
+            };
+        };
+    };
+    apps_taxonomy_api_filing_preferences: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FilingOptionsOut"];
                 };
             };
         };

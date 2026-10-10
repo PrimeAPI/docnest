@@ -7,7 +7,7 @@ from django.db import IntegrityError, transaction
 from django.db.models import Count, Q
 from django.http import HttpRequest
 from django.utils.text import slugify
-from ninja import Router, Schema
+from ninja import Field, Router, Schema
 from ninja.errors import HttpError
 
 from apps.analysis.analyze import DISMISSED_TAGS_KEY
@@ -252,8 +252,21 @@ def delete_folder(request: HttpRequest, folder_id: int) -> dict[str, bool]:
 # --- Filing suggestions ----------------------------------------------------------
 
 
-class FilingSuggestIn(Schema):
+class FilingOptionsIn(Schema):
+    instructions: str = Field("", max_length=1000)  # cut to what the model is given
+    year_folders: bool = True
+    new_folders: bool = True
+
+
+class FilingOptionsOut(Schema):
+    instructions: str
+    year_folders: bool
+    new_folders: bool
+
+
+class FilingSuggestIn(FilingOptionsIn):
     ids: list[UUID]
+    remember: bool = False  # keep these options as the default for next time
 
 
 class FilingDocOut(Schema):
@@ -279,6 +292,8 @@ class FilingProposalOut(Schema):
     error: str
     note: str
     named_by: str
+    understood: list[str]  # how the AI model read the instructions
+    options: FilingOptionsOut
     groups: list[FilingGroupOut]
     unassigned: list[FilingDocOut]
 
@@ -345,9 +360,23 @@ def _proposal_out(proposal: FilingProposal) -> FilingProposalOut:
         error=proposal.error,
         note=result.get("note", ""),
         named_by=result.get("named_by", ""),
+        understood=result.get("understood", []),
+        options=_options_out(filing.Options.from_store(proposal.options)),
         groups=groups,
         unassigned=out(result.get("unassigned", [])),
     )
+
+
+def _options_out(options: filing.Options) -> FilingOptionsOut:
+    return FilingOptionsOut(
+        instructions=options.instructions, year_folders=options.year_folders, new_folders=options.new_folders
+    )
+
+
+@router.get("/filing/preferences", response=FilingOptionsOut)
+def filing_preferences(request: HttpRequest) -> FilingOptionsOut:
+    """The instructions and switches saved as the default for suggestions."""
+    return _options_out(filing.load_preferences())
 
 
 @router.post("/filing/suggestions", response=FilingProposalOut)
@@ -356,7 +385,10 @@ def suggest_filing(request: HttpRequest, data: FilingSuggestIn) -> FilingProposa
     ids = [str(i) for i in data.ids[: filing.MAX_DOCUMENTS]]
     if not ids:
         raise HttpError(400, "Select documents first")
-    proposal = FilingProposal.objects.create(documents=ids)
+    options = filing.Options(data.instructions, data.year_folders, data.new_folders)
+    if data.remember:
+        filing.save_preferences(options)
+    proposal = FilingProposal.objects.create(documents=ids, options=options.to_store())
     queue.enqueue(Job.Kind.SUGGEST_FILING, payload={"proposal": proposal.pk}, priority=10)
     return _proposal_out(proposal)
 

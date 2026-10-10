@@ -130,6 +130,7 @@ class FilingProposal(models.Model):
 
     state = models.CharField(max_length=10, choices=State.choices, default=State.PENDING)
     documents = models.JSONField(default=list)  # UUIDs of the selected documents
+    options = models.JSONField(default=dict, blank=True)  # see apps.taxonomy.filing.Options.to_store
     result = models.JSONField(default=dict, blank=True)  # see apps.taxonomy.filing.suggest
     error = models.CharField(max_length=500, blank=True)
     created_at = models.DateTimeField(default=timezone.now)

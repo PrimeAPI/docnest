@@ -11,7 +11,7 @@
 - **Full-text search over scans** — finds words that exist only as pixels in a scanned letter, with prefix and German compound-word matching (`versicherung` finds `Fahrzeugversicherung`).
 - **Automatic analysis, no AI service** — rules, heuristics and a small classifier that learns from your corrections. Nothing leaves your server.
 - **Upload by email** — forward an email to a mailbox set up for DocNest: attachments become documents, the email is kept as a PDF and gives the AI model context. Only senders on your allowlist are imported.
-- **Filing suggestions** — select the loose documents of a folder and DocNest proposes subfolders for them (`Work` → `Work/Verdienstabrechnungen/2026`), learning what each folder means from what is already in it. You review and rename before anything moves.
+- **Filing suggestions** — select the loose documents of a folder and DocNest proposes subfolders for them (`Work` → `Work/Verdienstabrechnungen/2026`), learning what each folder means from what is already in it. Add instructions (“Stadtwerke nach Wohnung/Nebenkosten”, “English folder names”) and ask again; move single documents between the suggested folders; nothing moves until you apply.
 - **Series** — monthly payslips, phone bills or bank statements are grouped and labelled (“March 2026”), with gaps highlighted.
 - **Human override** — every automatic value can be corrected; your edits are never overwritten.
 - **Proton Drive storage** — documents are stored end-to-end encrypted in your Proton Drive; DocNest holds files only temporarily.
