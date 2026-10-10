@@ -16,7 +16,8 @@ import { DateInput } from "@/components/ui/date-input";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input, Label, Select } from "@/components/ui/input";
 import { EmptyState, ErrorNote, PageHeader, Spinner } from "@/components/ui/misc";
-import { BulkBar, DocumentRow } from "@/features/documents/document-row";
+import { BulkBar } from "@/features/documents/document-row";
+import { DocumentCollection, useViewMode, ViewSwitch } from "@/features/documents/document-views";
 import { usePaperLocations } from "@/features/paper/paper";
 import { buildTree, flatten } from "@/features/folders/tree";
 import { cn, dotClass } from "@/lib/utils";
@@ -65,6 +66,7 @@ export function DocumentsPage() {
   const docs = useDocuments(query);
   const [showFilters, setShowFilters] = useState(false);
   const [selected, setSelected] = useState<string[]>([]);
+  const [view, setView] = useViewMode("page");
 
   const update = (fn: (p: URLSearchParams) => void) => {
     const next = new URLSearchParams(params);
@@ -87,6 +89,7 @@ export function DocumentsPage() {
         description={docs.data ? `${total} document${total === 1 ? "" : "s"}` : " "}
         actions={
           <>
+            <ViewSwitch mode={view} onChange={setView} />
             <Select
               value={query.sort}
               onChange={(e) => update((p) => p.set("sort", e.target.value))}
@@ -120,16 +123,13 @@ export function DocumentsPage() {
             </EmptyState>
           ) : (
             <>
-              <Card className={cn("overflow-hidden", docs.isFetching && "opacity-70")}>
-                {docs.data.items.map((d) => (
-                  <DocumentRow
-                    key={d.id}
-                    doc={d}
-                    selected={selected.includes(d.id)}
-                    onSelect={(v) => setSelected((s) => (v ? [...s, d.id] : s.filter((x) => x !== d.id)))}
-                  />
-                ))}
-              </Card>
+              <DocumentCollection
+                docs={docs.data.items}
+                mode={view}
+                dim={docs.isFetching}
+                selected={selected}
+                onSelect={(id, v) => setSelected((s) => (v ? [...s, id] : s.filter((x) => x !== id)))}
+              />
               {pages > 1 && (
                 <div className="mt-4 flex items-center justify-between text-sm">
                   <span className="text-muted-foreground">

@@ -18,6 +18,7 @@ import {
 } from "@/components/ui/dialog";
 import { Input, Select, Textarea } from "@/components/ui/input";
 import { Spinner } from "@/components/ui/misc";
+import { type DocItem, DocItems, useViewMode, ViewSwitch, type ViewMode } from "@/features/documents/document-views";
 import { cn, formatDate } from "@/lib/utils";
 
 type Proposal = Schemas["FilingProposalOut"];
@@ -65,6 +66,7 @@ function SuggestFilingDialog({ ids, onClose, onDone }: { ids: string[]; onClose:
   // Where each document goes: the index of a suggested folder, or STAY.
   const [assigned, setAssigned] = useState<Record<string, number>>({});
   const [renames, setRenames] = useState<Renames>({});
+  const [view, setView] = useViewMode("dialog");
 
   const preferences = useQuery({
     queryKey: ["filing-preferences"],
@@ -206,6 +208,9 @@ function SuggestFilingDialog({ ids, onClose, onDone }: { ids: string[]; onClose:
                     No suggestions: these documents have too little in common, or nothing that fits a subfolder.
                   </p>
                 )}
+                <div className="flex justify-end">
+                  <ViewSwitch mode={view} onChange={setView} />
+                </div>
                 {data.groups.map((group, index) => (
                   <GroupCard
                     key={`${group.anchor_id}-${group.new.join("/")}`}
@@ -215,11 +220,12 @@ function SuggestFilingDialog({ ids, onClose, onDone }: { ids: string[]; onClose:
                     names={namesOf(group, renames)}
                     targets={targets}
                     groups={data.groups}
+                    view={view}
                     onMove={moveDoc}
                     onRename={(i, name) => setRenames((r) => ({ ...r, [segmentKey(group, i)]: name }))}
                   />
                 ))}
-                <StaySection docs={docsIn(STAY)} targets={targets} groups={data.groups} onMove={moveDoc} />
+                <StaySection docs={docsIn(STAY)} targets={targets} groups={data.groups} view={view} onMove={moveDoc} />
               </>
             )}
           </div>
@@ -318,6 +324,7 @@ function GroupCard({
   names,
   targets,
   groups,
+  view,
   onMove,
   onRename,
 }: {
@@ -327,6 +334,7 @@ function GroupCard({
   names: string[];
   targets: string[];
   groups: Group[];
+  view: ViewMode;
   onMove: (id: string, to: number) => void;
   onRename: (index: number, name: string) => void;
 }) {
@@ -371,11 +379,7 @@ function GroupCard({
       </div>
       {group.reason && <p className="mt-1 text-xs text-muted-foreground">{group.reason}</p>}
       {docs.length ? (
-        <ul className="mt-2 flex flex-col divide-y">
-          {docs.map((d) => (
-            <DocRow key={d.id} doc={d} at={index} targets={targets} groups={groups} onMove={onMove} />
-          ))}
-        </ul>
+        <DocItems className="mt-2" mode={view} items={docs.map((d) => item(d, index, targets, groups, onMove))} />
       ) : (
         <p className="mt-2 text-xs text-muted-foreground">Nothing goes here. Pick this folder on a document to add it.</p>
       )}
@@ -387,11 +391,13 @@ function StaySection({
   docs,
   targets,
   groups,
+  view,
   onMove,
 }: {
   docs: Doc[];
   targets: string[];
   groups: Group[];
+  view: ViewMode;
   onMove: (id: string, to: number) => void;
 }) {
   const [open, setOpen] = useState(false);
@@ -403,39 +409,24 @@ function StaySection({
         {docs.length} document{docs.length === 1 ? "" : "s"} stay where they are
       </button>
       {open && (
-        <ul className="mt-2 flex flex-col divide-y">
-          {docs.map((d) => (
-            <DocRow key={d.id} doc={d} at={STAY} targets={targets} groups={groups} onMove={onMove} />
-          ))}
-        </ul>
+        <DocItems className="mt-2" mode={view} items={docs.map((d) => item(d, STAY, targets, groups, onMove))} />
       )}
     </div>
   );
 }
 
-function DocRow({
-  doc,
-  at,
-  targets,
-  groups,
-  onMove,
-}: {
-  doc: Doc;
-  at: number;
-  targets: string[];
-  groups: Group[];
-  onMove: (id: string, to: number) => void;
-}) {
-  return (
-    <li className="flex flex-col gap-1 py-1.5 sm:flex-row sm:items-center sm:gap-3">
-      <span className="flex min-w-0 flex-1 items-baseline gap-2">
-        <a href={`/documents/${doc.id}`} target="_blank" rel="noreferrer" className="truncate hover:underline">
-          {doc.title}
-        </a>
-        <span className="shrink-0 text-xs text-muted-foreground">
-          {[doc.correspondent, doc.document_date && formatDate(doc.document_date)].filter(Boolean).join(" · ")}
-        </span>
-      </span>
+function item(
+  doc: Doc,
+  at: number,
+  targets: string[],
+  groups: Group[],
+  onMove: (id: string, to: number) => void,
+): DocItem {
+  return {
+    id: doc.id,
+    title: doc.title,
+    detail: [doc.correspondent, doc.document_date && formatDate(doc.document_date)].filter(Boolean).join(" · "),
+    control: (
       <Select
         value={at}
         onChange={(e) => onMove(doc.id, Number(e.target.value))}
@@ -451,6 +442,6 @@ function DocRow({
           ) : null,
         )}
       </Select>
-    </li>
-  );
+    ),
+  };
 }

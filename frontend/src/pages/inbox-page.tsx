@@ -5,7 +5,8 @@ import { useBulkAction, useDocuments, useOverview } from "@/api/queries";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { EmptyState, PageHeader, Spinner } from "@/components/ui/misc";
-import { BulkBar, DocumentRow } from "@/features/documents/document-row";
+import { BulkBar } from "@/features/documents/document-row";
+import { DocumentCollection, useViewMode, ViewSwitch } from "@/features/documents/document-views";
 import { cn } from "@/lib/utils";
 
 function StatCard({
@@ -44,6 +45,7 @@ export function InboxPage() {
   const suggestions = useDocuments({ sort: "-uploaded", page_size: 50 });
   const bulk = useBulkAction();
   const [selected, setSelected] = useState<string[]>([]);
+  const [view, setView] = useViewMode("page");
   const navigate = useNavigate();
 
   const items = inbox.data?.items ?? [];
@@ -55,8 +57,10 @@ export function InboxPage() {
         title="Inbox"
         description="New documents that have not been handled yet."
         actions={
-          items.length > 0 && (
-            <>
+          <>
+            <ViewSwitch mode={view} onChange={setView} />
+            {items.length > 0 && (
+              <>
               <Button
                 variant="outline"
                 onClick={() => bulk.mutate({ ids: items.map((d) => d.id), action: "mark_read" })}
@@ -66,8 +70,9 @@ export function InboxPage() {
               <Button onClick={() => navigate("/inbox/review")}>
                 <ListChecks /> Review inbox ({items.length})
               </Button>
-            </>
-          )
+              </>
+            )}
+          </>
         }
       />
       <div className="mb-6 grid grid-cols-2 gap-3 lg:grid-cols-5">
@@ -79,21 +84,21 @@ export function InboxPage() {
       </div>
 
       {(failed.data?.total ?? 0) > 0 && (
-        <Card className="mb-6 border-destructive/40">
-          <div className="flex items-center gap-2 border-b px-4 py-3 text-sm font-medium text-destructive">
+        <section className="mb-6">
+          <h2 className="mb-2 flex items-center gap-2 text-sm font-medium text-destructive">
             <AlertCircle className="size-4" /> Processing failed for {failed.data?.total} document(s)
-          </div>
-          {failed.data?.items.map((d) => <DocumentRow key={d.id} doc={d} />)}
-        </Card>
+          </h2>
+          <DocumentCollection docs={failed.data?.items ?? []} mode={view} className="border-destructive/40" />
+        </section>
       )}
 
       {withSuggestion.length > 0 && (
-        <Card className="mb-6">
-          <div className="flex items-center gap-2 border-b px-4 py-3 text-sm font-medium">
+        <section className="mb-6">
+          <h2 className="mb-2 flex items-center gap-2 text-sm font-medium">
             <Layers className="size-4" /> Possible series — open to confirm
-          </div>
-          {withSuggestion.map((d) => <DocumentRow key={d.id} doc={d} />)}
-        </Card>
+          </h2>
+          <DocumentCollection docs={withSuggestion} mode={view} />
+        </section>
       )}
 
       <BulkBar ids={selected} onClear={() => setSelected([])} />
@@ -104,16 +109,7 @@ export function InboxPage() {
           New scans appear here automatically. Mark documents as done or todo to move them out of the inbox.
         </EmptyState>
       ) : (
-        <Card className="overflow-hidden">
-          {items.map((d) => (
-            <DocumentRow
-              key={d.id}
-              doc={d}
-              selected={selected.includes(d.id)}
-              onSelect={(v) => setSelected((s) => (v ? [...s, d.id] : s.filter((x) => x !== d.id)))}
-            />
-          ))}
-        </Card>
+        <DocumentCollection docs={items} mode={view} selected={selected} onSelect={(id, v) => setSelected((s) => (v ? [...s, id] : s.filter((x) => x !== id)))} />
       )}
     </>
   );

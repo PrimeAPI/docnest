@@ -18,6 +18,7 @@ import {
 } from "@/components/ui/dialog";
 import { Input, Label, Select } from "@/components/ui/input";
 import { Spinner } from "@/components/ui/misc";
+import { DocItems, useViewMode, ViewSwitch } from "@/features/documents/document-views";
 import { cn, colorClass, dotClass, formatDate, formatDateTime, iconClass } from "@/lib/utils";
 
 export type PaperLocation = Schemas["LocationOut"];
@@ -264,6 +265,7 @@ export function PutAwayDialog({ open, onOpenChange }: { open: boolean; onOpenCha
   const [newCapacity, setNewCapacity] = useState("500");
   const [excluded, setExcluded] = useState<Set<string>>(new Set());
   const [mode, setMode] = useState<"existing" | "new">("existing");
+  const [view, setView] = useViewMode("dialog");
   // Filing folders left out this time; everything (including unfiled documents) is in by default.
   const [skipped, setSkipped] = useState<Set<FilingKey>>(new Set());
 
@@ -425,11 +427,17 @@ export function PutAwayDialog({ open, onOpenChange }: { open: boolean; onOpenCha
                 <span className="flex-1">
                   {chosen.length} of {docs.length} documents
                 </span>
-                <span>Scanned · sheets</span>
+                <span className="hidden sm:inline">Scanned · sheets</span>
+                <ViewSwitch mode={view} onChange={setView} />
               </div>
-              <ul className="max-h-72 divide-y overflow-y-auto text-sm">
-                {[...docs].reverse().map((d) => (
-                  <li key={d.id} className="flex items-center gap-2 px-3 py-1.5">
+              <DocItems
+                className="max-h-72 overflow-y-auto px-3 text-sm"
+                mode={view}
+                items={[...docs].reverse().map((d) => ({
+                  id: d.id,
+                  title: d.title,
+                  detail: [d.correspondent, `${formatDate(d.uploaded_at)} · ${d.sheets} sh.`].filter(Boolean).join(" · "),
+                  lead: (
                     <Checkbox
                       checked={!excluded.has(d.id)}
                       onCheckedChange={(v) =>
@@ -442,16 +450,9 @@ export function PutAwayDialog({ open, onOpenChange }: { open: boolean; onOpenCha
                       }
                       aria-label={`Put away ${d.title}`}
                     />
-                    <span className="min-w-0 flex-1 truncate" title={d.correspondent ? `${d.title} · ${d.correspondent}` : d.title}>
-                      {d.title}
-                      {d.correspondent && <span className="text-muted-foreground"> · {d.correspondent}</span>}
-                    </span>
-                    <span className="shrink-0 text-xs tabular-nums text-muted-foreground">
-                      {formatDate(d.uploaded_at)} · {d.sheets}
-                    </span>
-                  </li>
-                ))}
-              </ul>
+                  ),
+                }))}
+              />
               <p className="border-t px-3 py-1.5 text-xs text-muted-foreground">
                 Listed as they will lie in the location: newest on top.
               </p>

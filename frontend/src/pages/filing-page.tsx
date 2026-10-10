@@ -8,6 +8,7 @@ import {
   FolderTree,
   Inbox,
   Pencil,
+  Search,
   Trash2,
 } from "lucide-react";
 import { type ReactNode, useCallback, useEffect, useMemo, useState } from "react";
@@ -28,7 +29,8 @@ import {
 } from "@/components/ui/dialog";
 import { Input, Label, Select } from "@/components/ui/input";
 import { EmptyState, ErrorNote, PageHeader, Spinner } from "@/components/ui/misc";
-import { BulkBar, DocumentRow } from "@/features/documents/document-row";
+import { BulkBar } from "@/features/documents/document-row";
+import { DocumentCollection, useViewMode, ViewSwitch } from "@/features/documents/document-views";
 import { createFolderPath, useMoveDocuments } from "@/features/folders/folder-ui";
 import {
   ancestry,
@@ -572,8 +574,18 @@ function DocumentList({
   const [selected, setSelected] = useState<string[]>([]);
   // "Select all": every document of the list, also those on other pages.
   const [all, setAll] = useState<string[] | null>(null);
-  const docs = useDocuments({ ...query, sort: "-uploaded", page, page_size: PAGE_SIZE });
-  const key = JSON.stringify(query);
+  const [view, setView] = useViewMode("page");
+  // Quick search in this list: title, sender and the text of the pages.
+  const [search, setSearch] = useState("");
+  const [text, setText] = useState("");
+  useEffect(() => {
+    const t = setTimeout(() => setText(search.trim()), 300);
+    return () => clearTimeout(t);
+  }, [search]);
+  useEffect(() => setSearch(""), [JSON.stringify(query)]); // eslint-disable-line react-hooks/exhaustive-deps
+  const listQuery = { ...query, ...(text ? { q: text, sort: "relevance" as const } : { sort: "-uploaded" as const }) };
+  const docs = useDocuments({ ...listQuery, page, page_size: PAGE_SIZE });
+  const key = JSON.stringify(listQuery);
   const total = docs.data?.total ?? 0;
   useEffect(() => {
     setPage(1);
@@ -598,7 +610,7 @@ function DocumentList({
   const selectAll = async (on: boolean) => {
     if (!on) return clear();
     try {
-      const r = await call(() => client.GET("/api/v1/documents/ids", { params: { query: { ...query, sort: "-uploaded" } } }));
+      const r = await call(() => client.GET("/api/v1/documents/ids", { params: { query: listQuery } }));
       setAll(r.ids);
       setSelected(r.ids);
       if (r.total > r.ids.length) toast.info(`Selected the first ${r.ids.length} of ${r.total} documents.`);
@@ -608,32 +620,49 @@ function DocumentList({
   };
 
   if (docs.isPending) return <Spinner />;
-  if (!docs.data?.items.length) {
+  if (!docs.data?.items.length && !text && !search) {
     return <p className="rounded-lg border border-dashed px-4 py-8 text-center text-sm text-muted-foreground">{empty}</p>;
   }
+  const items = docs.data?.items ?? [];
   return (
     <>
+      <div className="mb-3 flex flex-wrap items-center gap-2">
+        <div className="relative min-w-48 flex-1">
+          <Search className="pointer-events-none absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+          <Input
+            type="search"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            onKeyDown={(e) => e.key === "Escape" && setSearch("")}
+            placeholder={query.unfiled ? "Search unfiled documents…" : "Search in this folder — title, sender, text…"}
+            aria-label="Search in this list"
+            className="pl-8"
+          />
+        </div>
+        <ViewSwitch mode={view} onChange={setView} />
+      </div>
       <BulkBar ids={selection} onClear={clear} />
-      <label className="mb-2 flex w-fit cursor-pointer items-center gap-2 px-3 text-sm text-muted-foreground">
-        <Checkbox checked={all !== null && selection.length === all.length} onCheckedChange={(v) => selectAll(v === true)} />
-        Select all {total} document{total === 1 ? "" : "s"}
-        {query.folder && !query.subfolders ? " in this folder" : ""}
-      </label>
-      <Card className={cn("overflow-hidden", docs.isFetching && "opacity-70")}>
-        {docs.data.items.map((d) => {
-          const isSelected = selection.includes(d.id);
-          return (
-            <DocumentRow
-              key={d.id}
-              doc={d}
-              showFolder={showFolder}
-              selected={isSelected}
-              dragIds={isSelected ? selection : undefined}
-              onSelect={(v) => setSelected((s) => (v ? [...s, d.id] : s.filter((x) => x !== d.id)))}
-            />
-          );
-        })}
-      </Card>
+      {items.length > 0 && (
+        <label className="mb-2 flex w-fit cursor-pointer items-center gap-2 px-3 text-sm text-muted-foreground">
+          <Checkbox checked={all !== null && selection.length === all.length} onCheckedChange={(v) => selectAll(v === true)} />
+          Select all {total} {text ? "found " : ""}document{total === 1 ? "" : "s"}
+          {query.folder && !query.subfolders ? " in this folder" : ""}
+        </label>
+      )}
+      {items.length ? (
+        <DocumentCollection
+          docs={items}
+          mode={view}
+          showFolder={showFolder}
+          dim={docs.isFetching}
+          selected={selection}
+          onSelect={(id, v) => setSelected((s) => (v ? [...s, id] : s.filter((x) => x !== id)))}
+        />
+      ) : (
+        <p className="rounded-lg border border-dashed px-4 py-8 text-center text-sm text-muted-foreground">
+          Nothing matches “{search}”. Prefixes like “versich” work too.
+        </p>
+      )}
       {pages > 1 && (
         <div className="mt-4 flex items-center justify-between text-sm">
           <span className="text-muted-foreground">
