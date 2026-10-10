@@ -99,9 +99,10 @@ export function MailInboxCard() {
           {saved?.enabled ? <Badge variant="success">on</Badge> : <Badge variant="muted">off</Badge>}
         </CardTitle>
         <CardDescription>
-          Forward an email to a mailbox set up only for DocNest. Its attached PDFs and pictures become documents, and the
-          email itself is kept as a PDF. The text of the email helps the AI model understand the attachments. The
-          documents are processed as usual but never filed into a folder. Imported emails are deleted from the mailbox.
+          Forward an email to a mailbox set up only for DocNest. Each email becomes one document: its attached PDFs and
+          pictures first, then the email itself. The text of the email helps the AI model understand the attachments.
+          The document is processed as usual but never filed into a folder. Imported emails are deleted from the
+          mailbox.
         </CardDescription>
       </CardHeader>
       <CardContent>

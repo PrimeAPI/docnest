@@ -108,18 +108,37 @@ def imap(monkeypatch):
     return FakeImap
 
 
-def test_forwarded_email_becomes_documents_and_is_deleted(imap):
-    imap.messages = {1: forwarded(pdf=text_pdf(["Jahresabrechnung Strom 2026"]))}
+def test_forwarded_email_becomes_one_document_and_is_deleted(imap, monkeypatch):
+    rendered = []
+    to_pdf = inbox.render.to_pdf
+    monkeypatch.setattr(
+        inbox.render, "to_pdf", lambda view, target: (rendered.append(view), to_pdf(view, target))
+    )
+    picture_page = picture((1200, 1600))
+    imap.messages = {
+        1: forwarded(
+            pdf=text_pdf(["Jahresabrechnung Strom 2026"], extra_pages=[["Seite 2"]]),
+            extra=[(picture_page, "image", "jpeg", "Zähler.jpg"), (b"PK..", "application", "zip", "x.zip")],
+        )
+    }
 
     inbox.fetch()
 
     assert imap.messages == {}  # deleted after import
     mail = MailMessage.objects.get()
-    docs = list(Document.objects.filter(mail=mail).order_by("pk"))
-    assert len(docs) == 2  # the email as a PDF, and its attachment
-    assert mail.email_document == docs[0]
-    assert all(d.folder is None and not d.has_paper for d in docs)  # never filed
-    assert Job.objects.filter(kind=Job.Kind.INTAKE_DOCUMENT).count() == 2
+    [doc] = Document.objects.filter(mail=mail)  # the attachments and the email, together
+    assert mail.email_document == doc
+    assert doc.folder is None and not doc.has_paper  # never filed
+    assert Job.objects.filter(kind=Job.Kind.INTAKE_DOCUMENT).count() == 1
+    # The email's pages say where each attachment is: they come first.
+    assert rendered[0].attachments == [
+        "Rechnung.pdf (pages 1–2)",
+        "Zähler.jpg (page 3)",
+        "x.zip (not imported: not a PDF or picture)",
+    ]
+    pipeline.run(doc.pk, intake_only=True)
+    doc.refresh_from_db()
+    assert doc.page_count == 4  # two PDF pages, the picture, the email
     assert decrypt_text(mail.subject_enc) == "Fwd: Ihre Rechnung"
     assert "Stadtwerke Delmenhorst" in inbox.context_text(mail)
     assert config.status()["ok"] is True and config.status()["imported_total"] == 1
@@ -180,7 +199,7 @@ def test_a_half_imported_email_is_resumed_not_duplicated(imap):
     mail.imported_at = None  # as if the worker stopped before finishing
     mail.save()
     _, created = inbox.import_message(raw)
-    assert created == 0 and Document.objects.count() == 2
+    assert created == 0 and Document.objects.count() == 1
     _, created = inbox.import_message(raw)
     assert created == 0 and MailMessage.objects.count() == 1
 
@@ -214,12 +233,11 @@ def test_the_ai_model_reads_attachments_with_the_email_as_context(imap, settings
     monkeypatch.setattr(ai, "analyze", fake)
     imap.messages = {1: forwarded(pdf=text_pdf(["Jahresabrechnung Strom 2026"]))}
     inbox.fetch()
-    for document in Document.objects.order_by("pk"):
-        pipeline.run(document.pk, intake_only=True)
-        pipeline.run(document.pk)
-    email_context, attachment_context = seen  # the email first, then its attachment
-    assert email_context == ""
-    assert "Stadtwerke Delmenhorst <rechnung@stadtwerke.de>" in attachment_context
+    document = Document.objects.get()
+    pipeline.run(document.pk, intake_only=True)
+    pipeline.run(document.pk)
+    [context] = seen
+    assert "Stadtwerke Delmenhorst <rechnung@stadtwerke.de>" in context
 
 
 def test_settings_api_requires_allowlist_and_hides_password(api):
@@ -259,8 +277,8 @@ def test_settings_api_requires_allowlist_and_hides_password(api):
 def test_document_detail_shows_the_email(api, imap):
     imap.messages = {1: forwarded(pdf=text_pdf(["Rechnung"]))}
     inbox.fetch()
-    attachment = Document.objects.exclude(pk=MailMessage.objects.get().email_document_id).get()
-    body = api.get(f"/api/v1/documents/{attachment.uuid}").json()
+    document = Document.objects.get()
+    body = api.get(f"/api/v1/documents/{document.uuid}").json()
     assert body["received_from"] == "Email"
     assert body["mail"]["subject"] == "Fwd: Ihre Rechnung"
-    assert [d["is_email"] for d in body["mail"]["documents"]] == [True, False]
+    assert [d["is_email"] for d in body["mail"]["documents"]] == [True]

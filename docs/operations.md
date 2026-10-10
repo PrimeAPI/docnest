@@ -79,7 +79,7 @@ Document images and text go only to `DOCNEST_OLLAMA_URL` — by default the Olla
 
 ## Email inbox
 
-Forwarded emails can be imported: attachments become documents, the email itself is kept as a PDF.
+Forwarded emails can be imported: each becomes one document, its attachments first and the email itself on the last pages.
 
 1. Create a mailbox (or an alias with its own IMAP login) that is used **only** by DocNest: imported emails are deleted from it.
 2. Under Settings → Email enter the IMAP server, port, encryption, user and password, and the addresses you forward from as *Allowed senders* (`me@example.org`, or `@example.org` for a whole domain). Nothing is imported while that list is empty; mail from other senders stays in the mailbox untouched.

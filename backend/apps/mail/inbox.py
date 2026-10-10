@@ -1,10 +1,12 @@
 """Import documents from an email inbox over IMAP.
 
 The user forwards an email to an inbox set up for DocNest. Every few minutes the
-worker looks into it: for each message from an allowed sender, the email itself
-is stored as a PDF document and every attached PDF or picture becomes a document
-of its own; all of them go through the normal processing, with the email as
-context for the AI model, but are never filed into a folder. Imported messages
+worker looks into it: each message from an allowed sender becomes one document —
+its attached PDFs and pictures first, in order, then the email itself as PDF
+pages (which name the pages each attachment is on). The document goes through the
+normal processing, with the email as context for the AI model, but is never filed
+into a folder. Attachments come first so that the preview and the analysis see
+the actual letter or invoice rather than the email around it. Imported messages
 are deleted from the inbox. Messages from other senders are left untouched and
 are never imported.
 """
@@ -29,6 +31,7 @@ from email.message import EmailMessage, Message
 from email.parser import BytesParser
 from pathlib import Path
 
+import pikepdf
 from django.conf import settings
 from django.utils import timezone
 from PIL import Image, UnidentifiedImageError
@@ -36,7 +39,7 @@ from PIL import Image, UnidentifiedImageError
 from apps.audit.service import audit
 from apps.crypto.aead import decrypt_text, encrypt_text
 from apps.crypto.keys import Purpose, derive
-from apps.documents.intake import IntakeError, IntakeRequest, receive
+from apps.documents.intake import IntakeError, IntakeRequest, inspect_part, receive_files
 from apps.documents.models import Document
 from apps.mail import config, render
 from apps.mail.models import MailMessage
@@ -173,15 +176,27 @@ def context_text(mail: MailMessage) -> str:
     return "\n".join(parts).strip()[:CONTEXT_CHARS]
 
 
+def _page_count(path: Path) -> int:
+    try:
+        with pikepdf.open(path) as pdf:
+            return len(pdf.pages)
+    except pikepdf.PdfError:
+        return 1  # a picture, or a PDF the assembly will judge
+
+
+def _pages(first: int, count: int) -> str:
+    return f"page {first}" if count == 1 else f"pages {first}–{first + count - 1}"
+
+
 def import_message(raw: bytes) -> tuple[MailMessage, int]:
-    """Store the email and its attachments as documents. Returns the message and the documents created."""
+    """Store the email with its attachments as one document. Returns the message and 1 if it is new."""
     parsed = parse(raw)
     view = parsed.view
     mail = MailMessage.objects.filter(message_key=parsed.message_key).first()
     if mail is not None and mail.imported_at is not None:
         return mail, 0  # imported before; deleting it from the inbox had failed
     if mail is None:
-        # An interrupted import is resumed: the same files are recognised as duplicates.
+        # An interrupted import is resumed: the same files are recognised as a duplicate.
         mail = MailMessage.objects.create(
             message_key=parsed.message_key,
             subject_enc=encrypt_text(view.subject),
@@ -189,30 +204,44 @@ def import_message(raw: bytes) -> tuple[MailMessage, int]:
             text_enc=encrypt_text(view.text),
             sent_at=view.sent_at,
         )
-    created = 0
     work = Path(tempfile.mkdtemp(prefix="mail-", dir=settings.WORK_DIR))
     try:
-        pdf = work / "email.pdf"
-        render.to_pdf(view, pdf)
-        subject = re.sub(r"[\\/:*?\"<>|]+", " ", view.subject).strip()[:120] or "E-Mail"
-        result = receive(pdf, IntakeRequest(filename=f"{subject}.pdf", mail_id=mail.pk))
-        created += result.created
-        mail.email_document = result.document
-        mail.save(update_fields=["email_document"])
+        files: list[Path] = []
+        placed: list[tuple[str, str]] = []  # (attachment name, where it is in the document), in order
+        page = 1
         for position, attachment in enumerate(parsed.attachments, start=1):
             path = work / f"attachment-{position}"
             path.write_bytes(attachment.data)
             try:
-                result = receive(path, IntakeRequest(filename=attachment.name, mail_id=mail.pk))
+                inspect_part(path)
             except IntakeError as exc:
                 logger.warning("email attachment not imported", extra={"error": str(exc)})
+                placed.append((attachment.name, "not imported: unreadable"))
                 continue
-            created += result.created
+            count = _page_count(path)
+            files.append(path)
+            placed.append((attachment.name, _pages(page, count)))
+            page += count
+        # The listed names hold the imported attachments in the same order, among files that were not.
+        names = []
+        for name in view.attachments:
+            if placed and placed[0][0] == name:
+                names.append(f"{name} ({placed.pop(0)[1]})")
+            else:
+                names.append(name)
+        view.attachments = names
+        pdf = work / "email.pdf"
+        render.to_pdf(view, pdf)
+        files.append(pdf)
+        subject = re.sub(r"[\\/:*?\"<>|]+", " ", view.subject).strip()[:120] or "E-Mail"
+        result = receive_files(files, IntakeRequest(filename=f"{subject}.pdf", mail_id=mail.pk))
+        mail.email_document = result.document
+        mail.save(update_fields=["email_document"])
     finally:
         shutil.rmtree(work, ignore_errors=True)
     mail.imported_at = timezone.now()
     mail.save(update_fields=["imported_at"])
-    return mail, created
+    return mail, int(result.created)
 
 
 # --- IMAP ---------------------------------------------------------------------------------------

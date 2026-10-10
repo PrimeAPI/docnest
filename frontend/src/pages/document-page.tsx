@@ -447,6 +447,9 @@ function Details({ doc }: { doc: DocumentDetail }) {
             {doc.mail.sender}
             {doc.mail.sent_at ? ` · ${formatDateTime(doc.mail.sent_at)}` : ""}
           </p>
+          {doc.mail.documents.length === 1 && doc.page_count > 1 && (
+            <p className="mt-2 text-xs text-muted-foreground">The attachments come first; the email is on the last pages.</p>
+          )}
           {doc.mail.documents.length > 1 && (
             <ul className="mt-2 flex flex-col gap-1">
               {doc.mail.documents.map((d) => (

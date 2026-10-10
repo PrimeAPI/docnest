@@ -476,11 +476,9 @@ def _model_fields(document: Document, work: Path, text: str) -> tuple[ai.ModelFi
 
 
 def _mail_context(document: Document) -> str:
-    """The email an attachment arrived with; the email document itself needs no reminder of it."""
+    """The email a document arrived with: its attachments come first, the email's own pages last."""
     mail = inbox.document_mail(document)
-    if mail is None or mail.email_document_id == document.pk:
-        return ""
-    return inbox.context_text(mail)
+    return inbox.context_text(mail) if mail is not None else ""
 
 
 def stage_store(document: Document, work: Path) -> None:
