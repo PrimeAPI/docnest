@@ -354,12 +354,44 @@ test("documents are filed into folders by drag & drop and the move dialog", asyn
 
   // and move it on with the dialog
   await tree.getByRole("link", { name: "Strom" }).click();
-  await page.getByRole("checkbox", { name: "Select" }).first().check();
+  await page.getByRole("checkbox", { name: "Select", exact: true }).first().check();
   await page.getByRole("button", { name: "Move to…" }).click();
   await page.getByPlaceholder("Search folders…").fill("haushalt");
   await page.getByRole("dialog").getByRole("button", { name: "Haushalt", exact: true }).click();
   await expect(page.getByText(/Moved 1 document to Haushalt/)).toBeVisible();
   await expect(page.getByText("This folder is empty")).toBeVisible();
+
+  // PDFs dropped while a folder is open are uploaded into that folder
+  // (a trailing comment makes the fixture a new document rather than a duplicate)
+  const pdf = Buffer.concat([readFileSync("fixtures/invoice-scan.pdf"), Buffer.from("\n% filing drop\n")]);
+  const dataTransfer = await page.evaluateHandle((b64) => {
+    const bytes = Uint8Array.from(atob(b64), (c) => c.charCodeAt(0));
+    const dt = new DataTransfer();
+    dt.items.add(new File([bytes], "strom-abschlag.pdf", { type: "application/pdf" }));
+    return dt;
+  }, pdf.toString("base64"));
+  await page.dispatchEvent("main", "dragenter", { dataTransfer });
+  await expect(page.getByText("Into Haushalt / Strom")).toBeVisible();
+  await page.dispatchEvent("main", "drop", { dataTransfer });
+  await expect(page.getByText("strom-abschlag.pdf uploaded")).toBeVisible();
+  await expect(async () => {
+    await page.reload();
+    await expect(page.getByText("This folder is empty")).toHaveCount(0, { timeout: 5000 });
+  }).toPass({ timeout: 60_000, intervals: [3000] });
+
+  // once a document is selected, clicking another one selects it instead of opening it
+  await tree.getByRole("link", { name: /^Private/ }).click();
+  const boxes = page.getByRole("checkbox", { name: "Select", exact: true });
+  await boxes.first().check();
+  await page.locator("main a[href^='/documents/']").filter({ hasText: /\S/ }).nth(1).click();
+  await expect(page).toHaveURL(/\/filing\//);
+  await expect(boxes.nth(1)).toBeChecked();
+  // and clicking a selected one deselects it; with nothing selected, a click opens again
+  await page.locator("main a[href^='/documents/']").filter({ hasText: /\S/ }).nth(1).click();
+  await expect(boxes.nth(1)).not.toBeChecked();
+  await boxes.first().uncheck();
+  await page.locator("main a[href^='/documents/']").filter({ hasText: /\S/ }).first().click();
+  await expect(page).toHaveURL(/\/documents\//);
 });
 
 test("scans are enhanced, the original stays available, and paper is put away", async ({ page, request }) => {

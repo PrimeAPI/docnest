@@ -1,9 +1,9 @@
 import { FileUp, Upload } from "lucide-react";
 import { createContext, type ReactNode, useCallback, useContext, useEffect, useRef, useState } from "react";
-import { useNavigate } from "react-router";
+import { useMatch, useNavigate } from "react-router";
 import { toast } from "sonner";
 import { ensureCsrf } from "@/api/client";
-import { useFolders, useInvalidateDocuments } from "@/api/queries";
+import { type FolderOut, useFolders, useInvalidateDocuments } from "@/api/queries";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import {
@@ -50,7 +50,7 @@ function isPdf(file: File) {
   return file.type === "application/pdf" || file.name.toLowerCase().endsWith(".pdf");
 }
 
-type UploadContextValue = { openDialog: () => void; uploadFiles: (files: File[]) => void };
+type UploadContextValue = { openDialog: () => void; uploadFiles: (files: File[], target?: FolderOut | null) => void };
 const UploadContext = createContext<UploadContextValue | null>(null);
 
 export function useUpload() {
@@ -81,14 +81,19 @@ export function UploadProvider({ children }: { children: ReactNode }) {
   // A remembered folder may have been deleted meanwhile: fall back to unfiled.
   const folder = folders.data?.find((f) => f.id === options.folderId) ?? null;
 
+  // On the Filing page, files dropped while a folder (or Unfiled) is open go there.
+  const filing = useMatch("/filing/:folderId")?.params.folderId;
+  const openFolder = folders.data?.find((f) => String(f.id) === filing);
+  const dropFolder = filing === "unfiled" ? null : (openFolder ?? folder);
+
   const uploadOne = useCallback(
-    async (file: File) => {
+    async (file: File, target: FolderOut | null) => {
       const id = toast.loading(`Uploading ${file.name}…`);
       try {
         await ensureCsrf();
         const form = new FormData();
         form.append("file", file);
-        if (folder) form.append("folder_id", String(folder.id));
+        if (target) form.append("folder_id", String(target.id));
         form.append("todo", String(options.todo));
         form.append("important", String(options.important));
         const response = await fetch("/api/v1/documents/upload", {
@@ -107,18 +112,18 @@ export function UploadProvider({ children }: { children: ReactNode }) {
         toast.error(`${file.name}: ${(err as Error).message}`, { id });
       }
     },
-    [folder, options.todo, options.important, navigate],
+    [options.todo, options.important, navigate],
   );
 
   const uploadFiles = useCallback(
-    async (files: File[]) => {
+    async (files: File[], target: FolderOut | null = folder) => {
       const pdfs = files.filter(isPdf);
       const skipped = files.length - pdfs.length;
       if (skipped) toast.error(`${skipped} file(s) skipped — only PDF documents are supported.`);
-      for (const file of pdfs) await uploadOne(file);
+      for (const file of pdfs) await uploadOne(file, target);
       if (pdfs.length) invalidate();
     },
-    [uploadOne, invalidate],
+    [uploadOne, invalidate, folder],
   );
 
   // Window-wide drag & drop
@@ -150,7 +155,7 @@ export function UploadProvider({ children }: { children: ReactNode }) {
       dragDepth.current = 0;
       setDragging(false);
       setDialogOpen(false);
-      void uploadFiles(Array.from(e.dataTransfer?.files ?? []));
+      void uploadFiles(Array.from(e.dataTransfer?.files ?? []), dropFolder);
     };
     window.addEventListener("dragenter", onEnter);
     window.addEventListener("dragover", onOver);
@@ -162,7 +167,7 @@ export function UploadProvider({ children }: { children: ReactNode }) {
       window.removeEventListener("dragleave", onLeave);
       window.removeEventListener("drop", onDrop);
     };
-  }, [uploadFiles]);
+  }, [uploadFiles, dropFolder]);
 
   return (
     <UploadContext.Provider value={{ openDialog: () => setDialogOpen(true), uploadFiles }}>
@@ -187,7 +192,7 @@ export function UploadProvider({ children }: { children: ReactNode }) {
             <FileUp className="size-10 text-primary" />
             <div className="text-lg font-semibold">Drop PDFs to upload</div>
             <div className="text-sm text-muted-foreground">
-              Into <span className="font-medium text-foreground">{folder?.path ?? "Unfiled"}</span>
+              Into <span className="font-medium text-foreground">{dropFolder?.path ?? "Unfiled"}</span>
               {options.todo && " · as Todo"}
               {options.important && " · important"}
             </div>
@@ -235,7 +240,10 @@ export function UploadProvider({ children }: { children: ReactNode }) {
               />
               Mark as important
             </label>
-            <p className="text-xs text-muted-foreground">These settings are remembered for drag & drop uploads.</p>
+            <p className="text-xs text-muted-foreground">
+              These settings are remembered for drag & drop uploads. On the Filing page, dropped files go into the
+              open folder instead.
+            </p>
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setDialogOpen(false)}>

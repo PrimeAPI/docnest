@@ -29,6 +29,20 @@ import { dragDocuments } from "@/features/folders/tree";
 import { ReprocessDialog } from "@/features/processing/reprocess-dialog";
 import { cn, colorClass, formatDate, formatDateTime } from "@/lib/utils";
 
+/**
+ * Select mode: once any document is selected, clicking a document toggles it instead of opening it.
+ * Buttons keep their own action, and Ctrl/⌘-click still opens the document in a new tab.
+ */
+export function selectOnClick(selecting: boolean, selected: boolean, onSelect?: (checked: boolean) => void) {
+  if (!selecting || !onSelect) return undefined;
+  return (e: React.MouseEvent) => {
+    if (e.ctrlKey || e.metaKey || e.shiftKey || (e.target as HTMLElement).closest("button")) return;
+    e.preventDefault();
+    e.stopPropagation();
+    onSelect(!selected);
+  };
+}
+
 export function Thumbnail({ doc, className }: { doc: DocumentListItem; className?: string }) {
   const [failed, setFailed] = useState(false);
   const ready = doc.processing_state === "done" || doc.page_count > 0;
@@ -102,10 +116,13 @@ export function DocumentRow({
   onSelect,
   dragIds,
   showFolder = true,
+  selecting = false,
 }: {
   doc: DocumentListItem;
   selected?: boolean;
   onSelect?: (checked: boolean) => void;
+  /** Select mode: a click on the row selects it instead of opening it. */
+  selecting?: boolean;
   /** Documents dragged along when this row is dragged (defaults to just this one). */
   dragIds?: string[];
   showFolder?: boolean;
@@ -118,8 +135,10 @@ export function DocumentRow({
     <div
       draggable
       onDragStart={(e) => dragDocuments(e, dragIds?.length ? dragIds : [doc.id])}
+      onClickCapture={selectOnClick(selecting, selected ?? false, onSelect)}
       className={cn(
         "group flex items-start gap-3 border-b px-3 py-3 transition-colors last:border-b-0 hover:bg-muted/50",
+        selecting && "cursor-pointer select-none",
         selected && "bg-accent/50",
       )}
     >

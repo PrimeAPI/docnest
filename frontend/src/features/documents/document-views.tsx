@@ -4,7 +4,7 @@ import { Link } from "react-router";
 import type { DocumentListItem } from "@/api/queries";
 import { Card } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
-import { DocumentRow, StatusBadge, Thumbnail } from "@/features/documents/document-row";
+import { DocumentRow, StatusBadge, selectOnClick, Thumbnail } from "@/features/documents/document-row";
 import { dragDocuments } from "@/features/folders/tree";
 import { cn, formatDate } from "@/lib/utils";
 
@@ -91,12 +91,14 @@ export function DocumentCollection({
   const isSelected = (id: string) => selected?.includes(id) ?? false;
   const dragIds = (id: string) => (isSelected(id) && selected ? selected : [id]);
   const select = onSelect ? (id: string) => (v: boolean) => onSelect(id, v) : undefined;
+  // Select mode starts with the first selected document and ends when none is left.
+  const selecting = !!onSelect && !!selected?.length;
 
   if (mode === "cards") {
     return (
       <div className={cn("grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4 2xl:grid-cols-5", dim && "opacity-70", className)}>
         {docs.map((d) => (
-          <DocumentCard key={d.id} doc={d} selected={isSelected(d.id)} onSelect={select?.(d.id)} dragIds={dragIds(d.id)} showFolder={showFolder} />
+          <DocumentCard key={d.id} doc={d} selected={isSelected(d.id)} onSelect={select?.(d.id)} dragIds={dragIds(d.id)} showFolder={showFolder} selecting={selecting} />
         ))}
       </div>
     );
@@ -118,7 +120,7 @@ export function DocumentCollection({
           </thead>
           <tbody>
             {docs.map((d) => (
-              <ListRow key={d.id} doc={d} selected={isSelected(d.id)} onSelect={select?.(d.id)} dragIds={dragIds(d.id)} showFolder={showFolder} />
+              <ListRow key={d.id} doc={d} selected={isSelected(d.id)} onSelect={select?.(d.id)} dragIds={dragIds(d.id)} showFolder={showFolder} selecting={selecting} />
             ))}
           </tbody>
         </table>
@@ -135,6 +137,7 @@ export function DocumentCollection({
           selected={isSelected(d.id)}
           dragIds={isSelected(d.id) ? selected : undefined}
           onSelect={select?.(d.id)}
+          selecting={selecting}
         />
       ))}
     </Card>
@@ -147,14 +150,20 @@ type ItemProps = {
   onSelect?: (checked: boolean) => void;
   dragIds: string[];
   showFolder: boolean;
+  selecting: boolean;
 };
 
-function ListRow({ doc, selected, onSelect, dragIds, showFolder }: ItemProps) {
+function ListRow({ doc, selected, onSelect, dragIds, showFolder, selecting }: ItemProps) {
   return (
     <tr
       draggable
       onDragStart={(e) => dragDocuments(e, dragIds)}
-      className={cn("border-b last:border-b-0 hover:bg-muted/50", selected && "bg-accent/50")}
+      onClickCapture={selectOnClick(selecting, selected, onSelect)}
+      className={cn(
+        "border-b last:border-b-0 hover:bg-muted/50",
+        selecting && "cursor-pointer select-none",
+        selected && "bg-accent/50",
+      )}
     >
       {onSelect && (
         <td className="px-3 py-1.5 align-middle">
@@ -191,13 +200,15 @@ function ListRow({ doc, selected, onSelect, dragIds, showFolder }: ItemProps) {
   );
 }
 
-function DocumentCard({ doc, selected, onSelect, dragIds, showFolder }: ItemProps) {
+function DocumentCard({ doc, selected, onSelect, dragIds, showFolder, selecting }: ItemProps) {
   return (
     <div
       draggable
       onDragStart={(e) => dragDocuments(e, dragIds)}
+      onClickCapture={selectOnClick(selecting, selected, onSelect)}
       className={cn(
         "group relative flex min-w-0 flex-col overflow-hidden rounded-lg border bg-card transition-colors hover:border-primary/50",
+        selecting && "cursor-pointer select-none",
         selected && "border-primary ring-2 ring-primary/40",
       )}
     >
@@ -208,7 +219,7 @@ function DocumentCard({ doc, selected, onSelect, dragIds, showFolder }: ItemProp
         <div
           className={cn(
             "absolute left-2 top-2 rounded bg-card/90 p-1 shadow-sm",
-            !selected && "md:opacity-0 md:group-hover:opacity-100 md:focus-within:opacity-100",
+            !selected && !selecting && "md:opacity-0 md:group-hover:opacity-100 md:focus-within:opacity-100",
           )}
         >
           <Checkbox checked={selected} onCheckedChange={(v) => onSelect(v === true)} aria-label="Select" />
