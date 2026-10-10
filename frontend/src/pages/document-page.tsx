@@ -57,6 +57,7 @@ import { FolderSelect } from "@/features/folders/folder-ui";
 import { PaperCard } from "@/features/paper/paper";
 import { describeEnhancement } from "@/features/processing/enhancement";
 import { ReprocessDialog } from "@/features/processing/reprocess-dialog";
+import { AssistantButton } from "@/features/assist/assistant";
 import { cn, formatBytes, formatDate, formatDateTime } from "@/lib/utils";
 
 export function DocumentPage() {
@@ -201,6 +202,7 @@ function Header({ doc }: { doc: DocumentDetail }) {
             <Download /> Download
           </a>
         </Button>
+        <AssistantButton ids={[doc.id]} scope="this document" />
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
             <Button variant="outline" size="icon-sm" title="More actions">

@@ -1040,6 +1040,20 @@
      },
      {
       "in": "query",
+      "name": "id",
+      "schema": {
+       "items": {
+        "format": "uuid",
+        "type": "string"
+       },
+       "maxItems": 100,
+       "title": "Id",
+       "type": "array"
+      },
+      "required": false
+     },
+     {
+      "in": "query",
       "name": "folder",
       "schema": {
        "items": {
@@ -1358,6 +1372,20 @@
        "default": "",
        "title": "Q",
        "type": "string"
+      },
+      "required": false
+     },
+     {
+      "in": "query",
+      "name": "id",
+      "schema": {
+       "items": {
+        "format": "uuid",
+        "type": "string"
+       },
+       "maxItems": 100,
+       "title": "Id",
+       "type": "array"
       },
       "required": false
      },
@@ -3804,6 +3832,118 @@
      }
     ]
    }
+  },
+  "/api/v1/assist/tasks": {
+   "post": {
+    "operationId": "apps_assist_api_start_task",
+    "summary": "Start Task",
+    "parameters": [],
+    "responses": {
+     "200": {
+      "description": "OK",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/AssistTaskOut"
+        }
+       }
+      }
+     }
+    },
+    "description": "Ask the AI model for changes to the selected documents; poll the result. Nothing changes by itself.",
+    "tags": [
+     "assist"
+    ],
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/AssistTaskIn"
+       }
+      }
+     },
+     "required": true
+    },
+    "security": [
+     {
+      "MfaSessionAuth": []
+     }
+    ]
+   }
+  },
+  "/api/v1/assist/tasks/{task_id}": {
+   "get": {
+    "operationId": "apps_assist_api_get_task",
+    "summary": "Get Task",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "task_id",
+      "schema": {
+       "title": "Task Id",
+       "type": "integer"
+      },
+      "required": true
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "OK",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/AssistTaskOut"
+        }
+       }
+      }
+     }
+    },
+    "tags": [
+     "assist"
+    ],
+    "security": [
+     {
+      "MfaSessionAuth": []
+     }
+    ]
+   }
+  },
+  "/api/v1/assist/tasks/{task_id}/cancel": {
+   "post": {
+    "operationId": "apps_assist_api_cancel_task",
+    "summary": "Cancel Task",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "task_id",
+      "schema": {
+       "title": "Task Id",
+       "type": "integer"
+      },
+      "required": true
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "OK",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/AssistTaskOut"
+        }
+       }
+      }
+     }
+    },
+    "tags": [
+     "assist"
+    ],
+    "security": [
+     {
+      "MfaSessionAuth": []
+     }
+    ]
+   }
   }
  },
  "components": {
@@ -5564,6 +5704,15 @@
       "default": "",
       "title": "Q",
       "type": "string"
+     },
+     "id": {
+      "items": {
+       "format": "uuid",
+       "type": "string"
+      },
+      "maxItems": 100,
+      "title": "Id",
+      "type": "array"
      },
      "folder": {
       "items": {
@@ -8714,6 +8863,221 @@
      "message"
     ],
     "title": "MailTestOut",
+    "type": "object"
+   },
+   "AssistDocOut": {
+    "properties": {
+     "id": {
+      "format": "uuid",
+      "title": "Id",
+      "type": "string"
+     },
+     "title": {
+      "title": "Title",
+      "type": "string"
+     },
+     "correspondent": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Correspondent"
+     },
+     "document_date": {
+      "anyOf": [
+       {
+        "format": "date",
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Document Date"
+     },
+     "tag_ids": {
+      "items": {
+       "type": "integer"
+      },
+      "title": "Tag Ids",
+      "type": "array"
+     }
+    },
+    "required": [
+     "id",
+     "title",
+     "correspondent",
+     "document_date",
+     "tag_ids"
+    ],
+    "title": "AssistDocOut",
+    "type": "object"
+   },
+   "AssistGroupOut": {
+    "properties": {
+     "label": {
+      "title": "Label",
+      "type": "string"
+     },
+     "field": {
+      "enum": [
+       "title",
+       "sender",
+       "document_type",
+       "tags"
+      ],
+      "title": "Field",
+      "type": "string"
+     },
+     "document_type_id": {
+      "anyOf": [
+       {
+        "type": "integer"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Document Type Id"
+     },
+     "items": {
+      "items": {
+       "$ref": "#/components/schemas/AssistItemOut"
+      },
+      "title": "Items",
+      "type": "array"
+     }
+    },
+    "required": [
+     "label",
+     "field",
+     "items"
+    ],
+    "title": "AssistGroupOut",
+    "type": "object"
+   },
+   "AssistItemOut": {
+    "properties": {
+     "document": {
+      "$ref": "#/components/schemas/AssistDocOut"
+     },
+     "old": {
+      "title": "Old",
+      "type": "string"
+     },
+     "new": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "items": {
+         "type": "string"
+        },
+        "type": "array"
+       }
+      ],
+      "title": "New"
+     },
+     "checked": {
+      "title": "Checked",
+      "type": "boolean"
+     }
+    },
+    "required": [
+     "document",
+     "old",
+     "new",
+     "checked"
+    ],
+    "title": "AssistItemOut",
+    "type": "object"
+   },
+   "AssistTaskOut": {
+    "properties": {
+     "id": {
+      "title": "Id",
+      "type": "integer"
+     },
+     "operation": {
+      "title": "Operation",
+      "type": "string"
+     },
+     "state": {
+      "title": "State",
+      "type": "string"
+     },
+     "done": {
+      "title": "Done",
+      "type": "integer"
+     },
+     "total": {
+      "title": "Total",
+      "type": "integer"
+     },
+     "error": {
+      "title": "Error",
+      "type": "string"
+     },
+     "note": {
+      "title": "Note",
+      "type": "string"
+     },
+     "groups": {
+      "items": {
+       "$ref": "#/components/schemas/AssistGroupOut"
+      },
+      "title": "Groups",
+      "type": "array"
+     }
+    },
+    "required": [
+     "id",
+     "operation",
+     "state",
+     "done",
+     "total",
+     "error",
+     "note",
+     "groups"
+    ],
+    "title": "AssistTaskOut",
+    "type": "object"
+   },
+   "AssistTaskIn": {
+    "properties": {
+     "ids": {
+      "items": {
+       "format": "uuid",
+       "type": "string"
+      },
+      "title": "Ids",
+      "type": "array"
+     },
+     "operation": {
+      "enum": [
+       "rename",
+       "custom"
+      ],
+      "title": "Operation",
+      "type": "string"
+     },
+     "instruction": {
+      "default": "",
+      "maxLength": 1000,
+      "title": "Instruction",
+      "type": "string"
+     }
+    },
+    "required": [
+     "ids",
+     "operation"
+    ],
+    "title": "AssistTaskIn",
     "type": "object"
    }
   },

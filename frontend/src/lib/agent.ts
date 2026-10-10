@@ -62,6 +62,7 @@ const ACTIONS: Record<string, string> = {
   "folder.moved": "Moved folder",
   "folder.deleted": "Deleted folder",
   "filing.applied": "Filed documents into subfolders",
+  "assist.requested": "Asked the assistant for changes",
   "mail.settings": "Changed email inbox",
   "mail.imported": "Imported an email",
 };

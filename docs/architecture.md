@@ -70,6 +70,17 @@ On request only: the user selects documents (the Filing page can select every do
 
 The proposal stores only document UUIDs and folder names (titles stay encrypted on the documents) and expires after a day. Applying it creates the folders and moves the documents as user decisions; the server enforces the downward-only rule again.
 
+## Assistant
+
+On a document, a folder (its documents directly in it) or a selection, the user opens the *Assistant*, unticks documents they want left out and picks an operation: consistent names, filing suggestions (the dialog above) or custom. An `assist` job (the same lane as filing suggestions) computes a proposal (`apps/assist/tasks.py`); the dialog polls it, shows progress and can stop it. The result is grouped — one group per title pattern or per rule — and lists, per document, the old and the new value and whether it is proposed. The user ticks, may edit new titles and senders, and applies: the web app sends ordinary document updates, so learning, reindexing and the audit log work as for manual edits. Nothing is changed by the job itself.
+
+The model is small and slow, so it is asked for one small, checkable thing; the code does the rest:
+
+- **Consistent names:** documents are grouped like filing suggestions group them; a lone document among groups is left alone. Per group one request asks for a title pattern with date placeholders (`Verdienstabrechnung YYYY-MM`); the code fills in each document's date, drops the day when no two documents share a month, and numbers duplicates. A pattern the user wrote — in quotes or as capitalised words around the placeholders (“… als Verdienstabrechnung YYYY/MM bitte”) — is taken from their words by the code and needs no request; the model could not copy it reliably. Without a model the pattern is the titles' common first word with `YYYY-MM`.
+- **Custom:** one request turns the wish into rules — *tag*, *sender*, *type* or *title*, each with a value. The value must be in the wish (a type must be one of the known types), and the word right before it decides what it is (“das Tag Energie”), since the model mixes that up. Which documents a rule is about is the code's call, because the model answers “all” every time: the other words of the wish's clause that name some of the selected documents (sender, type, title words, also inside compounds), widened to the documents that belong with them (“Gehaltsabrechnungen” names one payslip and so all of them). Words that name none leave the rule unticked with a note; no such words, or “alle”, mean all.
+
+Instruction and result are encrypted (`AssistTask`, AES-GCM) and expire after a day.
+
 ## Email inbox
 
 Under Settings → Email the user connects an IMAP mailbox meant only for DocNest (SSL/TLS or STARTTLS; certificate checks can be switched off for a local bridge such as Proton Mail Bridge; the password is encrypted at rest; saving asks for the account password again). The worker queues a `fetch_mail` job at the configured interval (`apps/mail/inbox.py`):

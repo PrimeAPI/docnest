@@ -29,6 +29,7 @@ import {
 } from "@/components/ui/dialog";
 import { Input, Label, Select } from "@/components/ui/input";
 import { EmptyState, ErrorNote, PageHeader, Spinner } from "@/components/ui/misc";
+import { AssistantButton } from "@/features/assist/assistant";
 import { BulkBar } from "@/features/documents/document-row";
 import { DocumentCollection, useViewMode, ViewSwitch } from "@/features/documents/document-views";
 import { createFolderPath, useMoveDocuments } from "@/features/folders/folder-ui";
@@ -457,6 +458,7 @@ function FolderView({
         last={folder.name}
         actions={
           <>
+            <AssistantButton folderId={folder.id} scope={`the documents in “${folder.name}”`} />
             <Button size="sm" variant="outline" onClick={onCreate}>
               <FolderPlus /> Subfolder
             </Button>

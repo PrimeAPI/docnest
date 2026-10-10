@@ -57,7 +57,7 @@ function canGo(doc: Doc, group: Group): boolean {
   return group.anchor_path.startsWith(`${from} / `); // folder_paths joins with " / "
 }
 
-function SuggestFilingDialog({ ids, onClose, onDone }: { ids: string[]; onClose: () => void; onDone: () => void }) {
+export function SuggestFilingDialog({ ids, onClose, onDone }: { ids: string[]; onClose: () => void; onDone: () => void }) {
   const qc = useQueryClient();
   const invalidateDocuments = useInvalidateDocuments();
   const [proposalId, setProposalId] = useState<number | null>(null);

@@ -637,3 +637,177 @@ def read_filing_wishes(model: str, wish: str) -> FilingWishes:
         if len(rules) >= MAX_WISH_RULES:
             break
     return FilingWishes(rules, style)
+
+
+# --- The assistant: consistent names and the user's own edits --------------------------------
+#
+# Each call asks a small model for one small thing, with a JSON schema: a title pattern
+# for a group of documents, which fields a wish is about, or the new values of those
+# fields for one document. The code applies and checks everything else.
+
+ASSIST_SYSTEM_PROMPT = (
+    "You help a private person keep their document archive tidy. The documents are mostly German. "
+    "You answer with JSON only."
+)
+
+PATTERN_INSTRUCTIONS = """\
+These documents belong together{about}:
+{documents}
+
+Give one title pattern that names all of them the same, clear way. Write the words
+of the title, and these placeholders for the date of each document:
+YYYY = year, MM = month as number, DD = day, MMMM = month name.
+Example: "Verdienstabrechnung YYYY-MM" or "Kontoauszug MMMM YYYY".
+Use the clearest common words of the titles, at most 5 words besides the placeholders.
+Use DD only when two documents are from the same month.
+No sender name unless the titles all have it.{wish}"""
+
+EDIT_RULES_INSTRUCTIONS = """\
+The user selected some documents and wrote this wish:
+"{wish}"
+
+Turn it into rules. Each rule changes one detail:
+- "change": "title", "sender", "document_type" or "tag" (a tag to add)
+- "value": the new value, copied completely from the wish
+Only use what the wish says. No rules when it asks for nothing of these."""
+
+PATTERN_TOKEN = re.compile(r"(?<![A-Za-zÄÖÜäöüß])(YYYY|MMMM|MM|DD)(?![A-Za-zÄÖÜäöüß])")
+MAX_PATTERN = 120
+EDIT_CHANGES = ("title", "sender", "document_type", "tag")
+
+
+@dataclass(frozen=True)
+class AssistDocument:
+    title: str
+    date: date | None
+    sender: str | None = None
+
+
+def _assist_payload(model: str, prompt: str, schema: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "model": model,
+        "messages": [
+            {"role": "system", "content": ASSIST_SYSTEM_PROMPT},
+            {"role": "user", "content": prompt},
+        ],
+        "format": schema,
+        "stream": False,
+        "think": False,
+        "keep_alive": "10m",
+        "options": {
+            "temperature": 0,
+            "num_ctx": settings.AI_CONTEXT_TOKENS,
+            "num_predict": MAX_ANSWER_TOKENS,
+        },
+    }
+
+
+def clean_pattern(value: object) -> str | None:
+    """A usable title pattern: some words, placeholders only as listed."""
+    pattern = clean(value, limit=MAX_PATTERN)
+    if not pattern:
+        return None
+    words = PATTERN_TOKEN.sub("", pattern)
+    if not re.search(r"[A-Za-zÄÖÜäöüß]{3,}", words):
+        return None  # only placeholders: not a name
+    return pattern
+
+
+def title_pattern(model: str, documents: list[AssistDocument], *, wish: str = "") -> str | None:
+    """One title pattern for documents that belong together ("Verdienstabrechnung YYYY-MM")."""
+    senders = {d.sender for d in documents if d.sender}
+    about = f" (sender {next(iter(senders))})" if len(senders) == 1 else ""
+    lines = [
+        f'- "{d.title}"' + (f" ({d.date.isoformat()})" if d.date else " (no date)") for d in documents[:8]
+    ]
+    wish = " ".join(wish.split())[:MAX_INSTRUCTIONS]
+    prompt = PATTERN_INSTRUCTIONS.format(
+        about=about,
+        documents="\n".join(lines),
+        wish=f'\n\nThe user asked for this: "{wish}"' if wish else "",
+    )
+    data = _chat(
+        _assist_payload(
+            model,
+            prompt,
+            {"type": "object", "properties": {"pattern": {"type": "string"}}, "required": ["pattern"]},
+        )
+    )
+    return clean_pattern(data.get("pattern"))
+
+
+# "Tag Gehalt" for the tag "Gehalt": the model copies the word that names the detail along.
+LEADING_FIELD_WORD = re.compile(
+    r"^\s*(?:(?:das|den|die|der|the)\s+)?(?:tag|tags|label|absender|sender|typ|type|titel|title)\s*[:=]?\s+",
+    re.I,
+)
+
+
+CHANGE_WORDS = {
+    "tag": ("tag", "tags", "label", "labels", "schlagwort", "stichwort"),
+    "document_type": ("typ", "type", "dokumenttyp", "dokumentart", "art"),
+    "sender": ("absender", "sender", "von"),
+    "title": ("titel", "title", "name", "namen"),
+}
+
+
+def _named_change(wish: str, value: str) -> str | None:
+    """The detail named right before `value` in the wish: "Tag" in "das Tag Energie"."""
+    at = wish.casefold().find(value.casefold())
+    if at < 0:
+        return None
+    before = re.findall(r"[a-zäöüß]+", wish[:at].casefold())[-2:]
+    for change, words in CHANGE_WORDS.items():
+        if any(w in words for w in before):
+            return change
+    return None
+
+
+@dataclass(frozen=True)
+class EditRule:
+    change: str  # one of EDIT_CHANGES
+    value: str
+
+
+def read_edit_rules(model: str, wish: str) -> list[EditRule]:
+    """The changes a wish asks for ("das Tag Gehalt" → tag: Gehalt); the code decides which documents."""
+    wish = " ".join(wish.split())[:MAX_INSTRUCTIONS]
+    data = _chat(
+        _assist_payload(
+            model,
+            EDIT_RULES_INSTRUCTIONS.format(wish=wish.replace('"', "'")),
+            {
+                "type": "object",
+                "properties": {
+                    "rules": {
+                        "type": "array",
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "change": {"type": "string", "enum": list(EDIT_CHANGES)},
+                                "value": {"type": "string"},
+                            },
+                            "required": ["change", "value"],
+                        },
+                    }
+                },
+                "required": ["rules"],
+            },
+        )
+    )
+    rules: list[EditRule] = []
+    answers = data.get("rules")
+    for item in answers if isinstance(answers, list) else []:
+        if not isinstance(item, dict) or item.get("change") not in EDIT_CHANGES:
+            continue
+        value = clean(LEADING_FIELD_WORD.sub("", str(item.get("value") or "")), limit=200)
+        if not value:
+            continue
+        # The word before the value says what it is ("das Tag Energie"), whatever the model says.
+        change = _named_change(wish, value) or item["change"]
+        # A value must come from the wish; a type is checked against the known types instead.
+        if change == "document_type" or _mentioned(value, wish):
+            rule = EditRule(change, value)
+            if rule not in rules:
+                rules.append(rule)
+    return rules[:MAX_WISH_RULES]

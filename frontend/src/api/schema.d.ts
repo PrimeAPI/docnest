@@ -1317,6 +1317,60 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/assist/tasks": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Start Task
+         * @description Ask the AI model for changes to the selected documents; poll the result. Nothing changes by itself.
+         */
+        post: operations["apps_assist_api_start_task"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/assist/tasks/{task_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Task */
+        get: operations["apps_assist_api_get_task"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/assist/tasks/{task_id}/cancel": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Cancel Task */
+        post: operations["apps_assist_api_cancel_task"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -1935,6 +1989,8 @@ export interface components {
              * @default
              */
             q: string;
+            /** Id */
+            id?: string[];
             /** Folder */
             folder?: number[];
             /**
@@ -2990,6 +3046,80 @@ export interface components {
              */
             waiting: number;
         };
+        /** AssistDocOut */
+        AssistDocOut: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Title */
+            title: string;
+            /** Correspondent */
+            correspondent: string | null;
+            /** Document Date */
+            document_date: string | null;
+            /** Tag Ids */
+            tag_ids: number[];
+        };
+        /** AssistGroupOut */
+        AssistGroupOut: {
+            /** Label */
+            label: string;
+            /**
+             * Field
+             * @enum {string}
+             */
+            field: "title" | "sender" | "document_type" | "tags";
+            /** Document Type Id */
+            document_type_id?: number | null;
+            /** Items */
+            items: components["schemas"]["AssistItemOut"][];
+        };
+        /** AssistItemOut */
+        AssistItemOut: {
+            document: components["schemas"]["AssistDocOut"];
+            /** Old */
+            old: string;
+            /** New */
+            new: string | string[];
+            /** Checked */
+            checked: boolean;
+        };
+        /** AssistTaskOut */
+        AssistTaskOut: {
+            /** Id */
+            id: number;
+            /** Operation */
+            operation: string;
+            /** State */
+            state: string;
+            /** Done */
+            done: number;
+            /** Total */
+            total: number;
+            /** Error */
+            error: string;
+            /** Note */
+            note: string;
+            /** Groups */
+            groups: components["schemas"]["AssistGroupOut"][];
+        };
+        /** AssistTaskIn */
+        AssistTaskIn: {
+            /** Ids */
+            ids: string[];
+            /**
+             * Operation
+             * @enum {string}
+             */
+            operation: "rename" | "custom";
+            /**
+             * Instruction
+             * @default
+             */
+            instruction: string;
+        };
     };
     responses: never;
     parameters: never;
@@ -3711,6 +3841,7 @@ export interface operations {
         parameters: {
             query?: {
                 q?: string;
+                id?: string[];
                 folder?: number[];
                 subfolders?: boolean;
                 unfiled?: boolean;
@@ -3753,6 +3884,7 @@ export interface operations {
         parameters: {
             query?: {
                 q?: string;
+                id?: string[];
                 folder?: number[];
                 subfolders?: boolean;
                 unfiled?: boolean;
@@ -5124,6 +5256,74 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["MailSettingsOut"];
+                };
+            };
+        };
+    };
+    apps_assist_api_start_task: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AssistTaskIn"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AssistTaskOut"];
+                };
+            };
+        };
+    };
+    apps_assist_api_get_task: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                task_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AssistTaskOut"];
+                };
+            };
+        };
+    };
+    apps_assist_api_cancel_task: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                task_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AssistTaskOut"];
                 };
             };
         };

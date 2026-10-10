@@ -48,7 +48,7 @@ LANES: dict[str, list[str]] = {
     "process": [Job.Kind.PROCESS_DOCUMENT],
     "download": [Job.Kind.PULL_MODEL],
     # Short jobs the user waits for or that bring in new documents: never behind a batch.
-    "assist": [Job.Kind.SUGGEST_FILING],
+    "assist": [Job.Kind.SUGGEST_FILING, Job.Kind.ASSIST],
     "mail": [Job.Kind.FETCH_MAIL],
 }
 INTAKE_SLOTS = 1
@@ -185,6 +185,10 @@ class Worker:
                     from apps.taxonomy import filing
 
                     filing.run_proposal(int(job.payload.get("proposal", 0)))
+                elif job.kind == Job.Kind.ASSIST:
+                    from apps.assist import tasks
+
+                    tasks.run(int(job.payload.get("task", 0)))
                 elif job.kind == Job.Kind.FETCH_MAIL:
                     inbox.fetch()
                 else:
@@ -329,8 +333,9 @@ class Worker:
                 queue.enqueue(Job.Kind.TRAIN_CLASSIFIER)
 
     def cleanup(self) -> None:
-        """Retention: audit entries, login throttles, finished jobs, stale scan sessions, filing proposals."""
+        """Retention: audit entries, login throttles, finished jobs, stale scan sessions, proposals."""
         from apps.accounts.models import LoginThrottle
+        from apps.assist.models import AssistTask
         from apps.audit.models import AuditLog
         from apps.scanners import sessions
         from apps.taxonomy.models import FilingProposal
@@ -341,6 +346,7 @@ class Worker:
         AuditLog.objects.filter(created_at__lt=now - timedelta(days=settings.AUDIT_RETENTION_DAYS)).delete()
         LoginThrottle.objects.filter(window_started_at__lt=now - timedelta(days=1)).delete()
         FilingProposal.objects.filter(created_at__lt=now - timedelta(days=1)).delete()
+        AssistTask.objects.filter(created_at__lt=now - timedelta(days=1)).delete()
         history_cutoff = now - timedelta(hours=settings.JOB_HISTORY_HOURS)
         Job.objects.filter(
             state__in=[Job.State.DONE, Job.State.FAILED],

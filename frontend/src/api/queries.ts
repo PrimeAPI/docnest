@@ -66,6 +66,7 @@ export function useProcessingQueue() {
 
 export type DocumentQuery = {
   q?: string;
+  id?: string[];
   folder?: number[];
   subfolders?: boolean;
   unfiled?: boolean;

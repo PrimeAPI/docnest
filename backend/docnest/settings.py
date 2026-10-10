@@ -56,6 +56,7 @@ INSTALLED_APPS = [
     "apps.storage",
     "apps.paper",
     "apps.mail",
+    "apps.assist",
 ]
 
 MIDDLEWARE = [

@@ -17,6 +17,7 @@ class Job(models.Model):
         BACKUP_DATABASE = "backup_database"
         SUGGEST_FILING = "suggest_filing"  # group selected documents into subfolders, on request
         FETCH_MAIL = "fetch_mail"  # import attachments from the email inbox
+        ASSIST = "assist"  # changes the AI model proposes for selected documents, on request
 
     class State(models.TextChoices):
         QUEUED = "queued"

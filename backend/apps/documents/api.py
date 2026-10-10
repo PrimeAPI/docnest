@@ -172,6 +172,7 @@ class DocumentDetail(DocumentListItem):
 
 class DocumentFilters(Schema):
     q: str = ""
+    id: list[UUID] = Field(default_factory=list, max_length=100)  # just these documents
     folder: list[int] = Field(default_factory=list)
     subfolders: bool = False  # with `folder`: include documents in subfolders
     unfiled: bool = False  # only documents without a folder
@@ -441,6 +442,8 @@ def _is_enhanced(document: Document) -> bool:
 
 
 def apply_filters(qs: QuerySet[Document], f: DocumentFilters) -> QuerySet[Document]:
+    if f.id:
+        qs = qs.filter(uuid__in=f.id)
     if f.paper_location is not None:
         qs = qs.filter(paper_location_id__in=paper_services.location_subtree(f.paper_location))
     if f.paper_pending:

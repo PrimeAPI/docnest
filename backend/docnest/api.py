@@ -4,6 +4,7 @@ from django.conf import settings
 from ninja import NinjaAPI
 
 from apps.accounts.api import account_router, auth_router
+from apps.assist.api import router as assist_router
 from apps.core.api import router as core_router
 from apps.core.auth import mfa_auth
 from apps.documents.api import router as documents_router
@@ -32,6 +33,7 @@ web_api.add_router("/", taxonomy_router)
 web_api.add_router("/paper", paper_router)
 web_api.add_router("/scanners", scanners_manage_router)
 web_api.add_router("/mail", mail_router)
+web_api.add_router("/assist", assist_router)
 
 upload_api = NinjaAPI(
     title="DocNest Upload API",
