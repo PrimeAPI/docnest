@@ -26,6 +26,7 @@ import json
 import logging
 import re
 from collections import Counter
+from collections.abc import Callable
 from dataclasses import asdict, dataclass
 from datetime import date
 from typing import Any
@@ -205,7 +206,14 @@ def numbered(titles: dict[str, str | None]) -> dict[str, str | None]:
     return out
 
 
-def rename(task: AssistTask, documents: list[Document], instruction: str, model: str) -> Result:
+def rename(
+    task: AssistTask,
+    documents: list[Document],
+    instruction: str,
+    model: str,
+    *,
+    before_request: Callable[[], float | None] | None = None,
+) -> Result:
     by_pk = {d.pk: d for d in documents}
     docs = [filing._doc(d) for d in documents if crypto_fields.get_title(d)]
     explicit = written_pattern(instruction)
@@ -213,7 +221,8 @@ def rename(task: AssistTask, documents: list[Document], instruction: str, model:
     # Consistent with what? A lone document among groups is left alone; a single one selected is not.
     if any(len(g.docs) > 1 for g in groups):
         groups = [g for g in groups if len(g.docs) > 1]
-    _set_total(task, 0 if explicit or not model else len(groups))
+    total = 0 if explicit or not model else len(groups)
+    _set_total(task, total + (task.total if before_request else 0))
     result = Result()
     if not model and not explicit:
         result.note = (
@@ -224,10 +233,12 @@ def rename(task: AssistTask, documents: list[Document], instruction: str, model:
         if explicit:
             pattern = explicit
         elif model:
+            timeout = before_request() if before_request else None
             pattern = ai.title_pattern(
                 model,
                 [ai.AssistDocument(d.title, by_pk[d.pk].document_date, d.corr_name) for d in group.docs],
                 wish=instruction,
+                **({"timeout": timeout} if timeout is not None else {}),
             )
             _tick(task)
         else:

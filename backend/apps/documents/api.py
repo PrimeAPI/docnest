@@ -5,7 +5,6 @@ from pathlib import Path
 from typing import Literal
 from uuid import UUID
 
-from django.conf import settings
 from django.db import transaction
 from django.db.models import QuerySet
 from django.http import FileResponse, HttpRequest, HttpResponse
@@ -17,18 +16,16 @@ from ninja.files import UploadedFile
 from apps.analysis import ai
 from apps.audit.service import audit
 from apps.crypto.aead import decrypt_text
-from apps.documents import crypto_fields, files
+from apps.documents import alterations, crypto_fields, files
 from apps.documents.intake import (
     IntakeError,
     IntakeRequest,
-    archive_intake_path_for,
     receive,
-    remove_intake,
 )
-from apps.documents.models import Document, DocumentTag, ProcessingEvent, Source
+from apps.documents.models import Alteration, Document, DocumentTag, ProcessingEvent, Source
 from apps.paper import services as paper_services
 from apps.paper.models import Location
-from apps.processing import pipeline, queue
+from apps.processing import pipeline
 from apps.processing.models import Job, SystemState
 from apps.processing.preferences import get_default_ocr_backend
 from apps.processing.schemas import EnhanceSettingsIn
@@ -195,6 +192,13 @@ class DocumentFilters(Schema):
     page_size: int = Field(25, ge=1, le=100)
 
 
+class AlterationOrigin(Schema):
+    """Which suggestion of the assistant a change came from (shown in the document's history)."""
+
+    task: int
+    finding: str = Field("", max_length=20)
+
+
 class DocumentPatch(Schema):
     title: str | None = None
     document_date: date | None = None
@@ -216,6 +220,7 @@ class DocumentPatch(Schema):
     has_paper: bool | None = None
     paper_location_id: int | None = None  # put away (on top of that location's stack)
     clear_paper_location: bool = False
+    origin: AlterationOrigin | None = None  # applied from an assistant suggestion
 
 
 ReprocessStep = Literal["enhance", "ocr", "analyze"]
@@ -291,8 +296,12 @@ def base_queryset() -> QuerySet[Document]:
     )
 
 
-def get_document(doc_id: UUID) -> Document:
-    document = base_queryset().filter(uuid=doc_id).first()
+def get_document(doc_id: UUID, *, trashed: bool = False) -> Document:
+    """An active document; with `trashed`, one in the trash too (its files are kept)."""
+    qs = base_queryset()
+    if trashed:
+        qs = qs.model.objects.select_related("folder", "document_type", "correspondent", "series")
+    document = qs.filter(uuid=doc_id).first()
     if document is None:
         raise HttpError(404, "Document not found")
     return document
@@ -613,9 +622,11 @@ def bulk_update(request: HttpRequest, data: BulkAction) -> dict[str, int]:
         n = 0
         with transaction.atomic():
             for document in qs.select_for_update():
+                before = alterations.snapshot(document)
                 document.folder_id = data.folder_id
                 document.set_source("folder", Source.USER)
                 document.save(update_fields=["folder", "field_sources", "updated_at"])
+                alterations.record_edit(document, before)
                 n += 1
         audit("document.bulk", request=request, operation="move", count=n, folder=data.folder_id)
         return {"updated": n}
@@ -641,7 +652,16 @@ def bulk_update(request: HttpRequest, data: BulkAction) -> dict[str, int]:
         "paper_yes": {"has_paper": True},
         "paper_no": {"has_paper": False, "paper_location": None, "paper_placed_at": None},
     }[data.action]  # type: ignore[assignment]
-    n = qs.update(**updates)  # type: ignore[arg-type]
+    n = 0
+    with transaction.atomic():
+        for document in qs.select_for_update():
+            before = alterations.snapshot(document)
+            for name, value in updates.items():
+                setattr(document, name, value)
+                document.set_source(name, Source.USER)
+            document.save(update_fields=[*updates, "field_sources", "updated_at"])
+            alterations.record_edit(document, before)
+            n += 1
     audit("document.bulk", request=request, operation=data.action, count=n)
     return {"updated": n}
 
@@ -659,6 +679,7 @@ def document_detail(request: HttpRequest, doc_id: UUID) -> DocumentDetail:
 def update_document(request: HttpRequest, doc_id: UUID, data: DocumentPatch) -> DocumentDetail:
     with transaction.atomic():
         document = Document.objects.select_for_update().get(pk=get_document(doc_id).pk)
+        before = alterations.snapshot(document)
         changed: list[str] = []
         series_to_refresh: set[int] = set()
 
@@ -809,6 +830,13 @@ def update_document(request: HttpRequest, doc_id: UUID, data: DocumentPatch) -> 
         if {"document_type", "correspondent", "tags"} & set(changed):
             SystemState.objects.update_or_create(key="classifier_dirty", defaults={"value": {"dirty": True}})
         audit("document.updated", request=request, target=str(document.uuid), fields=changed)
+        assistant = data.origin is not None
+        alterations.record_edit(
+            document,
+            before,
+            actor=Alteration.Actor.ASSISTANT if assistant else Alteration.Actor.USER,
+            origin=data.origin.model_dump() if data.origin else None,
+        )
     return to_detail(get_document(doc_id))
 
 
@@ -825,7 +853,7 @@ def document_file(
     variant: Literal["archive", "original"] = "archive",
     download: bool = False,
 ) -> HttpResponse | FileResponse:
-    document = get_document(doc_id)
+    document = get_document(doc_id, trashed=True)
     try:
         fh = files.fetch(document, variant)
     except FileNotFoundError as exc:
@@ -960,25 +988,11 @@ def reprocess(request: HttpRequest, doc_id: UUID, data: ReprocessIn) -> Document
 
 @router.delete("/{doc_id}")
 def delete_document(request: HttpRequest, doc_id: UUID) -> dict[str, bool]:
+    """Put a document in the trash: it can be restored, its files stay. See /alterations/trash."""
     document = get_document(doc_id)
-    if Job.objects.filter(document=document, state=Job.State.RUNNING).exists():
-        raise HttpError(409, "The document is being processed right now. Try again in a moment.")
-    folder = None
-    if document.storage_original:
-        ref_path = str(document.storage_original.get("path", ""))
-        if "/" in ref_path:
-            folder = ref_path.rsplit("/", 1)[0]
-            if document.storage_original.get("backend") == "proton":
-                root = str(settings.PROTON_ROOT).rstrip("/") + "/"
-                folder = folder[len(root) :] if folder.startswith(root) else folder
-    uuid = str(document.uuid)
-    remove_intake(document)
-    archive_intake_path_for(uuid).unlink(missing_ok=True)
-    files.evict(document)
-    with transaction.atomic():
-        # Hard delete: content, thumbnail, index terms, tags and events cascade.
-        document.delete()
-        if folder:
-            queue.enqueue(Job.Kind.DELETE_STORAGE, payload={"folder": folder})
-    audit("document.deleted", request=request, target=uuid)
+    try:
+        alterations.trash([str(document.uuid)])
+    except alterations.AlterationError as exc:
+        raise HttpError(409, str(exc)) from exc
+    audit("document.trashed", request=request, target=str(document.uuid))
     return {"ok": True}

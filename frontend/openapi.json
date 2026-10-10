@@ -1961,6 +1961,7 @@
       "description": "OK"
      }
     },
+    "description": "Put a document in the trash: it can be restored, its files stay. See /alterations/trash.",
     "tags": [
      "documents"
     ],
@@ -3937,6 +3938,662 @@
     },
     "tags": [
      "assist"
+    ],
+    "security": [
+     {
+      "MfaSessionAuth": []
+     }
+    ]
+   }
+  },
+  "/api/v1/assist/models": {
+   "get": {
+    "operationId": "apps_assist_api_models",
+    "summary": "Models",
+    "parameters": [],
+    "responses": {
+     "200": {
+      "description": "OK",
+      "content": {
+       "application/json": {
+        "schema": {
+         "items": {
+          "$ref": "#/components/schemas/ModelOut"
+         },
+         "title": "Response",
+         "type": "array"
+        }
+       }
+      }
+     }
+    },
+    "description": "Installed models for a review; a mid-sized one (8B) that runs all night works well.",
+    "tags": [
+     "assist"
+    ],
+    "security": [
+     {
+      "MfaSessionAuth": []
+     }
+    ]
+   }
+  },
+  "/api/v1/assist/reviews": {
+   "post": {
+    "operationId": "apps_assist_api_start_review",
+    "summary": "Start Review",
+    "parameters": [],
+    "responses": {
+     "200": {
+      "description": "OK",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/ReviewSummary"
+        }
+       }
+      }
+     }
+    },
+    "description": "Let the assistant look through documents — now or later, for hours. It only suggests.",
+    "tags": [
+     "assist"
+    ],
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/ReviewIn"
+       }
+      }
+     },
+     "required": true
+    },
+    "security": [
+     {
+      "MfaSessionAuth": []
+     }
+    ]
+   },
+   "get": {
+    "operationId": "apps_assist_api_list_reviews",
+    "summary": "List Reviews",
+    "parameters": [],
+    "responses": {
+     "200": {
+      "description": "OK",
+      "content": {
+       "application/json": {
+        "schema": {
+         "items": {
+          "$ref": "#/components/schemas/ReviewSummary"
+         },
+         "title": "Response",
+         "type": "array"
+        }
+       }
+      }
+     }
+    },
+    "tags": [
+     "assist"
+    ],
+    "security": [
+     {
+      "MfaSessionAuth": []
+     }
+    ]
+   }
+  },
+  "/api/v1/assist/reviews/{review_id}": {
+   "get": {
+    "operationId": "apps_assist_api_get_review",
+    "summary": "Get Review",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "review_id",
+      "schema": {
+       "title": "Review Id",
+       "type": "integer"
+      },
+      "required": true
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "OK",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/ReviewOut"
+        }
+       }
+      }
+     }
+    },
+    "tags": [
+     "assist"
+    ],
+    "security": [
+     {
+      "MfaSessionAuth": []
+     }
+    ]
+   },
+   "delete": {
+    "operationId": "apps_assist_api_delete_review",
+    "summary": "Delete Review",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "review_id",
+      "schema": {
+       "title": "Review Id",
+       "type": "integer"
+      },
+      "required": true
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "OK"
+     }
+    },
+    "tags": [
+     "assist"
+    ],
+    "security": [
+     {
+      "MfaSessionAuth": []
+     }
+    ]
+   }
+  },
+  "/api/v1/assist/reviews/{review_id}/stop": {
+   "post": {
+    "operationId": "apps_assist_api_stop_review",
+    "summary": "Stop Review",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "review_id",
+      "schema": {
+       "title": "Review Id",
+       "type": "integer"
+      },
+      "required": true
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "OK",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/ReviewSummary"
+        }
+       }
+      }
+     }
+    },
+    "description": "Stop and write the report with what there is (a review that has not started is cancelled).",
+    "tags": [
+     "assist"
+    ],
+    "security": [
+     {
+      "MfaSessionAuth": []
+     }
+    ]
+   }
+  },
+  "/api/v1/assist/reviews/{review_id}/read": {
+   "post": {
+    "operationId": "apps_assist_api_mark_read",
+    "summary": "Mark Read",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "review_id",
+      "schema": {
+       "title": "Review Id",
+       "type": "integer"
+      },
+      "required": true
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "OK",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/ReviewSummary"
+        }
+       }
+      }
+     }
+    },
+    "tags": [
+     "assist"
+    ],
+    "security": [
+     {
+      "MfaSessionAuth": []
+     }
+    ]
+   }
+  },
+  "/api/v1/assist/reviews/{review_id}/findings/{finding_id}": {
+   "post": {
+    "operationId": "apps_assist_api_decide",
+    "summary": "Decide",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "review_id",
+      "schema": {
+       "title": "Review Id",
+       "type": "integer"
+      },
+      "required": true
+     },
+     {
+      "in": "path",
+      "name": "finding_id",
+      "schema": {
+       "title": "Finding Id",
+       "type": "string"
+      },
+      "required": true
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "OK",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/ReviewSummary"
+        }
+       }
+      }
+     }
+    },
+    "description": "Remember what the user did with a suggestion (the change itself goes through its own API).",
+    "tags": [
+     "assist"
+    ],
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/DecisionIn"
+       }
+      }
+     },
+     "required": true
+    },
+    "security": [
+     {
+      "MfaSessionAuth": []
+     }
+    ]
+   }
+  },
+  "/api/v1/alterations/pages/status": {
+   "get": {
+    "operationId": "apps_documents_alterations_api_pages_status",
+    "summary": "Pages Status",
+    "parameters": [],
+    "responses": {
+     "200": {
+      "description": "OK",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/PagesStatus"
+        }
+       }
+      }
+     }
+    },
+    "tags": [
+     "alterations"
+    ],
+    "security": [
+     {
+      "MfaSessionAuth": []
+     }
+    ]
+   }
+  },
+  "/api/v1/alterations/pages/prepare": {
+   "post": {
+    "operationId": "apps_documents_alterations_api_prepare_pages",
+    "summary": "Prepare Pages",
+    "parameters": [],
+    "responses": {
+     "200": {
+      "description": "OK",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/PagesStatus"
+        }
+       }
+      }
+     }
+    },
+    "description": "Make page pictures and fingerprints for every document that has none yet.",
+    "tags": [
+     "alterations"
+    ],
+    "security": [
+     {
+      "MfaSessionAuth": []
+     }
+    ]
+   }
+  },
+  "/api/v1/alterations/pages/{doc_id}": {
+   "get": {
+    "operationId": "apps_documents_alterations_api_document_pages",
+    "summary": "Document Pages",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "doc_id",
+      "schema": {
+       "format": "uuid",
+       "title": "Doc Id",
+       "type": "string"
+      },
+      "required": true
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "OK",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/PagesOut"
+        }
+       }
+      }
+     }
+    },
+    "tags": [
+     "alterations"
+    ],
+    "security": [
+     {
+      "MfaSessionAuth": []
+     }
+    ]
+   }
+  },
+  "/api/v1/alterations/pages/{doc_id}/{number}": {
+   "get": {
+    "operationId": "apps_documents_alterations_api_page_thumbnail",
+    "summary": "Page Thumbnail",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "doc_id",
+      "schema": {
+       "format": "uuid",
+       "title": "Doc Id",
+       "type": "string"
+      },
+      "required": true
+     },
+     {
+      "in": "path",
+      "name": "number",
+      "schema": {
+       "title": "Number",
+       "type": "integer"
+      },
+      "required": true
+     },
+     {
+      "in": "query",
+      "name": "large",
+      "schema": {
+       "default": false,
+       "title": "Large",
+       "type": "boolean"
+      },
+      "required": false
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "OK"
+     }
+    },
+    "description": "A page's picture; `large` renders it big enough to read (slower: from the file).",
+    "tags": [
+     "alterations"
+    ],
+    "security": [
+     {
+      "MfaSessionAuth": []
+     }
+    ]
+   }
+  },
+  "/api/v1/alterations/compose": {
+   "post": {
+    "operationId": "apps_documents_alterations_api_compose",
+    "summary": "Compose",
+    "parameters": [],
+    "responses": {
+     "200": {
+      "description": "OK",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/AlterationOut"
+        }
+       }
+      }
+     }
+    },
+    "description": "Make documents from pages: merge, split, extract, remove or reorder. Originals stay untouched.",
+    "tags": [
+     "alterations"
+    ],
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/ComposeIn"
+       }
+      }
+     },
+     "required": true
+    },
+    "security": [
+     {
+      "MfaSessionAuth": []
+     }
+    ]
+   }
+  },
+  "/api/v1/alterations/trash": {
+   "post": {
+    "operationId": "apps_documents_alterations_api_trash",
+    "summary": "Trash",
+    "parameters": [],
+    "responses": {
+     "200": {
+      "description": "OK",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/AlterationOut"
+        }
+       }
+      }
+     }
+    },
+    "tags": [
+     "alterations"
+    ],
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/IdsIn"
+       }
+      }
+     },
+     "required": true
+    },
+    "security": [
+     {
+      "MfaSessionAuth": []
+     }
+    ]
+   },
+   "get": {
+    "operationId": "apps_documents_alterations_api_trash_list",
+    "summary": "Trash List",
+    "parameters": [],
+    "responses": {
+     "200": {
+      "description": "OK",
+      "content": {
+       "application/json": {
+        "schema": {
+         "items": {
+          "$ref": "#/components/schemas/TrashItem"
+         },
+         "title": "Response",
+         "type": "array"
+        }
+       }
+      }
+     }
+    },
+    "tags": [
+     "alterations"
+    ],
+    "security": [
+     {
+      "MfaSessionAuth": []
+     }
+    ]
+   }
+  },
+  "/api/v1/alterations/restore": {
+   "post": {
+    "operationId": "apps_documents_alterations_api_restore",
+    "summary": "Restore",
+    "parameters": [],
+    "responses": {
+     "200": {
+      "description": "OK",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/AlterationOut"
+        }
+       }
+      }
+     }
+    },
+    "tags": [
+     "alterations"
+    ],
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/IdsIn"
+       }
+      }
+     },
+     "required": true
+    },
+    "security": [
+     {
+      "MfaSessionAuth": []
+     }
+    ]
+   }
+  },
+  "/api/v1/alterations/{alteration_id}/undo": {
+   "post": {
+    "operationId": "apps_documents_alterations_api_undo",
+    "summary": "Undo",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "alteration_id",
+      "schema": {
+       "title": "Alteration Id",
+       "type": "integer"
+      },
+      "required": true
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "OK",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/AlterationOut"
+        }
+       }
+      }
+     }
+    },
+    "tags": [
+     "alterations"
+    ],
+    "security": [
+     {
+      "MfaSessionAuth": []
+     }
+    ]
+   }
+  },
+  "/api/v1/alterations/document/{doc_id}": {
+   "get": {
+    "operationId": "apps_documents_alterations_api_document_history",
+    "summary": "Document History",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "doc_id",
+      "schema": {
+       "format": "uuid",
+       "title": "Doc Id",
+       "type": "string"
+      },
+      "required": true
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "OK",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HistoryOut"
+        }
+       }
+      }
+     }
+    },
+    "tags": [
+     "alterations"
     ],
     "security": [
      {
@@ -6879,6 +7536,26 @@
     "title": "PaperPositionOut",
     "type": "object"
    },
+   "AlterationOrigin": {
+    "description": "Which suggestion of the assistant a change came from (shown in the document's history).",
+    "properties": {
+     "task": {
+      "title": "Task",
+      "type": "integer"
+     },
+     "finding": {
+      "default": "",
+      "maxLength": 20,
+      "title": "Finding",
+      "type": "string"
+     }
+    },
+    "required": [
+     "task"
+    ],
+    "title": "AlterationOrigin",
+    "type": "object"
+   },
    "DocumentPatch": {
     "properties": {
      "title": {
@@ -7070,6 +7747,16 @@
       "default": false,
       "title": "Clear Paper Location",
       "type": "boolean"
+     },
+     "origin": {
+      "anyOf": [
+       {
+        "$ref": "#/components/schemas/AlterationOrigin"
+       },
+       {
+        "type": "null"
+       }
+      ]
      }
     },
     "title": "DocumentPatch",
@@ -9078,6 +9765,1135 @@
      "operation"
     ],
     "title": "AssistTaskIn",
+    "type": "object"
+   },
+   "ModelOut": {
+    "properties": {
+     "name": {
+      "title": "Name",
+      "type": "string"
+     },
+     "parameter_size": {
+      "title": "Parameter Size",
+      "type": "string"
+     },
+     "size": {
+      "title": "Size",
+      "type": "integer"
+     },
+     "thinking": {
+      "title": "Thinking",
+      "type": "boolean"
+     },
+     "current": {
+      "title": "Current",
+      "type": "boolean"
+     }
+    },
+    "required": [
+     "name",
+     "parameter_size",
+     "size",
+     "thinking",
+     "current"
+    ],
+    "title": "ModelOut",
+    "type": "object"
+   },
+   "ReviewSummary": {
+    "properties": {
+     "id": {
+      "title": "Id",
+      "type": "integer"
+     },
+     "state": {
+      "title": "State",
+      "type": "string"
+     },
+     "step": {
+      "title": "Step",
+      "type": "string"
+     },
+     "done": {
+      "title": "Done",
+      "type": "integer"
+     },
+     "total": {
+      "title": "Total",
+      "type": "integer"
+     },
+     "error": {
+      "title": "Error",
+      "type": "string"
+     },
+     "model": {
+      "title": "Model",
+      "type": "string"
+     },
+     "ai": {
+      "title": "Ai",
+      "type": "boolean"
+     },
+     "think": {
+      "title": "Think",
+      "type": "boolean"
+     },
+     "instruction": {
+      "title": "Instruction",
+      "type": "string"
+     },
+     "documents": {
+      "title": "Documents",
+      "type": "integer"
+     },
+     "created_at": {
+      "format": "date-time",
+      "title": "Created At",
+      "type": "string"
+     },
+     "start": {
+      "anyOf": [
+       {
+        "format": "date-time",
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Start"
+     },
+     "until": {
+      "anyOf": [
+       {
+        "format": "date-time",
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Until"
+     },
+     "started_at": {
+      "anyOf": [
+       {
+        "format": "date-time",
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Started At"
+     },
+     "finished_at": {
+      "anyOf": [
+       {
+        "format": "date-time",
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Finished At"
+     },
+     "read": {
+      "title": "Read",
+      "type": "boolean"
+     },
+     "open_findings": {
+      "title": "Open Findings",
+      "type": "integer"
+     }
+    },
+    "required": [
+     "id",
+     "state",
+     "step",
+     "done",
+     "total",
+     "error",
+     "model",
+     "ai",
+     "think",
+     "instruction",
+     "documents",
+     "created_at",
+     "start",
+     "until",
+     "started_at",
+     "finished_at",
+     "read",
+     "open_findings"
+    ],
+    "title": "ReviewSummary",
+    "type": "object"
+   },
+   "ReviewIn": {
+    "properties": {
+     "ids": {
+      "items": {
+       "format": "uuid",
+       "type": "string"
+      },
+      "maxItems": 5000,
+      "title": "Ids",
+      "type": "array"
+     },
+     "scope": {
+      "default": "selection",
+      "enum": [
+       "selection",
+       "all"
+      ],
+      "title": "Scope",
+      "type": "string"
+     },
+     "instruction": {
+      "default": "",
+      "maxLength": 1000,
+      "title": "Instruction",
+      "type": "string"
+     },
+     "model": {
+      "default": "",
+      "maxLength": 200,
+      "title": "Model",
+      "type": "string"
+     },
+     "ai": {
+      "default": true,
+      "title": "Ai",
+      "type": "boolean"
+     },
+     "think": {
+      "default": false,
+      "title": "Think",
+      "type": "boolean"
+     },
+     "explore": {
+      "default": true,
+      "title": "Explore",
+      "type": "boolean"
+     },
+     "context": {
+      "default": 8192,
+      "maximum": 65536,
+      "minimum": 2048,
+      "title": "Context",
+      "type": "integer"
+     },
+     "start": {
+      "anyOf": [
+       {
+        "format": "date-time",
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Start"
+     },
+     "until": {
+      "anyOf": [
+       {
+        "format": "date-time",
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Until"
+     }
+    },
+    "title": "ReviewIn",
+    "type": "object"
+   },
+   "ComposeOut": {
+    "properties": {
+     "sources": {
+      "items": {
+       "format": "uuid",
+       "type": "string"
+      },
+      "title": "Sources",
+      "type": "array"
+     },
+     "outputs": {
+      "items": {
+       "$ref": "#/components/schemas/OutputOut"
+      },
+      "title": "Outputs",
+      "type": "array"
+     }
+    },
+    "required": [
+     "sources",
+     "outputs"
+    ],
+    "title": "ComposeOut",
+    "type": "object"
+   },
+   "DebateOut": {
+    "properties": {
+     "role": {
+      "enum": [
+       "against",
+       "for",
+       "verdict"
+      ],
+      "title": "Role",
+      "type": "string"
+     },
+     "text": {
+      "title": "Text",
+      "type": "string"
+     }
+    },
+    "required": [
+     "role",
+     "text"
+    ],
+    "title": "DebateOut",
+    "type": "object"
+   },
+   "FindingOut": {
+    "properties": {
+     "id": {
+      "title": "Id",
+      "type": "string"
+     },
+     "kind": {
+      "title": "Kind",
+      "type": "string"
+     },
+     "title": {
+      "title": "Title",
+      "type": "string"
+     },
+     "text": {
+      "title": "Text",
+      "type": "string"
+     },
+     "confidence": {
+      "enum": [
+       "high",
+       "medium",
+       "low"
+      ],
+      "title": "Confidence",
+      "type": "string"
+     },
+     "source": {
+      "enum": [
+       "check",
+       "model"
+      ],
+      "title": "Source",
+      "type": "string"
+     },
+     "verdict": {
+      "title": "Verdict",
+      "type": "string"
+     },
+     "debate": {
+      "items": {
+       "$ref": "#/components/schemas/DebateOut"
+      },
+      "title": "Debate",
+      "type": "array"
+     },
+     "documents": {
+      "items": {
+       "$ref": "#/components/schemas/ReviewDoc"
+      },
+      "title": "Documents",
+      "type": "array"
+     },
+     "compose": {
+      "anyOf": [
+       {
+        "$ref": "#/components/schemas/ComposeOut"
+       },
+       {
+        "type": "null"
+       }
+      ]
+     },
+     "changes": {
+      "items": {
+       "$ref": "#/components/schemas/AssistGroupOut"
+      },
+      "title": "Changes",
+      "type": "array"
+     },
+     "matches": {
+      "items": {
+       "$ref": "#/components/schemas/MatchOut"
+      },
+      "title": "Matches",
+      "type": "array"
+     },
+     "decision": {
+      "title": "Decision",
+      "type": "string"
+     }
+    },
+    "required": [
+     "id",
+     "kind",
+     "title",
+     "text",
+     "confidence",
+     "source",
+     "verdict",
+     "debate",
+     "documents",
+     "compose",
+     "changes",
+     "matches",
+     "decision"
+    ],
+    "title": "FindingOut",
+    "type": "object"
+   },
+   "JournalOut": {
+    "properties": {
+     "at": {
+      "format": "date-time",
+      "title": "At",
+      "type": "string"
+     },
+     "text": {
+      "title": "Text",
+      "type": "string"
+     }
+    },
+    "required": [
+     "at",
+     "text"
+    ],
+    "title": "JournalOut",
+    "type": "object"
+   },
+   "MatchOut": {
+    "description": "Two pages that are alike.",
+    "properties": {
+     "a": {
+      "$ref": "#/components/schemas/ReviewPage"
+     },
+     "b": {
+      "$ref": "#/components/schemas/ReviewPage"
+     }
+    },
+    "required": [
+     "a",
+     "b"
+    ],
+    "title": "MatchOut",
+    "type": "object"
+   },
+   "OutputOut": {
+    "properties": {
+     "pages": {
+      "items": {
+       "$ref": "#/components/schemas/ReviewPage"
+      },
+      "title": "Pages",
+      "type": "array"
+     },
+     "title": {
+      "title": "Title",
+      "type": "string"
+     }
+    },
+    "required": [
+     "pages",
+     "title"
+    ],
+    "title": "OutputOut",
+    "type": "object"
+   },
+   "ReviewDoc": {
+    "properties": {
+     "id": {
+      "format": "uuid",
+      "title": "Id",
+      "type": "string"
+     },
+     "title": {
+      "title": "Title",
+      "type": "string"
+     },
+     "correspondent": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Correspondent"
+     },
+     "document_date": {
+      "anyOf": [
+       {
+        "format": "date",
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Document Date"
+     },
+     "page_count": {
+      "title": "Page Count",
+      "type": "integer"
+     },
+     "trashed": {
+      "title": "Trashed",
+      "type": "boolean"
+     },
+     "what": {
+      "title": "What",
+      "type": "string"
+     }
+    },
+    "required": [
+     "id",
+     "title",
+     "correspondent",
+     "document_date",
+     "page_count",
+     "trashed",
+     "what"
+    ],
+    "title": "ReviewDoc",
+    "type": "object"
+   },
+   "ReviewOut": {
+    "properties": {
+     "id": {
+      "title": "Id",
+      "type": "integer"
+     },
+     "state": {
+      "title": "State",
+      "type": "string"
+     },
+     "step": {
+      "title": "Step",
+      "type": "string"
+     },
+     "done": {
+      "title": "Done",
+      "type": "integer"
+     },
+     "total": {
+      "title": "Total",
+      "type": "integer"
+     },
+     "error": {
+      "title": "Error",
+      "type": "string"
+     },
+     "model": {
+      "title": "Model",
+      "type": "string"
+     },
+     "ai": {
+      "title": "Ai",
+      "type": "boolean"
+     },
+     "think": {
+      "title": "Think",
+      "type": "boolean"
+     },
+     "instruction": {
+      "title": "Instruction",
+      "type": "string"
+     },
+     "documents": {
+      "title": "Documents",
+      "type": "integer"
+     },
+     "created_at": {
+      "format": "date-time",
+      "title": "Created At",
+      "type": "string"
+     },
+     "start": {
+      "anyOf": [
+       {
+        "format": "date-time",
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Start"
+     },
+     "until": {
+      "anyOf": [
+       {
+        "format": "date-time",
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Until"
+     },
+     "started_at": {
+      "anyOf": [
+       {
+        "format": "date-time",
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Started At"
+     },
+     "finished_at": {
+      "anyOf": [
+       {
+        "format": "date-time",
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Finished At"
+     },
+     "read": {
+      "title": "Read",
+      "type": "boolean"
+     },
+     "open_findings": {
+      "title": "Open Findings",
+      "type": "integer"
+     },
+     "summary": {
+      "title": "Summary",
+      "type": "string"
+     },
+     "next_steps": {
+      "items": {
+       "type": "string"
+      },
+      "title": "Next Steps",
+      "type": "array"
+     },
+     "stopped": {
+      "title": "Stopped",
+      "type": "string"
+     },
+     "findings": {
+      "items": {
+       "$ref": "#/components/schemas/FindingOut"
+      },
+      "title": "Findings",
+      "type": "array"
+     },
+     "journal": {
+      "items": {
+       "$ref": "#/components/schemas/JournalOut"
+      },
+      "title": "Journal",
+      "type": "array"
+     }
+    },
+    "required": [
+     "id",
+     "state",
+     "step",
+     "done",
+     "total",
+     "error",
+     "model",
+     "ai",
+     "think",
+     "instruction",
+     "documents",
+     "created_at",
+     "start",
+     "until",
+     "started_at",
+     "finished_at",
+     "read",
+     "open_findings",
+     "summary",
+     "next_steps",
+     "stopped",
+     "findings",
+     "journal"
+    ],
+    "title": "ReviewOut",
+    "type": "object"
+   },
+   "ReviewPage": {
+    "properties": {
+     "document": {
+      "format": "uuid",
+      "title": "Document",
+      "type": "string"
+     },
+     "page": {
+      "title": "Page",
+      "type": "integer"
+     }
+    },
+    "required": [
+     "document",
+     "page"
+    ],
+    "title": "ReviewPage",
+    "type": "object"
+   },
+   "DecisionIn": {
+    "properties": {
+     "decision": {
+      "enum": [
+       "applied",
+       "dismissed",
+       "open"
+      ],
+      "title": "Decision",
+      "type": "string"
+     }
+    },
+    "required": [
+     "decision"
+    ],
+    "title": "DecisionIn",
+    "type": "object"
+   },
+   "PagesStatus": {
+    "properties": {
+     "documents": {
+      "title": "Documents",
+      "type": "integer"
+     },
+     "ready": {
+      "title": "Ready",
+      "type": "integer"
+     },
+     "queued": {
+      "title": "Queued",
+      "type": "integer"
+     }
+    },
+    "required": [
+     "documents",
+     "ready",
+     "queued"
+    ],
+    "title": "PagesStatus",
+    "type": "object"
+   },
+   "PageOut": {
+    "properties": {
+     "number": {
+      "title": "Number",
+      "type": "integer"
+     },
+     "mark": {
+      "title": "Mark",
+      "type": "string"
+     },
+     "blank": {
+      "title": "Blank",
+      "type": "boolean"
+     }
+    },
+    "required": [
+     "number",
+     "mark",
+     "blank"
+    ],
+    "title": "PageOut",
+    "type": "object"
+   },
+   "PagesOut": {
+    "properties": {
+     "id": {
+      "format": "uuid",
+      "title": "Id",
+      "type": "string"
+     },
+     "title": {
+      "title": "Title",
+      "type": "string"
+     },
+     "page_count": {
+      "title": "Page Count",
+      "type": "integer"
+     },
+     "pages": {
+      "items": {
+       "$ref": "#/components/schemas/PageOut"
+      },
+      "title": "Pages",
+      "type": "array"
+     }
+    },
+    "required": [
+     "id",
+     "title",
+     "page_count",
+     "pages"
+    ],
+    "title": "PagesOut",
+    "type": "object"
+   },
+   "AlterationOut": {
+    "properties": {
+     "id": {
+      "title": "Id",
+      "type": "integer"
+     },
+     "kind": {
+      "title": "Kind",
+      "type": "string"
+     },
+     "actor": {
+      "title": "Actor",
+      "type": "string"
+     },
+     "summary": {
+      "title": "Summary",
+      "type": "string"
+     },
+     "created_at": {
+      "format": "date-time",
+      "title": "Created At",
+      "type": "string"
+     },
+     "undone_at": {
+      "anyOf": [
+       {
+        "format": "date-time",
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Undone At"
+     },
+     "can_undo": {
+      "title": "Can Undo",
+      "type": "boolean"
+     },
+     "sources": {
+      "items": {
+       "$ref": "#/components/schemas/DocRef"
+      },
+      "title": "Sources",
+      "type": "array"
+     },
+     "results": {
+      "items": {
+       "$ref": "#/components/schemas/DocRef"
+      },
+      "title": "Results",
+      "type": "array"
+     },
+     "changes": {
+      "items": {
+       "$ref": "#/components/schemas/ChangeOut"
+      },
+      "title": "Changes",
+      "type": "array"
+     },
+     "task": {
+      "anyOf": [
+       {
+        "type": "integer"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Task"
+     },
+     "finding": {
+      "title": "Finding",
+      "type": "string"
+     }
+    },
+    "required": [
+     "id",
+     "kind",
+     "actor",
+     "summary",
+     "created_at",
+     "undone_at",
+     "can_undo",
+     "sources",
+     "results",
+     "changes",
+     "task",
+     "finding"
+    ],
+    "title": "AlterationOut",
+    "type": "object"
+   },
+   "ChangeOut": {
+    "properties": {
+     "field": {
+      "title": "Field",
+      "type": "string"
+     },
+     "old": {
+      "title": "Old",
+      "type": "string"
+     },
+     "new": {
+      "title": "New",
+      "type": "string"
+     }
+    },
+    "required": [
+     "field",
+     "old",
+     "new"
+    ],
+    "title": "ChangeOut",
+    "type": "object"
+   },
+   "DocRef": {
+    "properties": {
+     "id": {
+      "format": "uuid",
+      "title": "Id",
+      "type": "string"
+     },
+     "title": {
+      "title": "Title",
+      "type": "string"
+     },
+     "trashed": {
+      "title": "Trashed",
+      "type": "boolean"
+     }
+    },
+    "required": [
+     "id",
+     "title",
+     "trashed"
+    ],
+    "title": "DocRef",
+    "type": "object"
+   },
+   "ComposeIn": {
+    "properties": {
+     "sources": {
+      "items": {
+       "format": "uuid",
+       "type": "string"
+      },
+      "maxItems": 200,
+      "title": "Sources",
+      "type": "array"
+     },
+     "outputs": {
+      "items": {
+       "$ref": "#/components/schemas/OutputIn"
+      },
+      "maxItems": 50,
+      "title": "Outputs",
+      "type": "array"
+     },
+     "origin": {
+      "anyOf": [
+       {
+        "$ref": "#/components/schemas/AlterationOrigin"
+       },
+       {
+        "type": "null"
+       }
+      ]
+     }
+    },
+    "required": [
+     "sources",
+     "outputs"
+    ],
+    "title": "ComposeIn",
+    "type": "object"
+   },
+   "OutputIn": {
+    "properties": {
+     "pages": {
+      "items": {
+       "$ref": "#/components/schemas/PageRef"
+      },
+      "maxItems": 2000,
+      "title": "Pages",
+      "type": "array"
+     },
+     "title": {
+      "default": "",
+      "maxLength": 200,
+      "title": "Title",
+      "type": "string"
+     }
+    },
+    "required": [
+     "pages"
+    ],
+    "title": "OutputIn",
+    "type": "object"
+   },
+   "PageRef": {
+    "properties": {
+     "document": {
+      "format": "uuid",
+      "title": "Document",
+      "type": "string"
+     },
+     "page": {
+      "minimum": 1,
+      "title": "Page",
+      "type": "integer"
+     }
+    },
+    "required": [
+     "document",
+     "page"
+    ],
+    "title": "PageRef",
+    "type": "object"
+   },
+   "IdsIn": {
+    "properties": {
+     "ids": {
+      "items": {
+       "format": "uuid",
+       "type": "string"
+      },
+      "maxItems": 500,
+      "title": "Ids",
+      "type": "array"
+     },
+     "origin": {
+      "anyOf": [
+       {
+        "$ref": "#/components/schemas/AlterationOrigin"
+       },
+       {
+        "type": "null"
+       }
+      ]
+     }
+    },
+    "required": [
+     "ids"
+    ],
+    "title": "IdsIn",
+    "type": "object"
+   },
+   "TrashItem": {
+    "properties": {
+     "id": {
+      "format": "uuid",
+      "title": "Id",
+      "type": "string"
+     },
+     "title": {
+      "title": "Title",
+      "type": "string"
+     },
+     "page_count": {
+      "title": "Page Count",
+      "type": "integer"
+     },
+     "deleted_at": {
+      "format": "date-time",
+      "title": "Deleted At",
+      "type": "string"
+     },
+     "replaced_by": {
+      "items": {
+       "$ref": "#/components/schemas/DocRef"
+      },
+      "title": "Replaced By",
+      "type": "array"
+     }
+    },
+    "required": [
+     "id",
+     "title",
+     "page_count",
+     "deleted_at",
+     "replaced_by"
+    ],
+    "title": "TrashItem",
+    "type": "object"
+   },
+   "HistoryOut": {
+    "properties": {
+     "id": {
+      "format": "uuid",
+      "title": "Id",
+      "type": "string"
+     },
+     "title": {
+      "title": "Title",
+      "type": "string"
+     },
+     "trashed": {
+      "title": "Trashed",
+      "type": "boolean"
+     },
+     "deleted_at": {
+      "anyOf": [
+       {
+        "format": "date-time",
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Deleted At"
+     },
+     "replaced_by": {
+      "items": {
+       "$ref": "#/components/schemas/DocRef"
+      },
+      "title": "Replaced By",
+      "type": "array"
+     },
+     "entries": {
+      "items": {
+       "$ref": "#/components/schemas/AlterationOut"
+      },
+      "title": "Entries",
+      "type": "array"
+     }
+    },
+    "required": [
+     "id",
+     "title",
+     "trashed",
+     "deleted_at",
+     "replaced_by",
+     "entries"
+    ],
+    "title": "HistoryOut",
     "type": "object"
    }
   },

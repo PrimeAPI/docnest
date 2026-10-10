@@ -47,7 +47,7 @@ from rapidfuzz import fuzz
 
 from apps.analysis import ai
 from apps.crypto.aead import decrypt_text, encrypt_text
-from apps.documents import crypto_fields
+from apps.documents import alterations, crypto_fields
 from apps.documents.models import Document, Source
 from apps.processing.models import SystemState
 from apps.processing.preferences import get_ai_model
@@ -816,8 +816,10 @@ def apply(moves: list[Move]) -> tuple[int, int]:
                     continue
                 if document.folder_id is not None and document.folder_id not in ancestors:
                     raise ApplyError("Documents can only be moved into subfolders of their folder")
+                before = alterations.snapshot(document)
                 document.folder = target
                 document.set_source("folder", Source.USER)
                 document.save(update_fields=["folder", "field_sources", "updated_at"])
+                alterations.record_edit(document, before)
                 moved += 1
     return moved, created

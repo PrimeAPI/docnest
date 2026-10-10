@@ -26,6 +26,7 @@ import { AssistantButton } from "@/features/assist/assistant";
 import { SuggestFilingButton } from "@/features/folders/filing-suggestions";
 import { MoveButton, MoveToFolderDialog } from "@/features/folders/folder-ui";
 import { dragDocuments } from "@/features/folders/tree";
+import { PageEditor } from "@/features/pages/page-editor";
 import { ReprocessDialog } from "@/features/processing/reprocess-dialog";
 import { cn, colorClass, formatDate, formatDateTime } from "@/lib/utils";
 
@@ -233,6 +234,7 @@ export function DocumentRow({
 export function BulkBar({ ids, onClear }: { ids: string[]; onClear: () => void }) {
   const bulk = useBulkAction();
   const [reprocessOpen, setReprocessOpen] = useState(false);
+  const [pagesOpen, setPagesOpen] = useState(false);
   if (!ids.length) return null;
   const run = (action: Parameters<typeof bulk.mutate>[0]["action"]) =>
     bulk.mutate({ ids, action }, { onSuccess: onClear });
@@ -255,6 +257,15 @@ export function BulkBar({ ids, onClear }: { ids: string[]; onClear: () => void }
         <MoveButton ids={ids} onMoved={onClear} />
         <SuggestFilingButton ids={ids} onDone={onClear} />
         <AssistantButton ids={ids} scope={`${ids.length} selected document${ids.length === 1 ? "" : "s"}`} onDone={onClear} />
+        <Button
+          size="sm"
+          variant="outline"
+          onClick={() => setPagesOpen(true)}
+          disabled={ids.length > 50}
+          title="Merge these documents, or move pages between them — the originals stay untouched"
+        >
+          <Layers /> Pages
+        </Button>
         <Button size="sm" variant="outline" onClick={() => setReprocessOpen(true)}>
           <RefreshCw /> Reprocess…
         </Button>
@@ -263,6 +274,15 @@ export function BulkBar({ ids, onClear }: { ids: string[]; onClear: () => void }
         </Button>
       </div>
       <ReprocessDialog target={{ ids }} open={reprocessOpen} onOpenChange={setReprocessOpen} onDone={onClear} />
+      {pagesOpen && (
+        <PageEditor
+          sourceIds={ids}
+          heading={`Pages of ${ids.length} documents`}
+          explanation="Merge them, move pages from one to another, or take pages out. The originals stay as they are: documents that change go to the trash and new ones take their place."
+          onApplied={onClear}
+          onClose={() => setPagesOpen(false)}
+        />
+      )}
     </div>
   );
 }

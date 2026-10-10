@@ -164,7 +164,7 @@ What to back up:
 | `secrets/master_key` (+ other secrets) | Decrypts the database contents and the Proton session | Once, offline (password manager). Keep it **separate** from database backups. |
 | PostgreSQL database | Metadata, encrypted text, search index, users | **Automatic**: the worker uploads a dump to Proton Drive every day (see below). Manually: `docker compose exec -T db pg_dump -U postgres -Fc docnest > docnest-$(date +%F).dump` |
 | `data` volume | Documents not yet stored in Proton Drive (normally empty) | Only needed if the overview shows documents *waiting for storage*. |
-| Proton Drive | The documents themselves | Managed by Proton; DocNest never deletes there except when you delete a document. |
+| Proton Drive | The documents themselves, including superseded originals | Managed by Proton; removing a document in DocNest keeps its files in recoverable trash. |
 
 ### Automatic database backups
 

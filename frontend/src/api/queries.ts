@@ -1,6 +1,6 @@
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
-import { type Schemas, call, client } from "./client";
+import { ApiError, type Schemas, call, client } from "./client";
 
 export type DocumentListItem = Schemas["DocumentPage"]["items"][number];
 export type DocumentDetail = Schemas["DocumentDetail"];
@@ -102,6 +102,7 @@ export function useDocument(id: string) {
   return useQuery({
     queryKey: keys.document(id),
     queryFn: () => call(() => client.GET("/api/v1/documents/{doc_id}", { params: { path: { doc_id: id } } })),
+    retry: (count, error) => !(error instanceof ApiError && error.status === 404) && count < 3, // in the trash
     refetchInterval: (q) => {
       const state = q.state.data?.processing_state;
       return state === "pending" || state === "running" ? 3000 : false;
@@ -113,6 +114,13 @@ export function useInvalidateDocuments() {
   const qc = useQueryClient();
   return () => {
     qc.invalidateQueries({ queryKey: ["documents"] });
+    qc.invalidateQueries({ queryKey: ["document"] });
+    qc.invalidateQueries({ queryKey: ["alterations"] });
+    qc.invalidateQueries({ queryKey: ["trash"] });
+    qc.invalidateQueries({ queryKey: ["pages"] });
+    qc.invalidateQueries({ queryKey: ["pages-status"] });
+    qc.invalidateQueries({ queryKey: ["review"] });
+    qc.invalidateQueries({ queryKey: ["reviews"] });
     qc.invalidateQueries({ queryKey: keys.overview });
     qc.invalidateQueries({ queryKey: keys.processingQueue });
     qc.invalidateQueries({ queryKey: ["series"] });

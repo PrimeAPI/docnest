@@ -18,7 +18,7 @@ import {
 import { type KeyboardEvent, useEffect, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router";
 import { toast } from "sonner";
-import { call, client } from "@/api/client";
+import { ApiError, call, client } from "@/api/client";
 import {
   type DocumentDetail,
   useCorrespondents,
@@ -57,6 +57,8 @@ import { FolderSelect } from "@/features/folders/folder-ui";
 import { PaperCard } from "@/features/paper/paper";
 import { describeEnhancement } from "@/features/processing/enhancement";
 import { ReprocessDialog } from "@/features/processing/reprocess-dialog";
+import { PageEditor } from "@/features/pages/page-editor";
+import { AlterationHistory, TrashedDocument, useHistory } from "@/features/pages/history";
 import { AssistantButton } from "@/features/assist/assistant";
 import { cn, formatBytes, formatDate, formatDateTime } from "@/lib/utils";
 
@@ -66,6 +68,7 @@ export function DocumentPage() {
   const navigate = useNavigate();
 
   if (doc.isPending) return <Spinner className="size-6" />;
+  if (doc.error instanceof ApiError && doc.error.status === 404) return <TrashedOrMissing id={id} />;
   if (doc.error || !doc.data) return <ErrorNote error={doc.error ?? "Document not found"} />;
   const d = doc.data;
   const viewable = d.page_count > 0 || d.stored;
@@ -94,6 +97,14 @@ export function DocumentPage() {
       </aside>
     </div>
   );
+}
+
+/** A document that is not there may be in the trash: then say so, and how to get it back. */
+function TrashedOrMissing({ id }: { id: string }) {
+  const history = useHistory(id);
+  if (history.isPending) return <Spinner className="size-6" />;
+  if (history.data?.trashed) return <TrashedDocument id={id} />;
+  return <ErrorNote error="Document not found" />;
 }
 
 function SidePanel({ doc }: { doc: DocumentDetail }) {
@@ -139,6 +150,7 @@ function Header({ doc }: { doc: DocumentDetail }) {
   const navigate = useNavigate();
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [reprocessOpen, setReprocessOpen] = useState(false);
+  const [editPages, setEditPages] = useState(false);
 
   const markUnread = async () => {
     await call(() => client.POST("/api/v1/documents/{doc_id}/unread", { params: { path: { doc_id: doc.id } } }));
@@ -149,7 +161,10 @@ function Header({ doc }: { doc: DocumentDetail }) {
   const remove = async () => {
     try {
       await call(() => client.DELETE("/api/v1/documents/{doc_id}", { params: { path: { doc_id: doc.id } } }));
-      toast.success("Document deleted");
+      toast.success("Moved to the trash", {
+        description: "Its files are kept. Restore it from the trash at any time.",
+        action: { label: "Open the trash", onClick: () => navigate("/trash") },
+      });
       invalidate();
       navigate("/documents", { replace: true });
     } catch (e) {
@@ -203,6 +218,15 @@ function Header({ doc }: { doc: DocumentDetail }) {
           </a>
         </Button>
         <AssistantButton ids={[doc.id]} scope="this document" />
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={() => setEditPages(true)}
+          disabled={doc.processing_state !== "done"}
+          title="Split, remove or reorder pages — the original stays untouched"
+        >
+          <Layers /> Pages
+        </Button>
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
             <Button variant="outline" size="icon-sm" title="More actions">
@@ -224,11 +248,23 @@ function Header({ doc }: { doc: DocumentDetail }) {
             </DropdownMenuItem>
             <DropdownMenuSeparator />
             <DropdownMenuItem className="text-destructive" onSelect={() => setConfirmDelete(true)}>
-              <Trash2 /> Delete document
+              <Trash2 /> Move to trash
             </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>
       </div>
+      {editPages && (
+        <PageEditor
+          sourceIds={[doc.id]}
+          heading="Pages of this document"
+          explanation="Cut it into several documents, take pages out or put them in another order. The original stays as it is: this document goes to the trash and the new ones take its place."
+          onApplied={(a) => {
+            const made = a.results.find((r) => !r.trashed);
+            if (made) navigate(`/documents/${made.id}`, { replace: true });
+          }}
+          onClose={() => setEditPages(false)}
+        />
+      )}
       <ReprocessDialog
         target={{ ids: [doc.id] }}
         open={reprocessOpen}
@@ -238,10 +274,10 @@ function Header({ doc }: { doc: DocumentDetail }) {
       <Dialog open={confirmDelete} onOpenChange={setConfirmDelete}>
         <DialogContent className="max-w-sm">
           <DialogHeader>
-            <DialogTitle>Delete this document?</DialogTitle>
+            <DialogTitle>Move this document to the trash?</DialogTitle>
             <DialogDescription>
-              The document, its text and its search data are removed, and the files are deleted from storage. This
-              cannot be undone.
+              It disappears from lists and search. Its original files are always kept, and you can restore it from
+              the trash at any time.
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>
@@ -249,7 +285,7 @@ function Header({ doc }: { doc: DocumentDetail }) {
               Cancel
             </Button>
             <Button variant="destructive" onClick={remove}>
-              <Trash2 /> Delete
+              <Trash2 /> Move to trash
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -612,6 +648,9 @@ function OcrText({ id }: { id: string }) {
 function HistoryTab({ doc }: { doc: DocumentDetail }) {
   return (
     <div className="flex flex-col gap-2 text-sm">
+      <h3 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Changes</h3>
+      <AlterationHistory id={doc.id} />
+      <h3 className="mt-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Processing</h3>
       <p className="text-xs text-muted-foreground">
         Processing stage: <span className="font-medium text-foreground">{doc.processing_stage}</span> · OCR backend:{" "}
         <span className="font-medium text-foreground">{doc.ocr_backend}</span>

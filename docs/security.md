@@ -65,7 +65,7 @@ Logs are structured JSON. Document text is never passed to the logger (enforced 
 
 ## Secure defaults (SEC09)
 
-No default users or passwords; secrets only via files (`*_FILE`), and startup fails if a secret file is world-readable or too short; debug mode cannot be enabled in production; strict Content-Security-Policy (`default-src 'self'`, no inline scripts), `X-Frame-Options: DENY`, `Referrer-Policy: no-referrer`, `Cache-Control: no-store` for API responses; uploaded PDFs are sanitized (JavaScript, auto-actions, embedded files and launch actions removed) and served with a sandboxing CSP.
+No default users or passwords; secrets only via files (`*_FILE`), and startup fails if a secret file is world-readable or too short; debug mode cannot be enabled in production; strict Content-Security-Policy (`default-src 'self'`, no inline scripts), `X-Frame-Options: DENY`, `Referrer-Policy: no-referrer`, `Cache-Control: no-store` for API responses. Processing copies of uploaded PDFs are sanitized (JavaScript, auto-actions, embedded files and launch actions removed); originals are retained unchanged and may still contain that content. PDF responses use a sandboxing CSP.
 
 ## Audit log and sign-in activity
 

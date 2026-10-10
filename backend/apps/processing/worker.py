@@ -50,11 +50,15 @@ LANES: dict[str, list[str]] = {
     # Short jobs the user waits for or that bring in new documents: never behind a batch.
     "assist": [Job.Kind.SUGGEST_FILING, Job.Kind.ASSIST],
     "mail": [Job.Kind.FETCH_MAIL],
+    # Hours long: its own lane, so quick requests and new documents never wait for it.
+    "review": [Job.Kind.REVIEW],
+    "pages": [Job.Kind.PAGES],  # a few seconds per document; the whole archive once
 }
 INTAKE_SLOTS = 1
 LANE_OF = {kind: lane for lane, kinds in LANES.items() for kind in kinds}
 CONCURRENT_JOB_KINDS = list(LANE_OF)
 MODEL_RETRY_SECONDS = 600
+REVIEW_RETENTION_DAYS = 60  # reports of overnight reviews
 
 
 class Worker:
@@ -189,6 +193,14 @@ class Worker:
                     from apps.assist import tasks
 
                     tasks.run(int(job.payload.get("task", 0)))
+                elif job.kind == Job.Kind.PAGES:
+                    from apps.documents import pages
+
+                    pages.run(job.document_id or 0)
+                elif job.kind == Job.Kind.REVIEW:
+                    from apps.assist import review
+
+                    review.run(int(job.payload.get("task", 0)))
                 elif job.kind == Job.Kind.FETCH_MAIL:
                     inbox.fetch()
                 else:
@@ -346,7 +358,15 @@ class Worker:
         AuditLog.objects.filter(created_at__lt=now - timedelta(days=settings.AUDIT_RETENTION_DAYS)).delete()
         LoginThrottle.objects.filter(window_started_at__lt=now - timedelta(days=1)).delete()
         FilingProposal.objects.filter(created_at__lt=now - timedelta(days=1)).delete()
-        AssistTask.objects.filter(created_at__lt=now - timedelta(days=1)).delete()
+        AssistTask.objects.exclude(operation=AssistTask.Operation.REVIEW).filter(
+            state__in=[AssistTask.State.DONE, AssistTask.State.FAILED, AssistTask.State.CANCELLED],
+            finished_at__lt=now - timedelta(days=1),
+        ).delete()
+        AssistTask.objects.filter(
+            operation=AssistTask.Operation.REVIEW,
+            state__in=[AssistTask.State.DONE, AssistTask.State.FAILED, AssistTask.State.CANCELLED],
+            finished_at__lt=now - timedelta(days=REVIEW_RETENTION_DAYS),
+        ).delete()
         history_cutoff = now - timedelta(hours=settings.JOB_HISTORY_HOURS)
         Job.objects.filter(
             state__in=[Job.State.DONE, Job.State.FAILED],

@@ -1,0 +1,41 @@
+# Document reviews and page editing
+
+DocNest can look through a folder, a selection or your archive and leave suggestions for you to review later. The worker runs the review, so the browser can be closed. No suggestion changes documents automatically.
+
+## Start a review
+
+From a document list or a folder, open **Assistant → Look through**. From the **Assistant** page, choose **Look through everything**.
+
+- **Quick, pages only** prepares page thumbnails and fingerprints and checks for duplicate documents or pages, complementary page numbers across scans, scans containing several letters, empty pages, missing pages and series gaps. It needs no model.
+- **Thorough, with the AI model** adds document reading, naming suggestions, criticism and a final report. Choose any installed model that fits your server, including your existing small model or an 8B model. Enable thinking only when the installed model supports it. More context consumes more memory.
+- Start now or choose a time. You may set a report deadline, for example 07:00. A run can finish earlier if its work is complete or it stops finding useful steps. It does not deliberately repeat reasoning to fill twelve hours.
+
+Reviews prepare missing page fingerprints automatically. **Prepare all pages** also lets you do this in advance. Documents still being processed or whose files are unavailable may only receive text checks; the journal records this limitation.
+
+The review uses small, structured questions instead of sending the entire archive in one prompt. Long documents may initially be shortened, with further sections accessible through the read tool. The model can read, compare and search selected documents, and propose changes. A critic, defender and judge assess uncertain proposals; their arguments are visible. More time or repeated agreement does not guarantee correctness, so inspect the page previews and evidence before applying changes.
+
+## Decide what to change
+
+Open **Assistant** to see progress, the journal and finished reports. Reports separate open findings, your decisions and findings set aside by the assistant. Review names and details individually; edit proposed values or untick changes you do not want.
+
+For page changes, choose **Review the pages…**. You can compare matching pages side by side at readable size, change the proposed page order, split or join outputs and put left-out pages back. The editor shows which new documents will be created, which sources will go to trash and how many pages are left out. **Apply as suggested** uses the displayed proposal directly.
+
+Page numbers and similarities are evidence, not proof that scans belong together. Missing marks can be OCR errors. Repeated forms can contain different details; handwritten annotations, signatures and unreadable scans deserve particular care. Conflicting suggestions can become outdated after you apply another one; inspect the resulting documents or start a new review.
+
+## Make changes yourself
+
+Use a document's **Pages** action, or select documents in a list and choose **Pages**. Click pages to select them, move them to a new or existing output, use the scissors to split, join adjacent outputs, reorder pages or leave pages out. These are the same operations used for assistant suggestions.
+
+An unchanged output keeps the existing document. Every changed output is a new document made from copies of the displayed archive pages. Superseded sources go to **Trash**, with their original files and processed versions intact. Leaving out a page excludes it from the new output; the page remains in the source. There is no permanent-delete action.
+
+New PDF uploads retain their exact bytes as the original; sanitization and enhancement use processing copies. Raw image uploads are assembled into a PDF, which is their document original. Existing originals sanitized by older versions cannot be reconstructed without the source upload.
+
+Every document's **History** shows page changes and metadata edits, including old and new values and the assistant finding a change came from. Page changes can be undone while the relevant documents have not been independently restored or superseded and are not currently being processed. Undo puts generated documents in trash and brings the sources back; you can also restore individual sources directly. Original downloads remain available from the trash view.
+
+## Restarts, stopping and retention
+
+Progress is checkpointed. A restarted worker resumes a review, and a temporarily unavailable model is retried. Document notes are reused only when the text and model match. If the model repeatedly fails, completed findings remain in a partial report.
+
+**Stop and report** stops at the next checkpoint after the current request and writes the report with completed findings. Cancelling a scheduled review prevents it from starting. The deadline bounds model requests; local rendering or comparison already in progress may finish after it.
+
+Finished review reports are retained for 60 days. Document alteration history and original files are retained independently of reports. Deleting a report does not undo applied changes. Scheduling currently means a single review at a chosen time; recurring nightly reviews are not yet implemented. Reviews cover up to 5,000 documents; folder selections use the document list's selection limit.

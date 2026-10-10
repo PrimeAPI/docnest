@@ -327,14 +327,43 @@ def test_docling_vlm_failure_falls_back_without_failing_document(scanner, monkey
     assert doc.events.filter(stage="analyze", outcome="warning").exists()
 
 
-def test_javascript_is_stripped(scanner, isolated_dirs):
+def test_javascript_is_stripped_from_the_archive_and_the_uploaded_original_is_preserved(
+    scanner, isolated_dirs
+):
     _, token = scanner
-    upload(Client(), token, javascript_pdf())
+    uploaded = javascript_pdf()
+    upload(Client(), token, uploaded)
     process_all()
     doc = Document.objects.get()
     assert doc.processing_state == "done", doc.processing_error
     original = next((isolated_dirs / "storage").rglob("original.pdf")).read_bytes()
-    assert b"/JavaScript" not in original and b"app.alert" not in original
+    archive = next((isolated_dirs / "storage").rglob("archive.pdf")).read_bytes()
+    assert original == uploaded
+    assert b"/JavaScript" not in archive and b"app.alert" not in archive
+
+
+def test_reprocessing_does_not_rewrite_the_stored_original(scanner, api, isolated_dirs, monkeypatch):
+    _, token = scanner
+    uploaded = text_pdf(INVOICE_LINES)
+    doc_id = upload(Client(), token, uploaded).json()["id"]
+    process_all()
+    original_path = next((isolated_dirs / "storage").rglob("original.pdf"))
+    assert original_path.read_bytes() == uploaded
+    backend = backends.get_backend()
+    put = backend.put
+    written = []
+
+    def record_put(source, folder, filename):
+        written.append(filename)
+        return put(source, folder, filename)
+
+    monkeypatch.setattr(backend, "put", record_put)
+    monkeypatch.setattr("apps.processing.pipeline.get_backend", lambda: backend)
+    r = api.post(f"/api/v1/documents/{doc_id}/reprocess", {}, content_type="application/json")
+    assert r.status_code == 200, r.content
+    process_all()
+    assert original_path.read_bytes() == uploaded
+    assert written == ["archive.pdf"]
 
 
 def test_invalid_pdf_fails_visibly_without_losing_the_upload(scanner, api, isolated_dirs):
@@ -456,15 +485,20 @@ def test_reprocess_keeps_user_edits(scanner, api):
     assert api.get("/api/v1/documents", {"q": "power bill"}).json()["total"] == 1
 
 
-def test_delete_removes_everything(scanner, api, isolated_dirs):
+def test_delete_keeps_originals_permanently_and_restore_makes_them_searchable(scanner, api, isolated_dirs):
     _, token = scanner
     doc_id = upload(Client(), token, text_pdf(INVOICE_LINES)).json()["id"]
     process_all()
     assert api.delete(f"/api/v1/documents/{doc_id}").status_code == 200
-    process_all()  # storage deletion job
-    assert not Document.objects.exists()
-    assert not list((isolated_dirs / "storage").rglob("*.pdf"))
+    process_all()
+    assert list((isolated_dirs / "storage").rglob("*.pdf"))  # in the trash: files untouched
     assert api.get("/api/v1/documents", {"q": "Stromlieferung"}).json()["total"] == 0
+    assert api.delete(f"/api/v1/alterations/trash/{doc_id}?confirm=delete").status_code == 404
+    assert Document.objects.exists()
+    assert list((isolated_dirs / "storage").rglob("*.pdf"))
+    restored = api.post("/api/v1/alterations/restore", {"ids": [doc_id]}, content_type="application/json")
+    assert restored.status_code == 200, restored.content
+    assert api.get("/api/v1/documents", {"q": "Stromlieferung"}).json()["total"] == 1
 
 
 def test_jobs_of_a_dead_worker_are_released_at_once(scanner):

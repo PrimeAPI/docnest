@@ -176,9 +176,20 @@ def _enhanced_local(document: Document, work: Path) -> Path | None:
     return None
 
 
+def _sanitized_local(document: Document, work: Path) -> Path:
+    """A safe processing copy; the uploaded original is never rewritten."""
+    target = work / "sanitized.pdf"
+    if not target.exists():
+        try:
+            pdf.sanitize(_original_local(document, work), target)
+        except pdf.PdfRejected as exc:
+            raise PermanentError(str(exc)) from exc
+    return target
+
+
 def _ocr_source(document: Document, work: Path) -> Path:
-    """Input for OCR / Docling: the enhanced version, else the original."""
-    return _enhanced_local(document, work) or _original_local(document, work)
+    """Input for OCR / Docling: the enhanced version, else a sanitized copy."""
+    return _enhanced_local(document, work) or _sanitized_local(document, work)
 
 
 def planned(document: Document, stage: str) -> bool:
@@ -202,7 +213,7 @@ def _ocr_input(document: Document, work: Path) -> tuple[Path, bool]:
         current = work / "current.pdf"
         _archive_local(document, work).replace(current)
         return current, True
-    return _original_local(document, work), False
+    return _sanitized_local(document, work), False
 
 
 def _processed_local(document: Document, work: Path) -> Path:
@@ -212,7 +223,7 @@ def _processed_local(document: Document, work: Path) -> Path:
         return enhanced
     if (work / "archive.pdf").exists() or archive_intake_path(document).exists() or document.storage_archive:
         return _archive_local(document, work)
-    return _original_local(document, work)
+    return _sanitized_local(document, work)
 
 
 def _download(document: Document, ref: StoredObject, target: Path) -> None:
@@ -270,15 +281,15 @@ def stage_validate(document: Document, work: Path) -> None:
         result = pdf.sanitize(src, sanitized)
     except pdf.PdfRejected as exc:
         raise PermanentError(str(exc)) from exc
-    # The sanitized file becomes the stored original.
-    sanitized.replace(src)
-    if not document.storage_original:
-        encrypt_file(src, intake_path_for(str(document.uuid)), aad=intake_aad(str(document.uuid)))
+    # Only the processing copy is sanitized. Preserve the exact uploaded bytes as original.
+    encrypt_file(
+        sanitized, enhanced_intake_path_for(str(document.uuid)), aad=enhanced_aad(str(document.uuid))
+    )
     document.page_count = result.page_count
     document.original_page_count = result.page_count
     document.save(update_fields=["page_count", "original_page_count"])
     # The original can be opened from now on; the enhancement replaces this preview later.
-    thumb = pdf.thumbnail(src)
+    thumb = pdf.thumbnail(sanitized)
     if thumb:
         crypto_fields.set_thumbnail(document, thumb)
 
@@ -297,7 +308,7 @@ def stage_enhance(document: Document, work: Path) -> None:
     from apps.processing import enhance  # image libraries are only needed in the worker
 
     uuid = str(document.uuid)
-    src = _original_local(document, work)
+    src = _sanitized_local(document, work)
     target = work / "enhanced.pdf"
     target.unlink(missing_ok=True)
     enhanced_intake_path_for(uuid).unlink(missing_ok=True)
@@ -308,8 +319,11 @@ def stage_enhance(document: Document, work: Path) -> None:
         message = result.describe()
         if result.changed:
             encrypt_file(target, enhanced_intake_path_for(uuid), aad=enhanced_aad(uuid))
+        else:
+            encrypt_file(src, enhanced_intake_path_for(uuid), aad=enhanced_aad(uuid))
         page_count = result.page_count
     else:
+        encrypt_file(src, enhanced_intake_path_for(uuid), aad=enhanced_aad(uuid))
         summary, message = {}, "Scan enhancement is switched off"
         page_count = document.original_page_count or document.page_count
     state = {k: v for k, v in document.enhancement.items() if k != "override"}
@@ -486,13 +500,15 @@ def stage_store(document: Document, work: Path) -> None:
     folder = _storage_folder(document)
     try:
         if not document.storage_original or archive_intake_path(document).exists():
-            original = _original_local(document, work)
             archive = _archive_local(document, work)
-            ref_original = backend.put(original, folder, "original.pdf")
+            if not document.storage_original:
+                original = _original_local(document, work)
+                ref_original = backend.put(original, folder, "original.pdf")
+                document.storage_original = ref_original.to_json()
+                document.save(update_fields=["storage_original"])
             ref_archive = backend.put(archive, folder, "archive.pdf")
-            document.storage_original = ref_original.to_json()
             document.storage_archive = ref_archive.to_json()
-            document.save(update_fields=["storage_original", "storage_archive"])
+            document.save(update_fields=["storage_archive"])
             files.evict(document)  # a reprocessed archive must not be served from the view cache
     except StorageAuthError as exc:
         SystemState.objects.update_or_create(
@@ -510,6 +526,14 @@ def stage_store(document: Document, work: Path) -> None:
 
 def stage_index(document: Document, work: Path) -> None:
     reindex(document)
+    from apps.documents import pages
+
+    try:  # pictures and fingerprints of the pages: helpful, not essential
+        pages.build(document, _archive_local(document, work))
+    except Exception:
+        logger.warning(
+            "could not make page fingerprints", extra={"document": str(document.uuid)}, exc_info=True
+        )
 
 
 def reindex(document: Document) -> None:

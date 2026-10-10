@@ -15,6 +15,8 @@ import {
   Settings,
   Sun,
   Tags,
+  Telescope,
+  Trash2,
   Upload,
   X,
 } from "lucide-react";
@@ -34,6 +36,7 @@ import { Input } from "@/components/ui/input";
 import { Kbd } from "@/components/ui/misc";
 import { UploadProvider, useUpload } from "@/features/upload/upload-provider";
 import { ProcessingQueueButton } from "@/features/processing/processing-queue";
+import { useUnreadReviews } from "@/pages/assistant-page";
 import { getTheme, setTheme, type Theme } from "@/lib/theme";
 import { cn } from "@/lib/utils";
 
@@ -45,6 +48,8 @@ const NAV = [
   { to: "/series", label: "Series", icon: Layers },
   { to: "/paper", label: "Paper", icon: Archive, count: "paper" },
   { to: "/organize", label: "Tags & more", icon: Tags, count: "suggested" },
+  { to: "/assistant", label: "Assistant", icon: Telescope, count: "reports" },
+  { to: "/trash", label: "Trash", icon: Trash2 },
   { to: "/settings", label: "Settings", icon: Settings },
 ] as const;
 
@@ -83,12 +88,14 @@ export function AppLayout() {
 
 function Sidebar() {
   const overview = useOverview();
+  const unreadReports = useUnreadReviews();
   const o = overview.data;
   const counts: Record<string, number | undefined> = {
     inbox: o ? o.new + o.failed : undefined,
     todo: o?.todo,
     suggested: o?.suggested_tags,
     paper: o?.paper_pending,
+    reports: unreadReports,
   };
   return (
     <>

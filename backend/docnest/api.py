@@ -7,6 +7,7 @@ from apps.accounts.api import account_router, auth_router
 from apps.assist.api import router as assist_router
 from apps.core.api import router as core_router
 from apps.core.auth import mfa_auth
+from apps.documents.alterations_api import router as alterations_router
 from apps.documents.api import router as documents_router
 from apps.mail.api import router as mail_router
 from apps.paper.api import router as paper_router
@@ -34,6 +35,7 @@ web_api.add_router("/paper", paper_router)
 web_api.add_router("/scanners", scanners_manage_router)
 web_api.add_router("/mail", mail_router)
 web_api.add_router("/assist", assist_router)
+web_api.add_router("/alterations", alterations_router)
 
 upload_api = NinjaAPI(
     title="DocNest Upload API",

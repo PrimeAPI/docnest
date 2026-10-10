@@ -308,16 +308,16 @@ def analyze(
     return _fields(_chat(payload), model, {t.slug for t in types})
 
 
-def _chat(payload: dict[str, Any]) -> dict[str, Any]:
+def _chat(payload: dict[str, Any], *, timeout: float | None = None) -> dict[str, Any]:
     """Run a chat request that must answer with a JSON object."""
     try:
-        response = _request("/api/chat", payload, timeout=settings.AI_TIMEOUT_SECONDS)
+        response = _request("/api/chat", payload, timeout=timeout or settings.AI_TIMEOUT_SECONDS)
     except ModelFailed as exc:
         if "think" not in str(exc).lower():
             raise
         # Models without a reasoning mode reject the switch instead of ignoring it.
-        payload.pop("think")
-        response = _request("/api/chat", payload, timeout=settings.AI_TIMEOUT_SECONDS)
+        payload.pop("think", None)
+        response = _request("/api/chat", payload, timeout=timeout or settings.AI_TIMEOUT_SECONDS)
     content = str((response.get("message") or {}).get("content") or "")
     if not content.strip() and response.get("done_reason") == "length":
         raise ModelFailed(
@@ -713,7 +713,9 @@ def clean_pattern(value: object) -> str | None:
     return pattern
 
 
-def title_pattern(model: str, documents: list[AssistDocument], *, wish: str = "") -> str | None:
+def title_pattern(
+    model: str, documents: list[AssistDocument], *, wish: str = "", timeout: float | None = None
+) -> str | None:
     """One title pattern for documents that belong together ("Verdienstabrechnung YYYY-MM")."""
     senders = {d.sender for d in documents if d.sender}
     about = f" (sender {next(iter(senders))})" if len(senders) == 1 else ""
@@ -731,7 +733,8 @@ def title_pattern(model: str, documents: list[AssistDocument], *, wish: str = ""
             model,
             prompt,
             {"type": "object", "properties": {"pattern": {"type": "string"}}, "required": ["pattern"]},
-        )
+        ),
+        timeout=timeout,
     )
     return clean_pattern(data.get("pattern"))
 
@@ -811,3 +814,46 @@ def read_edit_rules(model: str, wish: str) -> list[EditRule]:
             if rule not in rules:
                 rules.append(rule)
     return rules[:MAX_WISH_RULES]
+
+
+# --- Long runs: one schema-constrained question at a time ---------------------------------------
+#
+# The overnight review asks a mid-sized model many small questions instead of one big one, so
+# any model works — with or without tool support — and the context stays small. Thinking
+# models may reason first when the run allows it; their answer still has to fit the schema.
+
+THINKING_ANSWER_TOKENS = 8192  # reasoning first needs room before the answer
+
+
+def ask(
+    model: str,
+    prompt: str,
+    schema: dict[str, Any],
+    *,
+    system: str = ASSIST_SYSTEM_PROMPT,
+    think: bool = False,
+    context: int = 0,
+    timeout: float | None = None,
+) -> dict[str, Any]:
+    """One question with a JSON-schema answer. `context` overrides the default window."""
+    return _chat(
+        {
+            "model": model,
+            "messages": [{"role": "system", "content": system}, {"role": "user", "content": prompt}],
+            "format": schema,
+            "stream": False,
+            "think": think,
+            "keep_alive": "30m",
+            "options": {
+                "temperature": 0.2 if think else 0,
+                "num_ctx": context if context > 0 else settings.AI_CONTEXT_TOKENS,
+                "num_predict": THINKING_ANSWER_TOKENS if think else MAX_ANSWER_TOKENS,
+            },
+        },
+        timeout=timeout,
+    )
+
+
+def capabilities(name: str) -> set[str]:
+    """What an installed model can do ("vision", "thinking", "tools"); empty when unknown."""
+    return _capabilities(name)

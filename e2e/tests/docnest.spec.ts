@@ -480,6 +480,85 @@ test("scans are enhanced, the original stays available, and paper is put away", 
   await expect(page.getByText(/from the top/)).toBeVisible();
 });
 
+test("reviews and manual page changes retain originals and can be undone", async ({ page }) => {
+  await login(page);
+  await page.getByRole("button", { name: "Use authenticator app" }).click();
+  await page.getByLabel("6-digit code from your authenticator app").fill(await freshTotp(totpSecret));
+  await page.getByRole("button", { name: "Verify" }).click();
+  await expect(page).toHaveURL(/\/inbox/);
+
+  await page.getByRole("navigation").getByRole("link", { name: /^Assistant/ }).click();
+  await page.getByRole("button", { name: "Look through everything" }).click();
+  const dialog = page.getByRole("dialog");
+  await dialog.getByRole("radio", { name: /Quick, pages only/ }).click();
+  await dialog.getByRole("radio", { name: "Now", exact: true }).check();
+  const started = page.waitForResponse((r) => r.url().endsWith("/api/v1/assist/reviews") && r.request().method() === "POST");
+  await dialog.getByRole("button", { name: "Start now" }).click();
+  const review = await (await started).json();
+  await expect(page).toHaveURL(new RegExp(`/assistant/${review.id}$`));
+  await expect.poll(async () => (await (await page.request.get(`/api/v1/assist/reviews/${review.id}`)).json()).state).toBe("done");
+  const journal = page.getByRole("button", { name: /What the assistant did/ });
+  await expect(journal).toBeVisible();
+  if ((await journal.getAttribute("aria-expanded")) === "false") await journal.click();
+  await expect(page.getByText(/Report written/)).toBeVisible();
+
+  await page.goto("/documents?processing=done");
+  await page.getByRole("radio", { name: "List", exact: true }).click();
+  const listing = await (await page.request.get("/api/v1/documents?processing=done")).json();
+  const sources = listing.items.filter((d: { page_count: number }) => d.page_count === 1).slice(0, 2);
+  expect(sources).toHaveLength(2);
+  const originals = await Promise.all(sources.map(async (d: { id: string }) =>
+    (await page.request.get(`/api/v1/documents/${d.id}/file?variant=original`)).body(),
+  ));
+  for (const d of sources) {
+    await page.locator("tr").filter({ has: page.locator(`a[href='/documents/${d.id}']`) }).getByRole("checkbox").check();
+  }
+  await page.getByRole("button", { name: "Pages", exact: true }).click();
+  await dialog.getByRole("button", { name: "Merge all into one" }).click();
+  await dialog.getByLabel("Title of document 1").fill("Page workflow verification");
+  const composed = page.waitForResponse((r) => r.url().endsWith("/api/v1/alterations/compose") && r.request().method() === "POST");
+  await dialog.getByRole("button", { name: "Apply", exact: true }).click();
+  const merge = await (await composed).json();
+  const mergedId = merge.results[0].id;
+  await expect.poll(async () => (await (await page.request.get(`/api/v1/documents/${mergedId}`)).json()).processing_state,
+    { timeout: 120_000 },
+  ).toBe("done");
+
+  await page.goto(`/documents/${mergedId}`);
+  await page.getByRole("button", { name: "Pages", exact: true }).click();
+  await dialog.getByLabel("Cut document 1 before page 2").click();
+  const splitResponse = page.waitForResponse((r) => r.url().endsWith("/api/v1/alterations/compose") && r.request().method() === "POST");
+  await dialog.getByRole("button", { name: "Apply", exact: true }).click();
+  const split = await (await splitResponse).json();
+  expect(split.results).toHaveLength(2);
+  for (let i = 0; i < sources.length; i++) {
+    const file = await page.request.get(`/api/v1/documents/${sources[i].id}/file?variant=original`);
+    expect(file.ok()).toBe(true);
+    expect(await file.body()).toEqual(originals[i]);
+  }
+  for (const d of split.results) {
+    await expect.poll(async () => (await (await page.request.get(`/api/v1/documents/${d.id}`)).json()).processing_state,
+      { timeout: 120_000 },
+    ).toBe("done");
+  }
+
+  await page.goto(`/documents/${mergedId}`);
+  await expect(page.getByRole("heading", { name: /is in the trash/ })).toBeVisible();
+  const undoSplit = page.waitForResponse((r) => r.url().endsWith(`/alterations/${split.id}/undo`));
+  await page.getByRole("button", { name: "Undo", exact: true }).first().click();
+  expect((await undoSplit).ok()).toBe(true);
+  await page.reload();
+  await page.getByRole("tab", { name: "History" }).click();
+  const undoMerge = page.waitForResponse((r) => r.url().endsWith(`/alterations/${merge.id}/undo`));
+  await page.getByRole("tabpanel").getByRole("button", { name: "Undo", exact: true }).click();
+  expect((await undoMerge).ok()).toBe(true);
+  await page.goto("/trash");
+  await expect(page.getByRole("button", { name: "Delete for good" })).toHaveCount(0);
+  for (const d of sources) {
+    expect((await page.request.get(`/api/v1/documents/${d.id}`)).ok()).toBe(true);
+  }
+});
+
 test("screenshots of the main pages", async ({ page }) => {
   test.skip(!process.env.SCREENSHOTS, "set SCREENSHOTS=1 to capture");
   await page.setViewportSize({ width: 1440, height: 900 });

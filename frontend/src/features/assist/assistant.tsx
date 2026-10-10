@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ArrowRight, ChevronRight, FolderTree, PencilLine, Sparkles, Undo2, Wand2 } from "lucide-react";
+import { ArrowRight, ChevronRight, FolderTree, PencilLine, Sparkles, Telescope, Undo2, Wand2 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 import { call, client, type Schemas } from "@/api/client";
@@ -19,11 +19,12 @@ import { Input, Textarea } from "@/components/ui/input";
 import { Spinner } from "@/components/ui/misc";
 import { DocItems, useViewMode, ViewSwitch } from "@/features/documents/document-views";
 import { SuggestFilingDialog } from "@/features/folders/filing-suggestions";
+import { StartReviewDialog } from "@/features/assist/start-review";
 import { cn, formatDate } from "@/lib/utils";
 
 type Task = Schemas["AssistTaskOut"];
 type Group = Schemas["AssistGroupOut"];
-type Operation = "filing" | "rename" | "custom";
+type Operation = "filing" | "rename" | "custom" | "review";
 
 const MAX_INSTRUCTION = 300;
 const MAX_DOCUMENTS = 100;
@@ -95,6 +96,7 @@ function AssistantDialog({
   const [instruction, setInstruction] = useState("");
   const [taskId, setTaskId] = useState<number | null>(null);
   const [filing, setFiling] = useState(false);
+  const [reviewing, setReviewing] = useState(false);
 
   const start = useMutation({
     mutationFn: () =>
@@ -118,6 +120,9 @@ function AssistantDialog({
     onSuccess: () => setTaskId(null),
   });
 
+  if (reviewing) {
+    return <StartReviewDialog ids={chosen} scopeLabel={scope} onClose={onClose} />;
+  }
   if (filing) {
     return (
       <SuggestFilingDialog
@@ -131,6 +136,7 @@ function AssistantDialog({
     );
   }
 
+  const next = () => (operation === "filing" ? setFiling(true) : operation === "review" ? setReviewing(true) : start.mutate());
   const t = task.data;
   const phase = taskId === null ? "ask" : t && ["done", "failed", "cancelled"].includes(t.state) ? "review" : "working";
   const loading = folderId !== undefined && !ids && folderIds.isPending;
@@ -159,7 +165,7 @@ function AssistantDialog({
                 onOperation={setOperation}
                 instruction={instruction}
                 onInstruction={setInstruction}
-                onSubmit={() => canStart && (operation === "filing" ? setFiling(true) : start.mutate())}
+                onSubmit={() => canStart && next()}
               />
             </div>
           ) : phase === "working" ? (
@@ -177,9 +183,11 @@ function AssistantDialog({
               </Button>
               <Button
                 disabled={!canStart || start.isPending}
-                onClick={() => (operation === "filing" ? setFiling(true) : start.mutate())}
+                onClick={next}
               >
-                <Sparkles /> {operation === "filing" ? "Suggest filing" : "Ask the AI model"} ({chosen.length})
+                <Sparkles />{" "}
+                {operation === "filing" ? "Suggest filing" : operation === "review" ? "Next" : "Ask the AI model"} (
+                {chosen.length})
               </Button>
             </>
           )}
@@ -274,6 +282,12 @@ const OPERATIONS: { value: Operation; title: string; text: string; icon: typeof 
     text: "Tags, sender, type or title, as you describe it.",
     icon: Sparkles,
   },
+  {
+    value: "review",
+    title: "Look through",
+    text: "Duplicates, split scans, missing pages, names — for hours if you like. A report with suggestions.",
+    icon: Telescope,
+  },
 ];
 
 function OperationPicker({
@@ -291,7 +305,7 @@ function OperationPicker({
 }) {
   return (
     <section className="flex flex-col gap-3">
-      <div role="radiogroup" aria-label="What should be done" className="grid gap-2 sm:grid-cols-3">
+      <div role="radiogroup" aria-label="What should be done" className="grid gap-2 sm:grid-cols-2">
         {OPERATIONS.map(({ value, title, text, icon: Icon }) => (
           <button
             key={value}
@@ -311,7 +325,7 @@ function OperationPicker({
           </button>
         ))}
       </div>
-      {operation !== "filing" && (
+      {operation !== "filing" && operation !== "review" && (
         <div className="flex flex-col gap-1">
           <Textarea
             rows={2}
@@ -338,6 +352,11 @@ function OperationPicker({
           Opens the filing suggestions for these documents, where you can add instructions too.
         </p>
       )}
+      {operation === "review" && (
+        <p className="text-xs text-muted-foreground">
+          Next you choose the model, how long it may take and what it should look for.
+        </p>
+      )}
     </section>
   );
 }
@@ -362,8 +381,49 @@ function Working({ task }: { task?: Task }) {
   );
 }
 
-type Key = `${number}:${string}`;
-const keyOf = (group: number, doc: string): Key => `${group}:${doc}`;
+export type Key = `${number}:${string}`;
+export const keyOf = (group: number, doc: string): Key => `${group}:${doc}`;
+
+/** Apply the ticked changes: one update per document, with everything ticked for it. */
+export async function applyChanges(
+  groups: Group[],
+  ticked: Set<Key>,
+  edits: Record<Key, string>,
+  origin?: { task: number; finding: string },
+): Promise<number> {
+  const patches = new Map<string, Partial<Schemas["DocumentPatch"]>>();
+  groups.forEach((g, gi) =>
+    g.items.forEach((item) => {
+      const key = keyOf(gi, item.document.id);
+      if (!ticked.has(key)) return;
+      const patch: Partial<Schemas["DocumentPatch"]> = patches.get(item.document.id) ?? {};
+      const value = edits[key] ?? item.new;
+      if (g.field === "title") patch.title = String(value).trim();
+      else if (g.field === "sender") patch.correspondent_name = String(value).trim();
+      else if (g.field === "document_type") patch.document_type_id = g.document_type_id ?? undefined;
+      else {
+        patch.tag_ids = item.document.tag_ids;
+        patch.tag_names = [...(patch.tag_names ?? []), ...(Array.isArray(value) ? value : [value])];
+      }
+      patches.set(item.document.id, patch);
+    }),
+  );
+  let applied = 0;
+  for (const [id, body] of patches) {
+    await call(() =>
+      client.PATCH("/api/v1/documents/{doc_id}", {
+        params: { path: { doc_id: id } },
+        body: { ...body, origin } as Schemas["DocumentPatch"], // the server fills in the rest
+      }),
+    );
+    applied += 1;
+  }
+  return applied;
+}
+
+export function initialTicks(groups: Group[]): Set<Key> {
+  return new Set(groups.flatMap((g, gi) => g.items.filter((i) => i.checked).map((i) => keyOf(gi, i.document.id))));
+}
 
 function Review({ task, onApplied }: { task: Task; onApplied: () => void }) {
   const qc = useQueryClient();
@@ -371,45 +431,13 @@ function Review({ task, onApplied }: { task: Task; onApplied: () => void }) {
   const [ticked, setTicked] = useState<Set<Key>>(new Set());
   const [edits, setEdits] = useState<Record<Key, string>>({});
   useEffect(() => {
-    setTicked(
-      new Set(task.groups.flatMap((g, gi) => g.items.filter((i) => i.checked).map((i) => keyOf(gi, i.document.id)))),
-    );
+    setTicked(initialTicks(task.groups));
     setEdits({});
   }, [task]);
 
   const count = ticked.size;
   const apply = useMutation({
-    mutationFn: async () => {
-      // One update per document, with everything ticked for it.
-      const patches = new Map<string, Partial<Schemas["DocumentPatch"]>>();
-      task.groups.forEach((g, gi) =>
-        g.items.forEach((item) => {
-          const key = keyOf(gi, item.document.id);
-          if (!ticked.has(key)) return;
-          const patch: Partial<Schemas["DocumentPatch"]> = patches.get(item.document.id) ?? {};
-          const value = edits[key] ?? item.new;
-          if (g.field === "title") patch.title = String(value).trim();
-          else if (g.field === "sender") patch.correspondent_name = String(value).trim();
-          else if (g.field === "document_type") patch.document_type_id = g.document_type_id ?? undefined;
-          else {
-            patch.tag_ids = item.document.tag_ids;
-            patch.tag_names = [...(patch.tag_names ?? []), ...(Array.isArray(value) ? value : [value])];
-          }
-          patches.set(item.document.id, patch);
-        }),
-      );
-      let applied = 0;
-      for (const [id, body] of patches) {
-        await call(() =>
-          client.PATCH("/api/v1/documents/{doc_id}", {
-            params: { path: { doc_id: id } },
-            body: body as Schemas["DocumentPatch"], // the server fills in the rest
-          }),
-        );
-        applied += 1;
-      }
-      return applied;
-    },
+    mutationFn: () => applyChanges(task.groups, ticked, edits),
     onSuccess: (n) => {
       toast.success(`Changed ${n} document${n === 1 ? "" : "s"}`);
       invalidate();
@@ -464,7 +492,7 @@ function Review({ task, onApplied }: { task: Task; onApplied: () => void }) {
   );
 }
 
-function ChangeCard({
+export function ChangeCard({
   group,
   index,
   ticked,

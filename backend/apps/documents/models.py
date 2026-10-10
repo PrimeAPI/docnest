@@ -167,3 +167,54 @@ class ProcessingEvent(models.Model):
 
     class Meta:
         ordering = ["created_at"]
+
+
+class DocumentPage(models.Model):
+    """A page as shown (of the archive): a small picture and a fingerprint to find it again.
+
+    The fingerprint finds the same page in other documents — a page scanned twice, a letter
+    in two scans — without keeping the page's text: shingle and number hashes of it, and a
+    difference hash of the picture. Both are encrypted like the document's other content.
+    """
+
+    document = models.ForeignKey(Document, on_delete=models.CASCADE, related_name="page_prints")
+    number = models.PositiveIntegerField()  # 1-based, in the archive
+    thumbnail_enc = models.BinaryField(null=True)  # WebP, ~240 px wide
+    fingerprint_enc = models.BinaryField(null=True)  # see apps.documents.pages.Fingerprint
+    version = models.CharField(max_length=64)  # of the archive it was made from: stale when it changes
+
+    class Meta:
+        ordering = ["document", "number"]
+        constraints = [models.UniqueConstraint(fields=["document", "number"], name="document_page_unique")]
+
+
+class Alteration(models.Model):
+    """A change to which pages make up which documents — merging, splitting, removing pages,
+    putting a document in the trash — kept so it can be shown and undone.
+
+    Original files are never changed: an alteration builds new documents from the pages
+    as shown and puts the documents they came from in the trash, files and all.
+    """
+
+    class Kind(models.TextChoices):
+        COMPOSE = "compose"  # pages into new documents (merge, split, extract, remove, reorder)
+        TRASH = "trash"
+        RESTORE = "restore"
+        EDIT = "edit"  # details changed (title, sender, tags …): old and new values
+
+    class Actor(models.TextChoices):
+        USER = "user"  # done by hand
+        ASSISTANT = "assistant"  # a suggestion of the assistant, applied by the user
+
+    kind = models.CharField(max_length=10, choices=Kind.choices)
+    actor = models.CharField(max_length=10, choices=Actor.choices, default=Actor.USER)
+    sources = models.JSONField(default=list)  # uuids of the documents it took pages from
+    results = models.JSONField(default=list)  # uuids of the documents it made
+    retired = models.JSONField(default=list)  # uuids it put in the trash
+    # {"summary": "…", "outputs": [{"document": uuid, "pages": [[uuid, page], …]}], "task", "finding"}
+    detail_enc = models.BinaryField(null=True)
+    created_at = models.DateTimeField(default=timezone.now)
+    undone_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        ordering = ["-created_at"]

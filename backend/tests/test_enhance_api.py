@@ -81,9 +81,10 @@ def test_born_digital_pdf_is_not_enhanced(scanner, api, no_ocr):
     assert detail["enhancement"]["summary"]["scanned_pages"] == 0
 
 
-def test_reprocess_from_original_with_one_off_settings(scanner, api, no_ocr):
+def test_reprocess_from_original_with_one_off_settings(scanner, api, no_ocr, tmp_path):
     _, token = scanner
-    doc_id = upload(Client(), token, skewed_scan(INVOICE_LINES)).json()["id"]
+    uploaded = skewed_scan(INVOICE_LINES)
+    doc_id = upload(Client(), token, uploaded).json()["id"]
     Worker().run_until_empty()
     r = api.post(
         f"/api/v1/documents/{doc_id}/reprocess",
@@ -96,7 +97,15 @@ def test_reprocess_from_original_with_one_off_settings(scanner, api, no_ocr):
     assert doc.processing_state == "done", doc.processing_error
     assert doc.enhancement["settings"]["enabled"] is False
     assert "override" not in doc.enhancement  # only for that one run
-    assert fetch(doc, "original") == fetch(doc, "archive")
+    assert fetch(doc, "original") == uploaded
+    # Processing sanitizes the PDF container even when enhancement is disabled.
+    # The rendered page must still be exactly the unenhanced uploaded scan.
+    original_path, archive_path = tmp_path / "original.pdf", tmp_path / "archive.pdf"
+    original_path.write_bytes(uploaded)
+    archive_path.write_bytes(fetch(doc, "archive"))
+    original_page = pdf.render_page(original_path, 1)
+    assert original_page is not None
+    assert pdf.render_page(archive_path, 1) == original_page
     # The system settings were not changed.
     assert api.get("/api/v1/system").json()["scan_enhancement"]["enabled"] is True
 
@@ -105,6 +114,7 @@ def test_reprocess_from_original_with_one_off_settings(scanner, api, no_ocr):
     Worker().run_until_empty()
     doc.refresh_from_db()
     assert doc.enhancement["settings"]["enabled"] is True
+    assert fetch(doc, "original") == uploaded
     assert fetch(doc, "original") != fetch(doc, "archive")
 
 

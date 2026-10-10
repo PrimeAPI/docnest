@@ -18,6 +18,8 @@ class Job(models.Model):
         SUGGEST_FILING = "suggest_filing"  # group selected documents into subfolders, on request
         FETCH_MAIL = "fetch_mail"  # import attachments from the email inbox
         ASSIST = "assist"  # changes the AI model proposes for selected documents, on request
+        PAGES = "pages"  # picture and fingerprint of each page, for finding pages again
+        REVIEW = "review"  # the AI model looks through documents for hours (overnight), on request
 
     class State(models.TextChoices):
         QUEUED = "queued"

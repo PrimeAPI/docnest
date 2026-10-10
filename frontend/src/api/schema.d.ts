@@ -666,7 +666,10 @@ export interface paths {
         get: operations["apps_documents_api_document_detail"];
         put?: never;
         post?: never;
-        /** Delete Document */
+        /**
+         * Delete Document
+         * @description Put a document in the trash: it can be restored, its files stay. See /alterations/trash.
+         */
         delete: operations["apps_documents_api_delete_document"];
         options?: never;
         head?: never;
@@ -1365,6 +1368,285 @@ export interface paths {
         put?: never;
         /** Cancel Task */
         post: operations["apps_assist_api_cancel_task"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/assist/models": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Models
+         * @description Installed models for a review; a mid-sized one (8B) that runs all night works well.
+         */
+        get: operations["apps_assist_api_models"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/assist/reviews": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Reviews */
+        get: operations["apps_assist_api_list_reviews"];
+        put?: never;
+        /**
+         * Start Review
+         * @description Let the assistant look through documents — now or later, for hours. It only suggests.
+         */
+        post: operations["apps_assist_api_start_review"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/assist/reviews/{review_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Review */
+        get: operations["apps_assist_api_get_review"];
+        put?: never;
+        post?: never;
+        /** Delete Review */
+        delete: operations["apps_assist_api_delete_review"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/assist/reviews/{review_id}/stop": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Stop Review
+         * @description Stop and write the report with what there is (a review that has not started is cancelled).
+         */
+        post: operations["apps_assist_api_stop_review"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/assist/reviews/{review_id}/read": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Mark Read */
+        post: operations["apps_assist_api_mark_read"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/assist/reviews/{review_id}/findings/{finding_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Decide
+         * @description Remember what the user did with a suggestion (the change itself goes through its own API).
+         */
+        post: operations["apps_assist_api_decide"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/alterations/pages/status": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Pages Status */
+        get: operations["apps_documents_alterations_api_pages_status"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/alterations/pages/prepare": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Prepare Pages
+         * @description Make page pictures and fingerprints for every document that has none yet.
+         */
+        post: operations["apps_documents_alterations_api_prepare_pages"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/alterations/pages/{doc_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Document Pages */
+        get: operations["apps_documents_alterations_api_document_pages"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/alterations/pages/{doc_id}/{number}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Page Thumbnail
+         * @description A page's picture; `large` renders it big enough to read (slower: from the file).
+         */
+        get: operations["apps_documents_alterations_api_page_thumbnail"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/alterations/compose": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Compose
+         * @description Make documents from pages: merge, split, extract, remove or reorder. Originals stay untouched.
+         */
+        post: operations["apps_documents_alterations_api_compose"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/alterations/trash": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Trash List */
+        get: operations["apps_documents_alterations_api_trash_list"];
+        put?: never;
+        /** Trash */
+        post: operations["apps_documents_alterations_api_trash"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/alterations/restore": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Restore */
+        post: operations["apps_documents_alterations_api_restore"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/alterations/{alteration_id}/undo": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Undo */
+        post: operations["apps_documents_alterations_api_undo"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/alterations/document/{doc_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Document History */
+        get: operations["apps_documents_alterations_api_document_history"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -2353,6 +2635,19 @@ export interface components {
             above: components["schemas"]["NeighbourOut"] | null;
             below: components["schemas"]["NeighbourOut"] | null;
         };
+        /**
+         * AlterationOrigin
+         * @description Which suggestion of the assistant a change came from (shown in the document's history).
+         */
+        AlterationOrigin: {
+            /** Task */
+            task: number;
+            /**
+             * Finding
+             * @default
+             */
+            finding: string;
+        };
         /** DocumentPatch */
         DocumentPatch: {
             /** Title */
@@ -2416,6 +2711,7 @@ export interface components {
              * @default false
              */
             clear_paper_location: boolean;
+            origin?: components["schemas"]["AlterationOrigin"] | null;
         };
         /** TextOut */
         TextOut: {
@@ -3119,6 +3415,426 @@ export interface components {
              * @default
              */
             instruction: string;
+        };
+        /** ModelOut */
+        ModelOut: {
+            /** Name */
+            name: string;
+            /** Parameter Size */
+            parameter_size: string;
+            /** Size */
+            size: number;
+            /** Thinking */
+            thinking: boolean;
+            /** Current */
+            current: boolean;
+        };
+        /** ReviewSummary */
+        ReviewSummary: {
+            /** Id */
+            id: number;
+            /** State */
+            state: string;
+            /** Step */
+            step: string;
+            /** Done */
+            done: number;
+            /** Total */
+            total: number;
+            /** Error */
+            error: string;
+            /** Model */
+            model: string;
+            /** Ai */
+            ai: boolean;
+            /** Think */
+            think: boolean;
+            /** Instruction */
+            instruction: string;
+            /** Documents */
+            documents: number;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /** Start */
+            start: string | null;
+            /** Until */
+            until: string | null;
+            /** Started At */
+            started_at: string | null;
+            /** Finished At */
+            finished_at: string | null;
+            /** Read */
+            read: boolean;
+            /** Open Findings */
+            open_findings: number;
+        };
+        /** ReviewIn */
+        ReviewIn: {
+            /** Ids */
+            ids?: string[];
+            /**
+             * Scope
+             * @default selection
+             * @enum {string}
+             */
+            scope: "selection" | "all";
+            /**
+             * Instruction
+             * @default
+             */
+            instruction: string;
+            /**
+             * Model
+             * @default
+             */
+            model: string;
+            /**
+             * Ai
+             * @default true
+             */
+            ai: boolean;
+            /**
+             * Think
+             * @default false
+             */
+            think: boolean;
+            /**
+             * Explore
+             * @default true
+             */
+            explore: boolean;
+            /**
+             * Context
+             * @default 8192
+             */
+            context: number;
+            /** Start */
+            start?: string | null;
+            /** Until */
+            until?: string | null;
+        };
+        /** ComposeOut */
+        ComposeOut: {
+            /** Sources */
+            sources: string[];
+            /** Outputs */
+            outputs: components["schemas"]["OutputOut"][];
+        };
+        /** DebateOut */
+        DebateOut: {
+            /**
+             * Role
+             * @enum {string}
+             */
+            role: "against" | "for" | "verdict";
+            /** Text */
+            text: string;
+        };
+        /** FindingOut */
+        FindingOut: {
+            /** Id */
+            id: string;
+            /** Kind */
+            kind: string;
+            /** Title */
+            title: string;
+            /** Text */
+            text: string;
+            /**
+             * Confidence
+             * @enum {string}
+             */
+            confidence: "high" | "medium" | "low";
+            /**
+             * Source
+             * @enum {string}
+             */
+            source: "check" | "model";
+            /** Verdict */
+            verdict: string;
+            /** Debate */
+            debate: components["schemas"]["DebateOut"][];
+            /** Documents */
+            documents: components["schemas"]["ReviewDoc"][];
+            compose: components["schemas"]["ComposeOut"] | null;
+            /** Changes */
+            changes: components["schemas"]["AssistGroupOut"][];
+            /** Matches */
+            matches: components["schemas"]["MatchOut"][];
+            /** Decision */
+            decision: string;
+        };
+        /** JournalOut */
+        JournalOut: {
+            /**
+             * At
+             * Format: date-time
+             */
+            at: string;
+            /** Text */
+            text: string;
+        };
+        /**
+         * MatchOut
+         * @description Two pages that are alike.
+         */
+        MatchOut: {
+            a: components["schemas"]["ReviewPage"];
+            b: components["schemas"]["ReviewPage"];
+        };
+        /** OutputOut */
+        OutputOut: {
+            /** Pages */
+            pages: components["schemas"]["ReviewPage"][];
+            /** Title */
+            title: string;
+        };
+        /** ReviewDoc */
+        ReviewDoc: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Title */
+            title: string;
+            /** Correspondent */
+            correspondent: string | null;
+            /** Document Date */
+            document_date: string | null;
+            /** Page Count */
+            page_count: number;
+            /** Trashed */
+            trashed: boolean;
+            /** What */
+            what: string;
+        };
+        /** ReviewOut */
+        ReviewOut: {
+            /** Id */
+            id: number;
+            /** State */
+            state: string;
+            /** Step */
+            step: string;
+            /** Done */
+            done: number;
+            /** Total */
+            total: number;
+            /** Error */
+            error: string;
+            /** Model */
+            model: string;
+            /** Ai */
+            ai: boolean;
+            /** Think */
+            think: boolean;
+            /** Instruction */
+            instruction: string;
+            /** Documents */
+            documents: number;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /** Start */
+            start: string | null;
+            /** Until */
+            until: string | null;
+            /** Started At */
+            started_at: string | null;
+            /** Finished At */
+            finished_at: string | null;
+            /** Read */
+            read: boolean;
+            /** Open Findings */
+            open_findings: number;
+            /** Summary */
+            summary: string;
+            /** Next Steps */
+            next_steps: string[];
+            /** Stopped */
+            stopped: string;
+            /** Findings */
+            findings: components["schemas"]["FindingOut"][];
+            /** Journal */
+            journal: components["schemas"]["JournalOut"][];
+        };
+        /** ReviewPage */
+        ReviewPage: {
+            /**
+             * Document
+             * Format: uuid
+             */
+            document: string;
+            /** Page */
+            page: number;
+        };
+        /** DecisionIn */
+        DecisionIn: {
+            /**
+             * Decision
+             * @enum {string}
+             */
+            decision: "applied" | "dismissed" | "open";
+        };
+        /** PagesStatus */
+        PagesStatus: {
+            /** Documents */
+            documents: number;
+            /** Ready */
+            ready: number;
+            /** Queued */
+            queued: number;
+        };
+        /** PageOut */
+        PageOut: {
+            /** Number */
+            number: number;
+            /** Mark */
+            mark: string;
+            /** Blank */
+            blank: boolean;
+        };
+        /** PagesOut */
+        PagesOut: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Title */
+            title: string;
+            /** Page Count */
+            page_count: number;
+            /** Pages */
+            pages: components["schemas"]["PageOut"][];
+        };
+        /** AlterationOut */
+        AlterationOut: {
+            /** Id */
+            id: number;
+            /** Kind */
+            kind: string;
+            /** Actor */
+            actor: string;
+            /** Summary */
+            summary: string;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /** Undone At */
+            undone_at: string | null;
+            /** Can Undo */
+            can_undo: boolean;
+            /** Sources */
+            sources: components["schemas"]["DocRef"][];
+            /** Results */
+            results: components["schemas"]["DocRef"][];
+            /** Changes */
+            changes: components["schemas"]["ChangeOut"][];
+            /** Task */
+            task: number | null;
+            /** Finding */
+            finding: string;
+        };
+        /** ChangeOut */
+        ChangeOut: {
+            /** Field */
+            field: string;
+            /** Old */
+            old: string;
+            /** New */
+            new: string;
+        };
+        /** DocRef */
+        DocRef: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Title */
+            title: string;
+            /** Trashed */
+            trashed: boolean;
+        };
+        /** ComposeIn */
+        ComposeIn: {
+            /** Sources */
+            sources: string[];
+            /** Outputs */
+            outputs: components["schemas"]["OutputIn"][];
+            origin?: components["schemas"]["AlterationOrigin"] | null;
+        };
+        /** OutputIn */
+        OutputIn: {
+            /** Pages */
+            pages: components["schemas"]["PageRef"][];
+            /**
+             * Title
+             * @default
+             */
+            title: string;
+        };
+        /** PageRef */
+        PageRef: {
+            /**
+             * Document
+             * Format: uuid
+             */
+            document: string;
+            /** Page */
+            page: number;
+        };
+        /** IdsIn */
+        IdsIn: {
+            /** Ids */
+            ids: string[];
+            origin?: components["schemas"]["AlterationOrigin"] | null;
+        };
+        /** TrashItem */
+        TrashItem: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Title */
+            title: string;
+            /** Page Count */
+            page_count: number;
+            /**
+             * Deleted At
+             * Format: date-time
+             */
+            deleted_at: string;
+            /** Replaced By */
+            replaced_by: components["schemas"]["DocRef"][];
+        };
+        /** HistoryOut */
+        HistoryOut: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Title */
+            title: string;
+            /** Trashed */
+            trashed: boolean;
+            /** Deleted At */
+            deleted_at: string | null;
+            /** Replaced By */
+            replaced_by: components["schemas"]["DocRef"][];
+            /** Entries */
+            entries: components["schemas"]["AlterationOut"][];
         };
     };
     responses: never;
@@ -5324,6 +6040,404 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["AssistTaskOut"];
+                };
+            };
+        };
+    };
+    apps_assist_api_models: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ModelOut"][];
+                };
+            };
+        };
+    };
+    apps_assist_api_list_reviews: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ReviewSummary"][];
+                };
+            };
+        };
+    };
+    apps_assist_api_start_review: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ReviewIn"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ReviewSummary"];
+                };
+            };
+        };
+    };
+    apps_assist_api_get_review: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                review_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ReviewOut"];
+                };
+            };
+        };
+    };
+    apps_assist_api_delete_review: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                review_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    apps_assist_api_stop_review: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                review_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ReviewSummary"];
+                };
+            };
+        };
+    };
+    apps_assist_api_mark_read: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                review_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ReviewSummary"];
+                };
+            };
+        };
+    };
+    apps_assist_api_decide: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                review_id: number;
+                finding_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DecisionIn"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ReviewSummary"];
+                };
+            };
+        };
+    };
+    apps_documents_alterations_api_pages_status: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PagesStatus"];
+                };
+            };
+        };
+    };
+    apps_documents_alterations_api_prepare_pages: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PagesStatus"];
+                };
+            };
+        };
+    };
+    apps_documents_alterations_api_document_pages: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                doc_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PagesOut"];
+                };
+            };
+        };
+    };
+    apps_documents_alterations_api_page_thumbnail: {
+        parameters: {
+            query?: {
+                large?: boolean;
+            };
+            header?: never;
+            path: {
+                doc_id: string;
+                number: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    apps_documents_alterations_api_compose: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ComposeIn"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AlterationOut"];
+                };
+            };
+        };
+    };
+    apps_documents_alterations_api_trash_list: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TrashItem"][];
+                };
+            };
+        };
+    };
+    apps_documents_alterations_api_trash: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["IdsIn"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AlterationOut"];
+                };
+            };
+        };
+    };
+    apps_documents_alterations_api_restore: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["IdsIn"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AlterationOut"];
+                };
+            };
+        };
+    };
+    apps_documents_alterations_api_undo: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                alteration_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AlterationOut"];
+                };
+            };
+        };
+    };
+    apps_documents_alterations_api_document_history: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                doc_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HistoryOut"];
                 };
             };
         };
