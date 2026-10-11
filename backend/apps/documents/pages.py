@@ -151,10 +151,18 @@ def _aad(document: Document, number: int, what: str) -> bytes:
     return f"page:{document.uuid}:{number}:{what}".encode()
 
 
-def page_texts(pdf_path: Path) -> list[str]:
+def page_texts(pdf_path: Path, *, last_page: int | None = None) -> list[str]:
     try:
         proc = subprocess.run(
-            ["pdftotext", "-layout", "-enc", "UTF-8", str(pdf_path), "-"],
+            [
+                "pdftotext",
+                "-layout",
+                "-enc",
+                "UTF-8",
+                *(["-l", str(last_page)] if last_page is not None else []),
+                str(pdf_path),
+                "-",
+            ],
             capture_output=True,
             timeout=300,
             check=False,

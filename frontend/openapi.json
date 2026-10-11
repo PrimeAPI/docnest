@@ -5321,6 +5321,14 @@
       "title": "Url",
       "type": "string"
      },
+     "pages": {
+      "title": "Pages",
+      "type": "integer"
+     },
+     "max_pages": {
+      "title": "Max Pages",
+      "type": "integer"
+     },
      "reachable": {
       "title": "Reachable",
       "type": "boolean"
@@ -5361,6 +5369,8 @@
     "required": [
      "configured",
      "url",
+     "pages",
+     "max_pages",
      "reachable",
      "error",
      "model",
@@ -5397,14 +5407,43 @@
    "AiSettingsIn": {
     "properties": {
      "model": {
-      "maxLength": 200,
-      "title": "Model",
-      "type": "string"
+      "anyOf": [
+       {
+        "maxLength": 200,
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Model"
+     },
+     "url": {
+      "anyOf": [
+       {
+        "maxLength": 2048,
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Url"
+     },
+     "pages": {
+      "anyOf": [
+       {
+        "maximum": 500,
+        "minimum": 1,
+        "type": "integer"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Pages"
      }
     },
-    "required": [
-     "model"
-    ],
     "title": "AiSettingsIn",
     "type": "object"
    },

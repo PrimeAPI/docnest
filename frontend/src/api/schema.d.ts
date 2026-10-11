@@ -1880,6 +1880,10 @@ export interface components {
             configured: boolean;
             /** Url */
             url: string;
+            /** Pages */
+            pages: number;
+            /** Max Pages */
+            max_pages: number;
             /** Reachable */
             reachable: boolean;
             /** Error */
@@ -1904,7 +1908,11 @@ export interface components {
         /** AiSettingsIn */
         AiSettingsIn: {
             /** Model */
-            model: string;
+            model?: string | null;
+            /** Url */
+            url?: string | null;
+            /** Pages */
+            pages?: number | null;
         };
         /** AiPullIn */
         AiPullIn: {

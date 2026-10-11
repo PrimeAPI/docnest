@@ -15,7 +15,7 @@ import { ReprocessDialog } from "./reprocess-dialog";
 type AiSettings = Schemas["AiSettingsOut"];
 const aiKey = ["ai-settings"] as const;
 
-/** Settings → System: which local AI model reads incoming documents, and downloading new ones. */
+/** Settings → System: Ollama connection, document page limit and model selection. */
 export function useAiSettings({ enabled = true }: { enabled?: boolean } = {}) {
   return useQuery({
     queryKey: aiKey,
@@ -28,6 +28,16 @@ export function useAiSettings({ enabled = true }: { enabled?: boolean } = {}) {
 export function AiModelCard() {
   const qc = useQueryClient();
   const settings = useAiSettings();
+  const configure = useMutation({
+    mutationFn: (body: { url: string; pages: number }) =>
+      call(() => client.PUT("/api/v1/settings/ai", { body })),
+    onSuccess: (data) => {
+      qc.setQueryData(aiKey, data);
+      qc.invalidateQueries({ queryKey: ["assist-models"] });
+      toast.success("AI settings saved");
+    },
+    onError: (e) => toast.error(e.message),
+  });
   const choose = useMutation({
     mutationFn: (model: string) => call(() => client.PUT("/api/v1/settings/ai", { body: { model } })),
     onSuccess: (data) => {
@@ -53,7 +63,7 @@ export function AiModelCard() {
           <Sparkles className="size-4" /> AI analysis
         </CardTitle>
         <CardDescription>
-          A vision-language model running on your own server reads each document like a person would: the sender
+          A vision-language model served by Ollama reads each document like a person would: the sender
           from the letterhead (never you, the recipient), a title, the date and the type. It runs after the document
           is already readable, so a slow model only delays the details, never the document.
         </CardDescription>
@@ -64,17 +74,66 @@ export function AiModelCard() {
         ) : (
           <div className="flex flex-col gap-5">
             <Connection settings={s} />
-            {s.reachable && (
-              <ModelChoice settings={s} disabled={choose.isPending} onChoose={(m) => choose.mutate(m)} />
-            )}
+            <AnalysisSettings
+              key={`${s.url}:${s.pages}`}
+              settings={s}
+              busy={configure.isPending || choose.isPending || pull.isPending}
+              onSave={(values) => configure.mutate(values)}
+            />
+            <ModelChoice
+              settings={s}
+              disabled={choose.isPending || configure.isPending}
+              onChoose={(m) => choose.mutate(m)}
+            />
             {s.pull && <PullProgress pull={s.pull} />}
             {s.reachable && (
-              <ModelDownload settings={s} busy={pull.isPending || !!s.pull?.active} onPull={(m) => pull.mutate(m)} />
+              <ModelDownload settings={s} busy={pull.isPending || configure.isPending || !!s.pull?.active} onPull={(m) => pull.mutate(m)} />
             )}
           </div>
         )}
       </CardContent>
     </Card>
+  );
+}
+
+function AnalysisSettings({ settings, busy, onSave }: {
+  settings: AiSettings;
+  busy: boolean;
+  onSave: (values: { url: string; pages: number }) => void;
+}) {
+  const [url, setUrl] = useState(settings.url);
+  const [pages, setPages] = useState(String(settings.pages));
+  const limit = Number(pages);
+  const valid = Number.isInteger(limit) && limit >= 1 && limit <= settings.max_pages;
+  const changed = url.trim().replace(/\/+$/, "") !== settings.url || limit !== settings.pages;
+  return (
+    <form className="flex flex-col gap-3" onSubmit={(e) => {
+      e.preventDefault();
+      if (valid) onSave({ url: url.trim(), pages: limit });
+    }}>
+      <div className="flex flex-col gap-1.5">
+        <Label htmlFor="ai-url">Ollama server URL</Label>
+        <Input id="ai-url" type="url" value={url} placeholder="http://ollama:11434"
+          disabled={busy || !!settings.pull?.active} onChange={(e) => setUrl(e.target.value)} />
+        <p className="text-xs text-muted-foreground">
+          Use the bundled Ollama server or another server reachable from DocNest, for example
+          http://192.168.1.50:11434. Document images and text are sent to this server.
+        </p>
+      </div>
+      <div className="flex flex-col gap-1.5">
+        <Label htmlFor="ai-pages">Maximum pages per document</Label>
+        <Input id="ai-pages" type="number" min={1} max={settings.max_pages} step={1} required
+          value={pages} disabled={busy} onChange={(e) => setPages(e.target.value)} />
+        <p className="text-xs text-muted-foreground">
+          AI analysis receives only the first {valid ? limit : "selected"} page{limit === 1 ? "" : "s"},
+          including their images and OCR text. The full document is still stored, recognized and searchable.
+          Applies to new documents and when reprocessing.
+        </p>
+      </div>
+      <Button type="submit" variant="outline" className="self-start" disabled={busy || !valid || !changed}>
+        {busy && <Spinner className="size-4" />} Save AI settings
+      </Button>
+    </form>
   );
 }
 
@@ -90,8 +149,8 @@ function Connection({ settings }: { settings: AiSettings }) {
       <p className="font-medium">{settings.configured ? "Ollama is not reachable" : "Not set up yet"}</p>
       <p className="mt-1 text-xs">{settings.error}</p>
       <p className="mt-1 text-xs">
-        Start it with <span className="font-mono">docker compose --profile ai up -d</span> — see “AI analysis” in
-        docs/operations.md.
+        Enter a reachable Ollama server below, or start the bundled server with
+        <span className="font-mono"> docker compose --profile ai up -d</span>.
       </p>
       {settings.model && (
         <p className="mt-1 text-xs">

@@ -47,7 +47,7 @@ The upload API (`/api/upload/v1/`) and the web API (`/api/v1/`) use different au
 
 - The container runs as UID 10001 with a read-only root filesystem, no Linux capabilities and `no-new-privileges`.
 - PostgreSQL is reachable only on an internal Docker network.
-- The optional Ollama container (AI analysis) publishes no ports; document page images and text are sent to it only over the Docker network, and it keeps nothing but the downloaded models. A remote `DOCNEST_OLLAMA_URL` would receive document contents unencrypted — keep it local.
+- The optional Ollama container (AI analysis) publishes no ports and keeps nothing but the downloaded models. Settings → System can instead point all AI features at another Ollama server (overriding `DOCNEST_OLLAMA_URL`); it receives document contents. Use a trusted server and network, or HTTPS through a reverse proxy. Automatic document analysis limits both images and OCR text to the first pages selected in Settings; the assistant and archive reviews use their own task-specific context.
 - The application database user is not a superuser.
 - Interactive API docs are disabled in production.
 

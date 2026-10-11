@@ -1,4 +1,5 @@
 from datetime import date
+from io import BytesIO
 
 import pytest
 from django.test import Client
@@ -8,7 +9,13 @@ from apps.analysis import ai
 from apps.documents import crypto_fields
 from apps.documents.models import Document, ProcessingEvent
 from apps.processing.models import Job, SystemState
-from apps.processing.preferences import set_ai_model
+from apps.processing.preferences import (
+    get_ai_pages,
+    get_ollama_url,
+    set_ai_model,
+    set_ai_pages,
+    set_ollama_url,
+)
 from apps.processing.worker import Worker
 from apps.taxonomy.models import Correspondent
 from tests.conftest import upload
@@ -143,6 +150,78 @@ def test_ai_is_skipped_without_a_chosen_model(scanner, monkeypatch, settings):
     assert Document.objects.get().processing_state == Document.State.DONE
 
 
+@pytest.mark.parametrize("limit", [1, 2, 3, 5])
+def test_ai_page_limit_bounds_images_and_text_without_truncating_the_archive(
+    scanner, api, monkeypatch, model, limit
+):
+    _, token = scanner
+    set_ai_pages(limit)
+    calls = fake_model(monkeypatch, ai.ModelFields(title="Test document"))
+    doc_id = upload(
+        Client(), token, text_pdf(["Opening page"], extra_pages=[["Second page"], ["Final secret page"]])
+    ).json()["id"]
+    process_all()
+    doc = Document.objects.get(uuid=doc_id)
+    assert doc.processing_state == Document.State.DONE, doc.processing_error
+    assert doc.page_count == 3
+    assert len(calls) == 1
+    assert len(calls[0]["images"]) == min(limit, 3)
+    assert "Opening page" in calls[0]["text"]
+    assert ("Second page" in calls[0]["text"]) == (limit >= 2)
+    assert ("Final secret page" in calls[0]["text"]) == (limit >= 3)
+    assert "Final secret page" in crypto_fields.get_content(doc)
+    assert api.get("/api/v1/documents", {"q": "secret"}).json()["total"] == 1
+
+
+@pytest.mark.parametrize("has_layout", [True, False])
+def test_ai_page_limit_uses_page_scoped_docling_text_and_never_falls_back_to_whole_text(
+    tmp_path, monkeypatch, model, has_layout
+):
+    from apps.processing import pipeline
+
+    set_ai_pages(1)
+    doc = Document.objects.create(content_hash="docling-pages", page_count=3, ocr_backend="docling")
+    crypto_fields.set_content(doc, "Opening page\nSecond page\nFinal secret page", content_format="markdown")
+    if has_layout:
+        crypto_fields.set_content(
+            doc,
+            "Opening page\nSecond page\nFinal secret page",
+            content_format="markdown",
+            layout={
+                "pages": [
+                    {"page_no": n, "lines": [{"text": text}]}
+                    for n, text in enumerate(["Opening page", "Second page", "Final secret page"], start=1)
+                ]
+            },
+        )
+    # An image-only Docling archive has no embedded text layer.
+    monkeypatch.setattr(pipeline, "_processed_local", lambda *_: tmp_path / "scan.pdf")
+    monkeypatch.setattr("apps.documents.pages.page_texts", lambda *_, **__: [])
+    monkeypatch.setattr("apps.processing.pdf.render_page", lambda *_, **__: b"png")
+    calls = fake_model(monkeypatch, ai.ModelFields())
+    pipeline._model_fields(doc, tmp_path, crypto_fields.get_content(doc))
+    assert calls[0]["text"] == ("Opening page" if has_layout else "")
+    assert calls[0]["images"] == [b"png"]
+
+
+def test_ai_page_text_comes_from_the_ocr_archive_when_enhanced_images_have_no_text(
+    tmp_path, monkeypatch, model
+):
+    from apps.processing import pipeline
+
+    set_ai_pages(1)
+    doc = Document.objects.create(content_hash="ocr-archive", page_count=2, ocr_backend="ocrmypdf")
+    archive = tmp_path / "archive.pdf"
+    archive.write_bytes(text_pdf(["Recognized opening page"], extra_pages=[["Secret later page"]]))
+    # Enhanced page images predate OCR and carry no recognized text layer.
+    monkeypatch.setattr(pipeline, "_processed_local", lambda *_: tmp_path / "enhanced.pdf")
+    monkeypatch.setattr("apps.processing.pdf.render_page", lambda *_, **__: b"png")
+    calls = fake_model(monkeypatch, ai.ModelFields())
+    pipeline._model_fields(doc, tmp_path, "Recognized opening page\nSecret later page")
+    assert "Recognized opening page" in calls[0]["text"]
+    assert "Secret later page" not in calls[0]["text"]
+
+
 def test_reanalysis_corrects_automatic_but_keeps_user_choices(scanner, api, monkeypatch, model):
     _, token = scanner
     fake_model(monkeypatch, ai.ModelFields(sender="Wrong Sender GmbH", document_type="notice"))
@@ -252,6 +331,96 @@ def test_ai_settings_explain_a_missing_ollama_server(api, settings):
     assert body["configured"] is False and body["reachable"] is False
     assert "DOCNEST_OLLAMA_URL" in body["error"]
     assert body["suggestions"][0]["name"] == "qwen3-vl:4b-instruct"
+
+
+def test_ai_connection_and_page_settings_persist_independently_of_model(api, settings, monkeypatch):
+    settings.OLLAMA_URL = "http://ollama:11434"
+    settings.AI_PAGES = 2
+    set_ai_model("qwen3-vl:8b")
+    monkeypatch.setattr(ai, "list_models", lambda: [])
+    initial = api.get("/api/v1/settings/ai").json()
+    assert initial["url"] == settings.OLLAMA_URL and initial["pages"] == 2
+    r = api.put(
+        "/api/v1/settings/ai",
+        {
+            "url": " https://other-server:11434/ollama/ ",
+            "pages": 3,
+        },
+        content_type="application/json",
+    )
+    assert r.status_code == 200, r.content
+    assert r.json()["url"] == "https://other-server:11434/ollama"
+    assert r.json()["pages"] == 3 and r.json()["model"] == "qwen3-vl:8b"
+    settings.OLLAMA_URL = "http://changed-default:11434"
+    settings.AI_PAGES = 1
+    assert get_ollama_url() == "https://other-server:11434/ollama" and get_ai_pages() == 3
+    r = api.put("/api/v1/settings/ai", {"model": ""}, content_type="application/json")
+    assert r.json()["url"] == get_ollama_url() and r.json()["pages"] == 3
+    r = api.put("/api/v1/settings/ai", {"url": ""}, content_type="application/json")
+    assert r.status_code == 200 and r.json()["configured"] is False
+    assert get_ollama_url() == ""
+
+
+@pytest.mark.parametrize(
+    "changes",
+    [
+        {"url": "file:///etc/passwd"},
+        {"url": "ftp://server"},
+        {"url": "http://"},
+        {"url": "http://user:password@server:11434"},
+        {"url": "http://server:99999"},
+        {"url": "http://server?key=value"},
+        {"url": "http://server/#fragment"},
+        {"url": "http://bad host:11434"},
+        {"pages": 0},
+        {"pages": -1},
+        {"pages": 501},
+        {"pages": 1.5},
+        {"pages": True},
+        {"pages": "2"},
+    ],
+)
+def test_invalid_ai_settings_are_rejected_without_changing_other_settings(api, monkeypatch, changes):
+    monkeypatch.setattr(ai, "list_models", lambda: [])
+    set_ai_model("original-model")
+    set_ai_pages(2)
+    set_ollama_url("http://original:11434")
+    r = api.put("/api/v1/settings/ai", {"model": "new-model", **changes}, content_type="application/json")
+    assert r.status_code == 422, r.content
+    assert api.get("/api/v1/settings/ai").json()["model"] == "original-model"
+    assert get_ai_pages() == 2 and get_ollama_url() == "http://original:11434"
+
+
+def test_ollama_server_cannot_change_during_a_model_download(api, monkeypatch):
+    monkeypatch.setattr(ai, "list_models", lambda: [])
+    set_ollama_url("http://original:11434")
+    job = Job.objects.create(kind=Job.Kind.PULL_MODEL, payload={"model": "test"})
+    r = api.put("/api/v1/settings/ai", {"url": "http://remote:11434"}, content_type="application/json")
+    assert r.status_code == 409 and get_ollama_url() == "http://original:11434"
+    # Page limits and model choice remain editable during a download.
+    assert api.put("/api/v1/settings/ai", {"pages": 3}, content_type="application/json").status_code == 200
+    job.state = Job.State.DONE
+    job.save()
+    SystemState.objects.create(key="ai_model_pull", value={"model": "test", "status": "done"})
+    r = api.put("/api/v1/settings/ai", {"url": "http://remote:11434"}, content_type="application/json")
+    assert r.status_code == 200 and r.json()["pull"] is None
+
+
+def test_all_ollama_requests_and_downloads_use_the_saved_server(settings, monkeypatch):
+    settings.OLLAMA_URL = "http://local:11434"
+    set_ollama_url("https://remote:11434/ollama/")
+    sent = []
+
+    def urlopen(request, *, timeout):
+        sent.append(request.full_url)
+        return BytesIO(b"{}\n")
+
+    monkeypatch.setattr("urllib.request.urlopen", urlopen)
+    ai._request("/api/tags", timeout=10)
+    ai._request("/api/show", {"model": "m"}, timeout=10)
+    ai._request("/api/chat", {"model": "m"}, timeout=10)
+    ai.pull("m")
+    assert sent == [f"https://remote:11434/ollama/api/{path}" for path in ("tags", "show", "chat", "pull")]
 
 
 def test_ai_model_can_be_chosen_and_downloaded(api, settings, monkeypatch):

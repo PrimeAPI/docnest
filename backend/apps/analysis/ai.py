@@ -1,11 +1,11 @@
-"""Document understanding with a local vision-language model served by Ollama.
+"""Document understanding with a vision-language model served by Ollama.
 
 The model looks at the first page images and the OCR text together and names
 the sender, title, date and type the way a person reading the letter would:
 the letterhead rather than a return-address line, never the recipient. It sees
 nothing but the one document, so it cannot borrow from other files.
 
-Document data only ever goes to `DOCNEST_OLLAMA_URL` — by default the Ollama
+Document data only ever goes to the configured Ollama URL — by default the Ollama
 container on the internal Docker network.
 """
 
@@ -23,6 +23,8 @@ from typing import Any
 
 from django.conf import settings
 from rapidfuzz import fuzz
+
+from apps.processing.preferences import get_ollama_url
 
 logger = logging.getLogger(__name__)
 
@@ -100,18 +102,19 @@ def valid_model_name(name: str) -> bool:
 
 
 def configured() -> bool:
-    return bool(settings.OLLAMA_URL)
+    return bool(get_ollama_url())
 
 
 # --- Ollama API ---------------------------------------------------------------
 
 
 def _request(path: str, payload: dict[str, Any] | None = None, *, timeout: float) -> dict[str, Any]:
-    if not configured():
+    url = get_ollama_url()
+    if not url:
         raise ModelUnavailable("No Ollama server is configured (DOCNEST_OLLAMA_URL)")
     data = json.dumps(payload).encode() if payload is not None else None
     request = urllib.request.Request(  # noqa: S310 - URL comes from the operator's configuration
-        settings.OLLAMA_URL + path,
+        url + path,
         data=data,
         headers={"Content-Type": "application/json"},
         method="POST" if data is not None else "GET",
@@ -133,7 +136,7 @@ def _request(path: str, payload: dict[str, Any] | None = None, *, timeout: float
         raise ModelFailed(f"Ollama error {exc.code}: {detail}") from exc
     except (urllib.error.URLError, ConnectionError, TimeoutError) as exc:
         reason = getattr(exc, "reason", exc)
-        raise ModelUnavailable(f"Ollama is not reachable at {settings.OLLAMA_URL}: {reason}") from exc
+        raise ModelUnavailable(f"Ollama is not reachable at {url}: {reason}") from exc
     except json.JSONDecodeError as exc:
         raise ModelFailed("Ollama returned invalid JSON") from exc
 
@@ -177,10 +180,11 @@ def _capabilities(name: str) -> set[str]:
 
 def pull(name: str, progress: Any = None) -> None:
     """Download a model into Ollama, reporting (status, completed, total) as it goes."""
-    if not configured():
+    url = get_ollama_url()
+    if not url:
         raise ModelUnavailable("No Ollama server is configured (DOCNEST_OLLAMA_URL)")
     request = urllib.request.Request(  # noqa: S310
-        settings.OLLAMA_URL + "/api/pull",
+        url + "/api/pull",
         data=json.dumps({"model": name, "stream": True}).encode(),
         headers={"Content-Type": "application/json"},
         method="POST",
@@ -196,7 +200,7 @@ def pull(name: str, progress: Any = None) -> None:
     except urllib.error.HTTPError as exc:
         raise ModelFailed(f"Ollama error {exc.code}: {_error_detail(exc)}") from exc
     except (urllib.error.URLError, ConnectionError, TimeoutError) as exc:
-        raise ModelUnavailable(f"Ollama is not reachable at {settings.OLLAMA_URL}") from exc
+        raise ModelUnavailable(f"Ollama is not reachable at {url}") from exc
 
 
 # --- Document analysis ----------------------------------------------------------

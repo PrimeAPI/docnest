@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from typing import Literal, cast
+from urllib.parse import urlsplit
 
 from django.conf import settings
 
@@ -13,6 +14,8 @@ PROCESSING_CONCURRENCY_KEY = "processing_concurrency"
 SCAN_ENHANCEMENT_KEY = "scan_enhancement"
 AI_MODEL_KEY = "ai_model"
 AI_MODEL_PULL_KEY = "ai_model_pull"
+OLLAMA_URL_KEY = "ollama_url"
+AI_PAGES_KEY = "ai_pages"
 OCR_BACKENDS = {"ocrmypdf", "docling"}
 DOCLING_FIELD_DETECTION_MODES = {"layout", "vlm", "hybrid"}
 OcrBackend = Literal["ocrmypdf", "docling"]
@@ -116,3 +119,56 @@ def set_ai_model(model: str) -> str:
         raise ValueError("Invalid model name")
     SystemState.objects.update_or_create(key=AI_MODEL_KEY, defaults={"value": {"model": model}})
     return model
+
+
+def get_ollama_url() -> str:
+    value = SystemState.objects.filter(key=OLLAMA_URL_KEY).values_list("value", flat=True).first()
+    if isinstance(value, dict) and isinstance(value.get("url"), str):
+        return value["url"]
+    return str(settings.OLLAMA_URL or "")
+
+
+def validate_ollama_url(url: str) -> str:
+    url = url.strip().rstrip("/")
+    if not url:
+        return ""
+    try:
+        parts = urlsplit(url)
+        port = parts.port
+        valid = (
+            parts.scheme in {"http", "https"}
+            and bool(parts.hostname)
+            and parts.username is None
+            and parts.password is None
+            and not parts.query
+            and not parts.fragment
+            and (port is None or port > 0)
+            and not any(c.isspace() or ord(c) < 32 for c in url)
+            and "\\" not in url
+        )
+    except ValueError:
+        valid = False
+    if not valid:
+        raise ValueError("Enter an HTTP or HTTPS Ollama URL without credentials, query or fragment")
+    return url
+
+
+def set_ollama_url(url: str) -> str:
+    url = validate_ollama_url(url)
+    SystemState.objects.update_or_create(key=OLLAMA_URL_KEY, defaults={"value": {"url": url}})
+    return url
+
+
+def get_ai_pages() -> int:
+    value = SystemState.objects.filter(key=AI_PAGES_KEY).values_list("value", flat=True).first()
+    pages = value.get("pages") if isinstance(value, dict) else None
+    if isinstance(pages, int) and not isinstance(pages, bool) and 1 <= pages <= settings.MAX_PAGES:
+        return pages
+    return max(1, min(settings.MAX_PAGES, settings.AI_PAGES))
+
+
+def set_ai_pages(pages: int) -> int:
+    if isinstance(pages, bool) or not 1 <= pages <= settings.MAX_PAGES:
+        raise ValueError(f"AI page limit must be between 1 and {settings.MAX_PAGES}")
+    SystemState.objects.update_or_create(key=AI_PAGES_KEY, defaults={"value": {"pages": pages}})
+    return pages

@@ -216,7 +216,7 @@ AI_TIMEOUT_SECONDS = env_int("DOCNEST_AI_TIMEOUT_SECONDS", 3600)
 AI_CONTEXT_TOKENS = env_int("DOCNEST_AI_CONTEXT_TOKENS", 4096)
 # What the model reads per document. Every image tile and text token costs time on a CPU;
 # the sender, title and date are on the first page, and the image beats the OCR text.
-AI_PAGES = env_int("DOCNEST_AI_PAGES", 1)  # page images the model looks at
+AI_PAGES = env_int("DOCNEST_AI_PAGES", 1)  # default limit for both page images and OCR text
 AI_IMAGE_SIZE = env_int("DOCNEST_AI_IMAGE_SIZE", 1280)  # pixels along the longer side
 AI_TEXT_CHARS = env_int("DOCNEST_AI_TEXT_CHARS", 3000)  # OCR text from the start of the document
 MAX_PAGES = env_int("DOCNEST_MAX_PAGES", 500)

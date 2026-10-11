@@ -5,7 +5,7 @@ from datetime import datetime, timedelta
 from uuid import UUID
 
 from django.conf import settings
-from django.db import connection
+from django.db import connection, transaction
 from django.db.models import Count, Q
 from django.http import HttpRequest, HttpResponse, JsonResponse
 from django.middleware.csrf import get_token
@@ -27,15 +27,20 @@ from apps.processing.preferences import (
     DoclingFieldDetection,
     OcrBackend,
     get_ai_model,
+    get_ai_pages,
     get_default_ocr_backend,
     get_docling_field_detection,
     get_enhance_settings,
+    get_ollama_url,
     get_processing_concurrency,
     set_ai_model,
+    set_ai_pages,
     set_default_ocr_backend,
     set_docling_field_detection,
     set_enhance_settings,
+    set_ollama_url,
     set_processing_concurrency,
+    validate_ollama_url,
 )
 from apps.processing.schemas import EnhanceSettingsIn, EnhanceSettingsOut
 from apps.storage import backup
@@ -141,8 +146,10 @@ class AiPullOut(Schema):
 
 
 class AiSettingsOut(Schema):
-    configured: bool  # DOCNEST_OLLAMA_URL is set
+    configured: bool
     url: str
+    pages: int
+    max_pages: int
     reachable: bool
     error: str
     model: str  # "" = AI analysis off
@@ -152,7 +159,9 @@ class AiSettingsOut(Schema):
 
 
 class AiSettingsIn(Schema):
-    model: str = Field(..., max_length=200)
+    model: str | None = Field(None, max_length=200)
+    url: str | None = Field(None, max_length=2048)
+    pages: int | None = Field(None, ge=1, le=settings.MAX_PAGES, strict=True)
 
 
 class AiPullIn(Schema):
@@ -340,7 +349,7 @@ def _ai_settings() -> AiSettingsOut:
         except (ai.ModelUnavailable, ai.ModelFailed) as exc:
             error = str(exc)
     else:
-        error = "No Ollama server is configured. Set DOCNEST_OLLAMA_URL (see docs/operations.md)."
+        error = "Enter an Ollama server URL below, or set DOCNEST_OLLAMA_URL (see docs/operations.md)."
     installed = {m.name for m in models}
     pull_state = SystemState.objects.filter(key=AI_MODEL_PULL_KEY).values_list("value", flat=True).first()
     pull = None
@@ -356,7 +365,9 @@ def _ai_settings() -> AiSettingsOut:
         )
     return AiSettingsOut(
         configured=ai.configured(),
-        url=str(settings.OLLAMA_URL),
+        url=get_ollama_url(),
+        pages=get_ai_pages(),
+        max_pages=settings.MAX_PAGES,
         reachable=reachable,
         error=error,
         model=get_ai_model(),
@@ -380,11 +391,31 @@ def ai_settings(request: HttpRequest) -> AiSettingsOut:
 
 @router.put("/settings/ai", response=AiSettingsOut)
 def update_ai_settings(request: HttpRequest, data: AiSettingsIn) -> AiSettingsOut:
-    model = data.model.strip()
+    model = data.model.strip() if data.model is not None else None
     if model and not ai.valid_model_name(model):
         raise HttpError(422, "Invalid model name")
-    set_ai_model(model)
-    audit("settings.ai_updated", request=request, model=model)
+    try:
+        url = validate_ollama_url(data.url) if data.url is not None else None
+    except ValueError as exc:
+        raise HttpError(422, str(exc)) from exc
+    changing_server = url is not None and url != get_ollama_url()
+    if (
+        changing_server
+        and Job.objects.filter(
+            kind=Job.Kind.PULL_MODEL, state__in=[Job.State.QUEUED, Job.State.RUNNING]
+        ).exists()
+    ):
+        raise HttpError(409, "Wait for the model download to finish before changing the Ollama server")
+    with transaction.atomic():
+        if model is not None:
+            set_ai_model(model)
+        if url is not None:
+            set_ollama_url(url)
+        if data.pages is not None:
+            set_ai_pages(data.pages)
+        if changing_server:
+            SystemState.objects.filter(key=AI_MODEL_PULL_KEY).delete()
+    audit("settings.ai_updated", request=request, **data.model_dump(exclude_none=True))
     return _ai_settings()
 
 
