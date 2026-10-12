@@ -1880,6 +1880,8 @@ export interface components {
             configured: boolean;
             /** Url */
             url: string;
+            /** Api Key Configured */
+            api_key_configured: boolean;
             /** Pages */
             pages: number;
             /** Max Pages */
@@ -1911,6 +1913,8 @@ export interface components {
             model?: string | null;
             /** Url */
             url?: string | null;
+            /** Api Key */
+            api_key?: string | null;
             /** Pages */
             pages?: number | null;
         };

@@ -1,10 +1,12 @@
 from __future__ import annotations
 
+import base64
 from typing import Literal, cast
 from urllib.parse import urlsplit
 
 from django.conf import settings
 
+from apps.crypto.aead import decrypt_bytes, encrypt_bytes
 from apps.processing.enhance_settings import EnhanceSettings
 from apps.processing.models import SystemState
 
@@ -15,6 +17,8 @@ SCAN_ENHANCEMENT_KEY = "scan_enhancement"
 AI_MODEL_KEY = "ai_model"
 AI_MODEL_PULL_KEY = "ai_model_pull"
 OLLAMA_URL_KEY = "ollama_url"
+OLLAMA_API_KEY_KEY = "ollama_api_key"
+OLLAMA_API_KEY_AAD = b"ollama-api-key"
 AI_PAGES_KEY = "ai_pages"
 OCR_BACKENDS = {"ocrmypdf", "docling"}
 DOCLING_FIELD_DETECTION_MODES = {"layout", "vlm", "hybrid"}
@@ -126,6 +130,33 @@ def get_ollama_url() -> str:
     if isinstance(value, dict) and isinstance(value.get("url"), str):
         return value["url"]
     return str(settings.OLLAMA_URL or "")
+
+
+def get_ollama_api_key() -> str:
+    value = SystemState.objects.filter(key=OLLAMA_API_KEY_KEY).values_list("value", flat=True).first()
+    if isinstance(value, dict) and "api_key_enc" in value:
+        encrypted = value["api_key_enc"]
+        return (
+            decrypt_bytes(base64.b64decode(encrypted), aad=OLLAMA_API_KEY_AAD).decode() if encrypted else ""
+        )
+    return str(settings.OLLAMA_API_KEY or "").strip()
+
+
+def validate_ollama_api_key(api_key: str) -> str:
+    api_key = api_key.strip()
+    if len(api_key) > 4096 or any(ord(c) < 33 or ord(c) > 126 for c in api_key):
+        raise ValueError("Enter an API key without spaces or control characters")
+    return api_key
+
+
+def set_ollama_api_key(api_key: str) -> None:
+    api_key = validate_ollama_api_key(api_key)
+    encrypted = (
+        base64.b64encode(encrypt_bytes(api_key.encode(), aad=OLLAMA_API_KEY_AAD)).decode() if api_key else ""
+    )
+    SystemState.objects.update_or_create(
+        key=OLLAMA_API_KEY_KEY, defaults={"value": {"api_key_enc": encrypted}}
+    )
 
 
 def validate_ollama_url(url: str) -> str:

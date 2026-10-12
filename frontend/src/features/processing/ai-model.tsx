@@ -13,6 +13,7 @@ import { formatBytes } from "@/lib/utils";
 import { ReprocessDialog } from "./reprocess-dialog";
 
 type AiSettings = Schemas["AiSettingsOut"];
+type ConnectionSettings = { url: string; pages: number; api_key?: string };
 const aiKey = ["ai-settings"] as const;
 
 /** Settings → System: Ollama connection, document page limit and model selection. */
@@ -29,7 +30,7 @@ export function AiModelCard() {
   const qc = useQueryClient();
   const settings = useAiSettings();
   const configure = useMutation({
-    mutationFn: (body: { url: string; pages: number }) =>
+    mutationFn: (body: ConnectionSettings) =>
       call(() => client.PUT("/api/v1/settings/ai", { body })),
     onSuccess: (data) => {
       qc.setQueryData(aiKey, data);
@@ -75,10 +76,10 @@ export function AiModelCard() {
           <div className="flex flex-col gap-5">
             <Connection settings={s} />
             <AnalysisSettings
-              key={`${s.url}:${s.pages}`}
+              key={`${s.url}:${s.pages}:${s.api_key_configured}`}
               settings={s}
               busy={configure.isPending || choose.isPending || pull.isPending}
-              onSave={(values) => configure.mutate(values)}
+              onSave={(values, onSaved) => configure.mutate(values, { onSuccess: onSaved })}
             />
             <ModelChoice
               settings={s}
@@ -99,17 +100,23 @@ export function AiModelCard() {
 function AnalysisSettings({ settings, busy, onSave }: {
   settings: AiSettings;
   busy: boolean;
-  onSave: (values: { url: string; pages: number }) => void;
+  onSave: (values: ConnectionSettings, onSaved: () => void) => void;
 }) {
   const [url, setUrl] = useState(settings.url);
   const [pages, setPages] = useState(String(settings.pages));
+  const [apiKey, setApiKey] = useState("");
+  const [removeKey, setRemoveKey] = useState(false);
   const limit = Number(pages);
   const valid = Number.isInteger(limit) && limit >= 1 && limit <= settings.max_pages;
-  const changed = url.trim().replace(/\/+$/, "") !== settings.url || limit !== settings.pages;
+  const changingServer = url.trim().replace(/\/+$/, "") !== settings.url;
+  const changed = changingServer || limit !== settings.pages || !!apiKey.trim() || removeKey;
   return (
     <form className="flex flex-col gap-3" onSubmit={(e) => {
       e.preventDefault();
-      if (valid) onSave({ url: url.trim(), pages: limit });
+      if (valid) onSave({
+        url: url.trim(), pages: limit,
+        ...(removeKey ? { api_key: "" } : apiKey.trim() ? { api_key: apiKey.trim() } : {}),
+      }, () => { setApiKey(""); setRemoveKey(false); });
     }}>
       <div className="flex flex-col gap-1.5">
         <Label htmlFor="ai-url">Ollama server URL</Label>
@@ -119,6 +126,24 @@ function AnalysisSettings({ settings, busy, onSave }: {
           Use the bundled Ollama server or another server reachable from DocNest, for example
           http://192.168.1.50:11434. Document images and text are sent to this server.
         </p>
+      </div>
+      <div className="flex flex-col gap-1.5">
+        <Label htmlFor="ai-api-key">Ollama API key (optional)</Label>
+        <Input id="ai-api-key" type="password" autoComplete="new-password" value={apiKey}
+          placeholder={settings.api_key_configured ? "API key configured" : "Enter API key"}
+          disabled={busy || !!settings.pull?.active || removeKey}
+          onChange={(e) => setApiKey(e.target.value)} />
+        <p className="text-xs text-muted-foreground">
+          For servers that require a Bearer API key. Stored encrypted; leave blank to keep the current key.
+          {changingServer && settings.api_key_configured && " Changing servers removes the current key; enter the key for the new server."}
+        </p>
+        {settings.api_key_configured && (
+          <label className="flex items-center gap-2 text-sm">
+            <input type="checkbox" checked={removeKey} disabled={busy || !!settings.pull?.active}
+              onChange={(e) => setRemoveKey(e.target.checked)} />
+            Remove API key
+          </label>
+        )}
       </div>
       <div className="flex flex-col gap-1.5">
         <Label htmlFor="ai-pages">Maximum pages per document</Label>

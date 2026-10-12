@@ -211,6 +211,7 @@ if DOCLING_FIELD_DETECTION not in {"layout", "vlm", "hybrid"}:
     raise ConfigError("DOCNEST_DOCLING_FIELD_DETECTION must be 'layout', 'vlm', or 'hybrid'")
 # AI analysis: a local vision-language model served by Ollama (see docs/operations.md)
 OLLAMA_URL = env("DOCNEST_OLLAMA_URL", "").rstrip("/")
+OLLAMA_API_KEY = env("DOCNEST_OLLAMA_API_KEY", "")
 AI_MODEL = env("DOCNEST_AI_MODEL", "")
 AI_TIMEOUT_SECONDS = env_int("DOCNEST_AI_TIMEOUT_SECONDS", 3600)
 AI_CONTEXT_TOKENS = env_int("DOCNEST_AI_CONTEXT_TOKENS", 4096)

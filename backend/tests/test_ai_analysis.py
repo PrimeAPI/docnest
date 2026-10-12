@@ -1,19 +1,23 @@
 from datetime import date
 from io import BytesIO
+from urllib.error import HTTPError
 
 import pytest
 from django.test import Client
 from django.utils import timezone
 
 from apps.analysis import ai
+from apps.audit.models import AuditLog
 from apps.documents import crypto_fields
 from apps.documents.models import Document, ProcessingEvent
 from apps.processing.models import Job, SystemState
 from apps.processing.preferences import (
     get_ai_pages,
+    get_ollama_api_key,
     get_ollama_url,
     set_ai_model,
     set_ai_pages,
+    set_ollama_api_key,
     set_ollama_url,
 )
 from apps.processing.worker import Worker
@@ -378,6 +382,8 @@ def test_ai_connection_and_page_settings_persist_independently_of_model(api, set
         {"pages": 1.5},
         {"pages": True},
         {"pages": "2"},
+        {"api_key": "bad\r\nAuthorization: injected"},
+        {"api_key": "bad key"},
     ],
 )
 def test_invalid_ai_settings_are_rejected_without_changing_other_settings(api, monkeypatch, changes):
@@ -406,13 +412,16 @@ def test_ollama_server_cannot_change_during_a_model_download(api, monkeypatch):
     assert r.status_code == 200 and r.json()["pull"] is None
 
 
-def test_all_ollama_requests_and_downloads_use_the_saved_server(settings, monkeypatch):
+@pytest.mark.parametrize("api_key", ["", "remote-secret"])
+def test_all_ollama_requests_and_downloads_use_the_saved_server(settings, monkeypatch, api_key):
     settings.OLLAMA_URL = "http://local:11434"
     set_ollama_url("https://remote:11434/ollama/")
+    set_ollama_api_key(api_key)
     sent = []
 
     def urlopen(request, *, timeout):
         sent.append(request.full_url)
+        assert request.get_header("Authorization") == (f"Bearer {api_key}" if api_key else None)
         return BytesIO(b"{}\n")
 
     monkeypatch.setattr("urllib.request.urlopen", urlopen)
@@ -421,6 +430,67 @@ def test_all_ollama_requests_and_downloads_use_the_saved_server(settings, monkey
     ai._request("/api/chat", {"model": "m"}, timeout=10)
     ai.pull("m")
     assert sent == [f"https://remote:11434/ollama/api/{path}" for path in ("tags", "show", "chat", "pull")]
+
+
+def test_ollama_api_key_is_encrypted_write_only_and_can_be_replaced_or_cleared(api, settings, monkeypatch):
+    settings.OLLAMA_API_KEY = "environment-secret"
+    monkeypatch.setattr(ai, "list_models", lambda: [])
+    assert api.get("/api/v1/settings/ai").json()["api_key_configured"] is True
+    assert get_ollama_api_key() == "environment-secret"
+    for key in ("first-secret", "replacement-secret"):
+        response = api.put("/api/v1/settings/ai", {"api_key": key}, content_type="application/json")
+        assert response.status_code == 200, response.content
+        assert response.json()["api_key_configured"] is True
+        assert "api_key" not in response.json()
+        assert key not in response.content.decode()
+        assert get_ollama_api_key() == key
+        assert key not in str(SystemState.objects.get(key="ollama_api_key").value)
+        assert key not in str(list(AuditLog.objects.values_list("details", flat=True)))
+    api.put("/api/v1/settings/ai", {"pages": 2, "model": ""}, content_type="application/json")
+    assert get_ollama_api_key() == "replacement-secret"
+    response = api.put("/api/v1/settings/ai", {"api_key": ""}, content_type="application/json")
+    assert response.status_code == 200 and response.json()["api_key_configured"] is False
+    assert get_ollama_api_key() == ""  # An explicit removal overrides the environment default.
+
+
+def test_changing_ollama_server_does_not_forward_old_credentials(api, settings, monkeypatch):
+    settings.OLLAMA_API_KEY = "environment-secret"
+    set_ollama_url("https://old-server")
+    set_ollama_api_key("old-secret")
+    used_keys = []
+    monkeypatch.setattr(ai, "list_models", lambda: used_keys.append(get_ollama_api_key()) or [])
+    response = api.put("/api/v1/settings/ai", {"url": "https://new-server"}, content_type="application/json")
+    assert response.status_code == 200 and used_keys == [""]
+    response = api.put(
+        "/api/v1/settings/ai",
+        {"url": "https://third-server", "api_key": "new-secret"},
+        content_type="application/json",
+    )
+    assert response.status_code == 200 and used_keys == ["", "new-secret"]
+
+
+def test_ollama_credentials_cannot_change_during_download(api, monkeypatch):
+    monkeypatch.setattr(ai, "list_models", lambda: [])
+    set_ollama_api_key("original-secret")
+    Job.objects.create(kind=Job.Kind.PULL_MODEL, payload={"model": "test"})
+    for key in ("replacement-secret", ""):
+        response = api.put("/api/v1/settings/ai", {"api_key": key}, content_type="application/json")
+        assert response.status_code == 409
+        assert get_ollama_api_key() == "original-secret"
+
+
+@pytest.mark.parametrize("code", [401, 403])
+@pytest.mark.parametrize("download", [False, True])
+def test_ollama_authentication_errors_wait_for_credentials(settings, monkeypatch, code, download):
+    settings.OLLAMA_URL = "https://remote-server"
+
+    def urlopen(request, *, timeout):
+        raise HTTPError(request.full_url, code, "Unauthorized", {}, BytesIO(b'{"error":"secret"}'))
+
+    monkeypatch.setattr("urllib.request.urlopen", urlopen)
+    with pytest.raises(ai.ModelUnavailable, match="Check the API key") as error:
+        ai.pull("m") if download else ai._request("/api/tags", timeout=10)
+    assert "secret" not in str(error.value)
 
 
 def test_ai_model_can_be_chosen_and_downloaded(api, settings, monkeypatch):

@@ -5321,6 +5321,10 @@
       "title": "Url",
       "type": "string"
      },
+     "api_key_configured": {
+      "title": "Api Key Configured",
+      "type": "boolean"
+     },
      "pages": {
       "title": "Pages",
       "type": "integer"
@@ -5369,6 +5373,7 @@
     "required": [
      "configured",
      "url",
+     "api_key_configured",
      "pages",
      "max_pages",
      "reachable",
@@ -5429,6 +5434,19 @@
        }
       ],
       "title": "Url"
+     },
+     "api_key": {
+      "anyOf": [
+       {
+        "maxLength": 4096,
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Api Key",
+      "writeOnly": true
      },
      "pages": {
       "anyOf": [

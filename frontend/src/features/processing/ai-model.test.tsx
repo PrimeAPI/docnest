@@ -10,7 +10,7 @@ vi.mock("@/api/client", () => ({
 }));
 
 const initial = {
-  configured: false, url: "", pages: 1, max_pages: 500,
+  configured: false, url: "", api_key_configured: false, pages: 1, max_pages: 500,
   reachable: false, error: "No Ollama server is configured", model: "previous-model",
   models: [], suggestions: [], pull: null,
 };
@@ -47,4 +47,40 @@ it("keeps AI switch-off available when Ollama is unreachable and rejects an inva
   expect((view.getByRole("button", { name: "Save AI settings" }) as HTMLButtonElement).disabled).toBe(true);
   fireEvent.change(view.getByLabelText("Model"), { target: { value: "" } });
   await waitFor(() => expect(api.put).toHaveBeenCalledWith("/api/v1/settings/ai", { body: { model: "" } }));
+});
+
+it("saves a replacement key and empties the password field after saving", async () => {
+  api.get.mockResolvedValue({ ...initial, url: "https://remote-server", api_key_configured: true });
+  api.put.mockImplementation(async (_path, { body }) => ({
+    ...initial, url: "https://remote-server", pages: body.pages, api_key_configured: true,
+  }));
+  const view = show();
+  const key = await view.findByLabelText("Ollama API key (optional)");
+  expect((key as HTMLInputElement).type).toBe("password");
+  expect((key as HTMLInputElement).value).toBe("");
+  fireEvent.change(key, { target: { value: "replacement-secret" } });
+  fireEvent.click(view.getByRole("button", { name: "Save AI settings" }));
+  await waitFor(() => expect(api.put).toHaveBeenCalledWith("/api/v1/settings/ai", {
+    body: { url: "https://remote-server", pages: 1, api_key: "replacement-secret" },
+  }));
+  await waitFor(() => expect((view.getByLabelText("Ollama API key (optional)") as HTMLInputElement).value).toBe(""));
+});
+
+it("keeps a saved key when editing pages and supports explicit removal", async () => {
+  api.get.mockResolvedValue({ ...initial, api_key_configured: true });
+  api.put.mockImplementation(async (_path, { body }) => ({
+    ...initial, pages: body.pages, api_key_configured: body.api_key !== "",
+  }));
+  const view = show();
+  fireEvent.change(await view.findByLabelText("Maximum pages per document"), { target: { value: "2" } });
+  fireEvent.click(view.getByRole("button", { name: "Save AI settings" }));
+  await waitFor(() => expect(api.put).toHaveBeenCalledWith("/api/v1/settings/ai", {
+    body: { url: "", pages: 2 },
+  }));
+  fireEvent.click(await view.findByLabelText("Remove API key"));
+  fireEvent.click(view.getByRole("button", { name: "Save AI settings" }));
+  await waitFor(() => expect(api.put).toHaveBeenCalledWith("/api/v1/settings/ai", {
+    body: { url: "", pages: 2, api_key: "" },
+  }));
+  await waitFor(() => expect(view.queryByLabelText("Remove API key")).toBeNull());
 });

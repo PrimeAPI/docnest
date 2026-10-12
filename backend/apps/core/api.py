@@ -31,6 +31,7 @@ from apps.processing.preferences import (
     get_default_ocr_backend,
     get_docling_field_detection,
     get_enhance_settings,
+    get_ollama_api_key,
     get_ollama_url,
     get_processing_concurrency,
     set_ai_model,
@@ -38,8 +39,10 @@ from apps.processing.preferences import (
     set_default_ocr_backend,
     set_docling_field_detection,
     set_enhance_settings,
+    set_ollama_api_key,
     set_ollama_url,
     set_processing_concurrency,
+    validate_ollama_api_key,
     validate_ollama_url,
 )
 from apps.processing.schemas import EnhanceSettingsIn, EnhanceSettingsOut
@@ -148,6 +151,7 @@ class AiPullOut(Schema):
 class AiSettingsOut(Schema):
     configured: bool
     url: str
+    api_key_configured: bool
     pages: int
     max_pages: int
     reachable: bool
@@ -161,6 +165,7 @@ class AiSettingsOut(Schema):
 class AiSettingsIn(Schema):
     model: str | None = Field(None, max_length=200)
     url: str | None = Field(None, max_length=2048)
+    api_key: str | None = Field(None, max_length=4096, json_schema_extra={"writeOnly": True})
     pages: int | None = Field(None, ge=1, le=settings.MAX_PAGES, strict=True)
 
 
@@ -366,6 +371,7 @@ def _ai_settings() -> AiSettingsOut:
     return AiSettingsOut(
         configured=ai.configured(),
         url=get_ollama_url(),
+        api_key_configured=bool(get_ollama_api_key()),
         pages=get_ai_pages(),
         max_pages=settings.MAX_PAGES,
         reachable=reachable,
@@ -396,26 +402,32 @@ def update_ai_settings(request: HttpRequest, data: AiSettingsIn) -> AiSettingsOu
         raise HttpError(422, "Invalid model name")
     try:
         url = validate_ollama_url(data.url) if data.url is not None else None
+        api_key = validate_ollama_api_key(data.api_key) if data.api_key is not None else None
     except ValueError as exc:
         raise HttpError(422, str(exc)) from exc
     changing_server = url is not None and url != get_ollama_url()
-    if (
-        changing_server
-        and Job.objects.filter(
-            kind=Job.Kind.PULL_MODEL, state__in=[Job.State.QUEUED, Job.State.RUNNING]
-        ).exists()
-    ):
-        raise HttpError(409, "Wait for the model download to finish before changing the Ollama server")
+    if (changing_server or (api_key is not None and api_key != get_ollama_api_key())) and Job.objects.filter(
+        kind=Job.Kind.PULL_MODEL, state__in=[Job.State.QUEUED, Job.State.RUNNING]
+    ).exists():
+        raise HttpError(409, "Wait for the model download to finish before changing the Ollama connection")
     with transaction.atomic():
         if model is not None:
             set_ai_model(model)
         if url is not None:
             set_ollama_url(url)
+        if api_key is not None:
+            set_ollama_api_key(api_key)
+        elif changing_server:
+            # Credentials belong to the old server; never forward them to a new host.
+            set_ollama_api_key("")
         if data.pages is not None:
             set_ai_pages(data.pages)
         if changing_server:
             SystemState.objects.filter(key=AI_MODEL_PULL_KEY).delete()
-    audit("settings.ai_updated", request=request, **data.model_dump(exclude_none=True))
+    changes = data.model_dump(exclude_none=True, exclude={"api_key"})
+    if api_key is not None or changing_server:
+        changes["api_key_configured"] = bool(get_ollama_api_key())
+    audit("settings.ai_updated", request=request, **changes)
     return _ai_settings()
 
 

@@ -24,7 +24,7 @@ from typing import Any
 from django.conf import settings
 from rapidfuzz import fuzz
 
-from apps.processing.preferences import get_ollama_url
+from apps.processing.preferences import get_ollama_api_key, get_ollama_url
 
 logger = logging.getLogger(__name__)
 
@@ -108,6 +108,13 @@ def configured() -> bool:
 # --- Ollama API ---------------------------------------------------------------
 
 
+def _headers() -> dict[str, str]:
+    headers = {"Content-Type": "application/json"}
+    if api_key := get_ollama_api_key():
+        headers["Authorization"] = f"Bearer {api_key}"
+    return headers
+
+
 def _request(path: str, payload: dict[str, Any] | None = None, *, timeout: float) -> dict[str, Any]:
     url = get_ollama_url()
     if not url:
@@ -116,13 +123,17 @@ def _request(path: str, payload: dict[str, Any] | None = None, *, timeout: float
     request = urllib.request.Request(  # noqa: S310 - URL comes from the operator's configuration
         url + path,
         data=data,
-        headers={"Content-Type": "application/json"},
+        headers=_headers(),
         method="POST" if data is not None else "GET",
     )
     try:
         with urllib.request.urlopen(request, timeout=timeout) as response:  # noqa: S310
             return json.loads(response.read().decode())
     except urllib.error.HTTPError as exc:
+        if exc.code in {401, 403}:
+            raise ModelUnavailable(
+                "Ollama authentication failed. Check the API key in Settings → System → AI analysis."
+            ) from exc
         detail = _error_detail(exc)
         if exc.code == 404:
             raise ModelUnavailable(detail or "Model not found in Ollama") from exc
@@ -186,7 +197,7 @@ def pull(name: str, progress: Any = None) -> None:
     request = urllib.request.Request(  # noqa: S310
         url + "/api/pull",
         data=json.dumps({"model": name, "stream": True}).encode(),
-        headers={"Content-Type": "application/json"},
+        headers=_headers(),
         method="POST",
     )
     try:
@@ -198,6 +209,10 @@ def pull(name: str, progress: Any = None) -> None:
                 if progress:
                     progress(str(line.get("status", "")), line.get("completed"), line.get("total"))
     except urllib.error.HTTPError as exc:
+        if exc.code in {401, 403}:
+            raise ModelUnavailable(
+                "Ollama authentication failed. Check the API key in Settings → System → AI analysis."
+            ) from exc
         raise ModelFailed(f"Ollama error {exc.code}: {_error_detail(exc)}") from exc
     except (urllib.error.URLError, ConnectionError, TimeoutError) as exc:
         raise ModelUnavailable(f"Ollama is not reachable at {url}") from exc
