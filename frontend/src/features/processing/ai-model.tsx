@@ -171,15 +171,17 @@ function Connection({ settings }: { settings: AiSettings }) {
     );
   return (
     <div className="rounded-md border border-amber-300/60 bg-amber-50 p-3 text-sm text-amber-900 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-200">
-      <p className="font-medium">{settings.configured ? "Ollama is not reachable" : "Not set up yet"}</p>
+      <p className="font-medium">{settings.configured ? "Could not connect to Ollama" : "Not set up yet"}</p>
       <p className="mt-1 text-xs">{settings.error}</p>
       <p className="mt-1 text-xs">
-        Enter a reachable Ollama server below, or start the bundled server with
-        <span className="font-mono"> docker compose --profile ai up -d</span>.
+        {settings.configured ? "Check the server URL, API key and any reverse-proxy access rules." : <>
+          Enter a reachable Ollama server below, or start the bundled server with
+          <span className="font-mono"> docker compose --profile ai up -d</span>.
+        </>}
       </p>
       {settings.model && (
         <p className="mt-1 text-xs">
-          Documents wait for <span className="font-mono">{settings.model}</span> until Ollama is back, or until you
+          Documents wait for <span className="font-mono">{settings.model}</span> until the connection works, or until you
           switch AI analysis off.
         </p>
       )}

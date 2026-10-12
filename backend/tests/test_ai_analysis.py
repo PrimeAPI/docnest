@@ -421,6 +421,7 @@ def test_all_ollama_requests_and_downloads_use_the_saved_server(settings, monkey
 
     def urlopen(request, *, timeout):
         sent.append(request.full_url)
+        assert request.get_header("User-agent") == "DocNest/0.1"
         assert request.get_header("Authorization") == (f"Bearer {api_key}" if api_key else None)
         return BytesIO(b"{}\n")
 
@@ -491,6 +492,32 @@ def test_ollama_authentication_errors_wait_for_credentials(settings, monkeypatch
     with pytest.raises(ai.ModelUnavailable, match="Check the API key") as error:
         ai.pull("m") if download else ai._request("/api/tags", timeout=10)
     assert "secret" not in str(error.value)
+    assert f"HTTP {code}" in str(error.value)
+    if code == 403:
+        assert "reverse proxy" in str(error.value)
+
+
+@pytest.mark.parametrize("download", [False, True])
+@pytest.mark.parametrize(
+    "headers, body",
+    [
+        ({"Server": "cloudflare"}, b"error code: 1010"),
+        ({"Server": "cloudflare", "cf-mitigated": "challenge"}, b"<html>secret</html>"),
+    ],
+)
+def test_cloudflare_blocks_are_distinguished_from_invalid_api_keys(
+    settings, monkeypatch, download, headers, body
+):
+    settings.OLLAMA_URL = "https://remote-server"
+
+    def urlopen(request, *, timeout):
+        raise HTTPError(request.full_url, 403, "Forbidden", headers, BytesIO(body))
+
+    monkeypatch.setattr("urllib.request.urlopen", urlopen)
+    with pytest.raises(ai.ModelUnavailable, match=r"Cloudflare (blocked|challenged)") as error:
+        ai.pull("m") if download else ai._request("/api/tags", timeout=10)
+    assert "secret" not in str(error.value)
+    assert "authentication failed" not in str(error.value)
 
 
 def test_ai_model_can_be_chosen_and_downloaded(api, settings, monkeypatch):

@@ -49,6 +49,16 @@ it("keeps AI switch-off available when Ollama is unreachable and rejects an inva
   await waitFor(() => expect(api.put).toHaveBeenCalledWith("/api/v1/settings/ai", { body: { model: "" } }));
 });
 
+it("shows a configured connection error without suggesting the server is offline", async () => {
+  api.get.mockResolvedValue({ ...initial, configured: true, url: "https://remote-server",
+    error: "Cloudflare blocked the Ollama request (HTTP 403)." });
+  const view = show();
+  await view.findByText("Could not connect to Ollama");
+  view.getByText("Cloudflare blocked the Ollama request (HTTP 403).");
+  expect(view.queryByText("Ollama is not reachable")).toBeNull();
+  expect(view.queryByText(/start the bundled server/)).toBeNull();
+});
+
 it("saves a replacement key and empties the password field after saving", async () => {
   api.get.mockResolvedValue({ ...initial, url: "https://remote-server", api_key_configured: true });
   api.put.mockImplementation(async (_path, { body }) => ({

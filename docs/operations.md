@@ -80,6 +80,8 @@ If Ollama is unreachable or the chosen model is not installed, documents wait (s
 
 Document images and text go only to the configured Ollama server — by default the container on the same host, which publishes no ports. For another machine, use HTTP only on a trusted network or HTTPS through a reverse proxy. The server receives document contents; choose one you trust.
 
+Ollama requests identify themselves as `DocNest/0.1`; some proxies block Python's default user agent before checking API keys. A 401 response indicates an authentication problem, while 403 can also mean a proxy or firewall blocked the request. For Cloudflare error 1010 or a browser challenge, check the matching security event and permit DocNest's API requests; the API client cannot complete browser challenges.
+
 ## Email inbox
 
 Forwarded emails can be imported: each becomes one document, its attachments first and the email itself on the last pages.

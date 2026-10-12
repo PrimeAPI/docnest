@@ -109,10 +109,37 @@ def configured() -> bool:
 
 
 def _headers() -> dict[str, str]:
-    headers = {"Content-Type": "application/json"}
+    # Some reverse proxies reject urllib's default client signature before checking credentials.
+    headers = {"Content-Type": "application/json", "User-Agent": "DocNest/0.1"}
     if api_key := get_ollama_api_key():
         headers["Authorization"] = f"Bearer {api_key}"
     return headers
+
+
+def _access_error(exc: urllib.error.HTTPError) -> str:
+    if exc.code == 401:
+        return (
+            "Ollama authentication failed (HTTP 401). Check the API key in Settings → System → AI analysis."
+        )
+    headers = exc.headers
+    challenged = headers is not None and headers.get("cf-mitigated") == "challenge"
+    if challenged:
+        return (
+            "Cloudflare challenged the Ollama request (HTTP 403). "
+            "Check firewall rules for this API; DocNest cannot complete browser challenges."
+        )
+    if headers is not None and "cloudflare" in headers.get("Server", "").lower():
+        # Inspect only the known error marker; never show remote HTML or echoed credentials.
+        blocked_signature = b"error code: 1010" in exc.read(16384).lower()
+        if blocked_signature:
+            return (
+                "Cloudflare blocked the Ollama request (HTTP 403). "
+                "Check Browser Integrity Check and firewall rules for this API."
+            )
+    return (
+        "Ollama request forbidden (HTTP 403). "
+        "Check the API key and access rules on the server or reverse proxy."
+    )
 
 
 def _request(path: str, payload: dict[str, Any] | None = None, *, timeout: float) -> dict[str, Any]:
@@ -131,9 +158,7 @@ def _request(path: str, payload: dict[str, Any] | None = None, *, timeout: float
             return json.loads(response.read().decode())
     except urllib.error.HTTPError as exc:
         if exc.code in {401, 403}:
-            raise ModelUnavailable(
-                "Ollama authentication failed. Check the API key in Settings → System → AI analysis."
-            ) from exc
+            raise ModelUnavailable(_access_error(exc)) from exc
         detail = _error_detail(exc)
         if exc.code == 404:
             raise ModelUnavailable(detail or "Model not found in Ollama") from exc
@@ -210,9 +235,7 @@ def pull(name: str, progress: Any = None) -> None:
                     progress(str(line.get("status", "")), line.get("completed"), line.get("total"))
     except urllib.error.HTTPError as exc:
         if exc.code in {401, 403}:
-            raise ModelUnavailable(
-                "Ollama authentication failed. Check the API key in Settings → System → AI analysis."
-            ) from exc
+            raise ModelUnavailable(_access_error(exc)) from exc
         raise ModelFailed(f"Ollama error {exc.code}: {_error_detail(exc)}") from exc
     except (urllib.error.URLError, ConnectionError, TimeoutError) as exc:
         raise ModelUnavailable(f"Ollama is not reachable at {url}") from exc
