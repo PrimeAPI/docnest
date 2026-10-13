@@ -5,6 +5,18 @@ from apps.processing.docling_ocr import reads_like_words
 from tests.pdfs import INVOICE_LINES, scanned_pdf, text_pdf
 
 
+def test_card_ocr_is_searchable_when_docling_exports_only_pictures():
+    markdown = "<!-- image -->\n\n<!-- image -->"
+    layout = {"pages": [{"lines": [{"text": "Example loyalty card"}]}, {"lines": [{"text": "123456"}]}]}
+    exported = docling_backend._include_picture_text(markdown, layout)
+    assert "Example loyalty card" in exported and "123456" in exported
+    assert (
+        docling_backend._include_picture_text("# Invoice\n\nExisting text", layout)
+        == "# Invoice\n\nExisting text"
+    )
+    assert docling_backend._include_picture_text(markdown, {"pages": []}) == markdown
+
+
 def _cell(text: str, x0: float, x1: float, y0: float, y1: float, confidence: float = 0.95):
     rect = SimpleNamespace(
         r_x0=x0, r_x1=x1, r_x2=x1, r_x3=x0, r_y0=y0, r_y1=y0, r_y2=y1, r_y3=y1, coord_origin="BOTTOMLEFT"

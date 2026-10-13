@@ -48,6 +48,8 @@ function QueueDetail({ item, queued }: { item: QueueItem; queued: boolean }) {
         Waiting for {item.phase === "intake" ? "intake" : item.phase === "processing" ? "processing" : "indexing"}
       </span>
     );
+  if (item.state === "running" && item.cancel_requested)
+    return <span>Stopping processing…</span>;
   if (item.state === "running")
     return (
       <span className="flex min-w-0 items-center gap-1.5">
@@ -72,7 +74,7 @@ function QueueDetail({ item, queued }: { item: QueueItem; queued: boolean }) {
   );
 }
 
-/** Cancel waiting jobs: the given ones, or every waiting one. Running jobs finish their step. */
+/** Stop queued or running processing after intake has preserved the original. */
 function useCancel() {
   const qc = useQueryClient();
   const invalidate = useInvalidateDocuments();
@@ -83,7 +85,7 @@ function useCancel() {
       toast.success(
         data.cancelled
           ? `${data.cancelled} job${data.cancelled === 1 ? "" : "s"} cancelled`
-          : "Nothing to cancel — it had already started",
+          : "Nothing to cancel — intake is protected or processing has finished",
       );
       qc.invalidateQueries({ queryKey: keys.processingQueue });
       invalidate();
@@ -101,10 +103,10 @@ function QueueRow({ item, queued = false }: { item: QueueItem; queued?: boolean 
       to={`/documents/${item.document_id}`}
       className="group relative block rounded-md border px-3 py-2 transition-colors hover:bg-muted"
     >
-      {queued && (
+      {item.cancellable && (
         <button
           type="button"
-          title="Cancel — the document stays as it is; reprocess it later if needed"
+          title="Stop processing — the original is preserved; reprocess it later if needed"
           aria-label={`Cancel processing of ${item.title}`}
           disabled={cancel.isPending}
           onClick={(e) => {
@@ -127,7 +129,7 @@ function QueueRow({ item, queued = false }: { item: QueueItem; queued?: boolean 
         ) : (
           <Clock3 className="size-4 shrink-0 text-muted-foreground" />
         )}
-        <span className={cn("min-w-0 flex-1 truncate text-sm font-medium", queued && "pr-6")}>{item.title}</span>
+        <span className={cn("min-w-0 flex-1 truncate text-sm font-medium", item.cancellable && "pr-6")}>{item.title}</span>
         {item.duration_seconds !== null && (
           <span className="shrink-0 text-xs tabular-nums text-muted-foreground">
             {formatDuration(item.duration_seconds)}
@@ -166,12 +168,14 @@ function QueueSection({
   total,
   queued = false,
   empty,
+  cancelAll = false,
 }: {
   title: string;
   items: QueueItem[];
   total?: number;
   queued?: boolean;
   empty: string;
+  cancelAll?: boolean;
 }) {
   const cancel = useCancel();
   const [confirming, setConfirming] = useState(false);
@@ -181,7 +185,7 @@ function QueueSection({
       <div className="mb-2 flex items-center justify-between gap-2">
         <h3 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">{title}</h3>
         <div className="flex items-center gap-2">
-          {queued && count > 0 && (
+          {cancelAll && items.some((item) => item.cancellable) && (
             <button
               type="button"
               disabled={cancel.isPending}
@@ -197,7 +201,7 @@ function QueueSection({
                 confirming ? "bg-destructive text-white" : "text-muted-foreground hover:text-destructive",
               )}
             >
-              {confirming ? `Really cancel ${count}?` : "Cancel all"}
+              {confirming ? "Cancel all processing?" : "Cancel all"}
             </button>
           )}
           <span className="text-xs tabular-nums text-muted-foreground">{count}</span>
@@ -267,6 +271,9 @@ export function ProcessingQueueButton() {
                     Processing {queue.data?.running.filter((i) => i.phase === "processing").length ?? 0} of{" "}
                     {queue.data?.concurrency ?? "—"} at once · intake runs alongside
                   </p>
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    Cancel stops processing and keeps the original. Intake must finish first.
+                  </p>
                 </div>
                 {queue.isFetching && <Loader2 className="size-4 animate-spin text-muted-foreground" />}
               </div>
@@ -280,12 +287,13 @@ export function ProcessingQueueButton() {
                 <p className="text-sm text-destructive">Could not load the processing queue.</p>
               ) : queue.data ? (
                 <>
-                  <QueueSection title="Processing now" items={queue.data.running} empty="Nothing is being processed." />
+                  <QueueSection title="Processing now" items={queue.data.running} cancelAll empty="Nothing is being processed." />
                   <QueueSection
                     title="Queued"
                     items={queue.data.queued}
                     total={queue.data.queued_total}
                     queued
+                    cancelAll
                     empty="No documents are waiting."
                   />
                   <QueueSection title="Recent" items={queue.data.history} empty="No recent processing history." />

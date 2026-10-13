@@ -175,7 +175,7 @@ export interface paths {
         put?: never;
         /**
          * Cancel Processing
-         * @description Cancel waiting jobs. Running ones cannot be interrupted safely and finish their step.
+         * @description Cancel processing at any stage after intake; running processes are stopped.
          */
         post: operations["apps_core_api_cancel_processing"];
         delete?: never;
@@ -1963,6 +1963,10 @@ export interface components {
             finished_at: string | null;
             /** Duration Seconds */
             duration_seconds: number | null;
+            /** Cancellable */
+            cancellable: boolean;
+            /** Cancel Requested */
+            cancel_requested: boolean;
         };
         /** ProcessingQueueOut */
         ProcessingQueueOut: {

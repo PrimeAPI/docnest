@@ -190,6 +190,8 @@ class ProcessingQueueItem(Schema):
     started_at: datetime | None
     finished_at: datetime | None
     duration_seconds: float | None
+    cancellable: bool
+    cancel_requested: bool
 
 
 class ProcessingQueueOut(Schema):
@@ -485,6 +487,13 @@ def _queue_item(job: Job, now: datetime) -> ProcessingQueueItem:
         started_at=job.started_at,
         finished_at=job.finished_at,
         duration_seconds=round(duration, 1) if duration is not None else None,
+        cancellable=(
+            job.kind != Job.Kind.INTAKE_DOCUMENT
+            and stage not in pipeline.INTAKE_STAGES
+            and job.state in (Job.State.QUEUED, Job.State.RUNNING)
+            and not job.cancel_requested
+        ),
+        cancel_requested=job.cancel_requested,
     )
 
 
@@ -510,7 +519,7 @@ def processing_queue(request: HttpRequest) -> ProcessingQueueOut:
 
 
 class CancelIn(Schema):
-    job_ids: list[int] | None = None  # None: every waiting document job
+    job_ids: list[int] | None = None  # None: every cancellable document job
 
 
 class CancelOut(Schema):
@@ -519,8 +528,8 @@ class CancelOut(Schema):
 
 @router.post("/processing/queue/cancel", response=CancelOut)
 def cancel_processing(request: HttpRequest, data: CancelIn) -> CancelOut:
-    """Cancel waiting jobs. Running ones cannot be interrupted safely and finish their step."""
-    n = pipeline.cancel_queued(data.job_ids)
+    """Cancel processing at any stage after intake; running processes are stopped."""
+    n = pipeline.cancel_jobs(data.job_ids)
     audit("processing.cancelled", request=request, count=n, all=data.job_ids is None)
     return CancelOut(cancelled=n)
 

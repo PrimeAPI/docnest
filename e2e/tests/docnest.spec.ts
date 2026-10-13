@@ -602,6 +602,50 @@ test("reviews and manual page changes retain originals and can be undone", async
   }
 });
 
+test("running OCR can be cancelled in the queue without losing the original or blocking the next scan", async ({ page, request }) => {
+  await login(page);
+  await page.getByRole("button", { name: "Use authenticator app" }).click();
+  await page.getByLabel("6-digit code from your authenticator app").fill(await freshTotp(totpSecret));
+  await page.getByRole("button", { name: "Verify" }).click();
+  await expect(page).toHaveURL(/\/inbox/);
+  const original = readFileSync("fixtures/queue-cancel.pdf");
+  const uploaded = await request.post("/api/upload/v1/documents", {
+    headers: { Authorization: `Bearer ${scannerToken}` },
+    multipart: { file: { name: "queue-cancel.pdf", mimeType: "application/pdf", buffer: original }, bucket: "private" },
+  });
+  expect(uploaded.status()).toBe(202);
+  const { id } = await uploaded.json();
+  await expect.poll(async () => {
+    const queue = await (await page.request.get("/api/v1/processing/queue")).json();
+    return queue.running.some((item: { document_id: string; stage: string; cancellable: boolean }) =>
+      item.document_id === id && item.stage === "ocr" && item.cancellable);
+  }, { timeout: 120_000, intervals: [500] }).toBe(true);
+
+  await page.getByRole("button", { name: /Processing queue:/ }).click();
+  const cancelled = page.waitForResponse((r) => r.url().endsWith("/processing/queue/cancel") && r.request().method() === "POST");
+  await page.getByRole("button", { name: "Cancel processing of queue-cancel.pdf" }).click();
+  expect(await (await cancelled).json()).toEqual({ cancelled: 1 });
+  await expect.poll(async () => {
+    const document = await (await page.request.get(`/api/v1/documents/${id}`)).json();
+    return document.processing_state === "failed" && document.processing_error.startsWith("Cancelled");
+  }, { timeout: 15_000 }).toBe(true);
+  const retained = await page.request.get(`/api/v1/documents/${id}/file?variant=original`);
+  expect(retained.ok()).toBe(true);
+  expect(await retained.body()).toEqual(original);
+
+  const next = await request.post("/api/upload/v1/documents", {
+    headers: { Authorization: `Bearer ${scannerToken}` },
+    multipart: { file: { name: "queue-next.pdf", mimeType: "application/pdf", buffer: readFileSync("fixtures/queue-next.pdf") }, bucket: "private" },
+  });
+  const nextId = (await next.json()).id;
+  await expect.poll(async () => {
+    const response = await request.get(`/api/upload/v1/documents/${nextId}`, {
+      headers: { Authorization: `Bearer ${scannerToken}` },
+    });
+    return (await response.json()).status;
+  }, { timeout: 60_000 }).toBe("processed");
+});
+
 test("screenshots of the main pages", async ({ page }) => {
   test.skip(!process.env.SCREENSHOTS, "set SCREENSHOTS=1 to capture");
   await page.setViewportSize({ width: 1440, height: 900 });

@@ -6,6 +6,7 @@ model import/startup cost unless this backend is selected.
 
 from __future__ import annotations
 
+import re
 import threading
 from dataclasses import dataclass, field
 from itertools import pairwise
@@ -183,7 +184,7 @@ def has_digital_text(src: Path) -> bool:
 
 
 def convert(src: Path) -> DoclingResult:
-    """Convert a PDF without imposing a wall-clock timeout.
+    """Convert a PDF within the caller's supervised processing stage.
 
     Docling supplies layout, reading order, headings, and table structure. Its
     Tesseract CLI adapter keeps DocNest's multilingual ``deu+eng`` behavior;
@@ -252,14 +253,32 @@ def convert(src: Path) -> DoclingResult:
         structured = result.document.export_to_dict()
     except Exception as exc:
         raise DoclingFailed(f"Docling export failed: {exc}") from exc
-    return DoclingResult(markdown=markdown, structured=structured, layout=_layout_pages(result.pages))
+    layout = _layout_pages(result.pages)
+    markdown = _include_picture_text(markdown, layout)
+    return DoclingResult(markdown=markdown, structured=structured, layout=layout)
+
+
+def _include_picture_text(markdown: str, layout: dict) -> str:
+    """Cards are often labelled entirely as pictures; keep their OCR searchable.
+
+    Docling's Markdown then contains only image placeholders even though its
+    parsed pages hold recognized words. Leave ordinary document exports alone.
+    """
+    visible = re.sub(r"<!--.*?-->|!\[[^\]]*\]\([^)]*\)", "", markdown, flags=re.DOTALL).strip()
+    if visible:
+        return markdown
+    text = "\n\n".join(
+        "\n".join(line["text"] for line in page.get("lines", []) if line.get("text"))
+        for page in layout.get("pages", [])
+    ).strip()
+    return f"{markdown.rstrip()}\n\n{text}" if text else markdown
 
 
 def extract_fields(src: Path) -> DoclingFieldResult:
     """Extract sender and title from page one using Docling's local VLM.
 
-    No document timeout is set. The caller intentionally treats failures as a
-    signal to use deterministic layout detection instead.
+    The processing supervisor bounds the stage. Ordinary extraction errors
+    let the caller use deterministic layout detection instead.
     """
     try:
         artifacts = ensure_models(include_vlm=True)

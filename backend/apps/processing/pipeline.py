@@ -97,6 +97,14 @@ class AnalysisModelUnavailable(Exception):
     """The AI model cannot be reached or is not installed; retry later without using attempts."""
 
 
+class Cancelled(Exception):
+    """The user asked to stop this processing attempt."""
+
+
+class LeaseLost(Exception):
+    """This attempt no longer owns the job."""
+
+
 @contextmanager
 def workspace(document: Document) -> Iterator[Path]:
     root = settings.WORK_DIR / f"doc-{document.uuid}"
@@ -596,11 +604,12 @@ def enqueue(document: Document) -> Job | None:
     return queue.enqueue(kind, document=document, priority=priority)
 
 
-def run(document_id: int, *, intake_only: bool = False) -> None:
+def run(document_id: int, *, intake_only: bool = False, check: Callable[[], None] = lambda: None) -> None:
     """Run the outstanding stages of a document.
 
     With `intake_only`, stop once the original exists and queue the processing.
     """
+    check()
     document = Document.objects.get(pk=document_id)
     if document.deleted_at is not None:
         return
@@ -612,6 +621,7 @@ def run(document_id: int, *, intake_only: bool = False) -> None:
 
     with workspace(document) as work:
         while document.processing_stage != Stage.DONE:
+            check()
             stage = document.processing_stage
             if intake_only and stage not in INTAKE_STAGES:
                 with transaction.atomic():
@@ -630,9 +640,11 @@ def run(document_id: int, *, intake_only: bool = False) -> None:
                 _event(document, stage, "failed", started, _describe(exc))
                 raise
             _event(document, stage, "ok", started)
+            check()
             document.refresh_from_db()
             _advance(document, ORDER[ORDER.index(stage) + 1])
 
+    check()
     with transaction.atomic():
         Document.objects.filter(pk=document.pk).update(
             processing_state=Document.State.DONE,
@@ -656,48 +668,81 @@ def restart_from(document: Document, stage: str, plan: dict[str, object] | None 
 CANCELLED = "Cancelled — use Reprocess to finish"
 
 
-def cancel_queued(job_ids: list[int] | None = None) -> int:
-    """Cancel waiting document jobs (all of them when `job_ids` is None); running ones finish.
+def cancel_jobs(job_ids: list[int] | None = None) -> int:
+    """Stop document processing; intake must finish preserving the original first.
 
-    A document whose stored version is untouched (e.g. a queued reanalysis) simply stays as it
-    was; one left half processed is marked failed, so "Reprocess" can finish it later.
+    Running jobs remain active until their supervisor has killed and reaped the process.
+    This prevents reprocessing from racing a process that is still writing files.
     """
-    cancellable = [*DOCUMENT_JOB_KINDS, Job.Kind.REINDEX_DOCUMENT]
-    now = timezone.now()
+    cancellable = [Job.Kind.PROCESS_DOCUMENT, Job.Kind.REINDEX_DOCUMENT]
     n = 0
     with transaction.atomic():
-        jobs = Job.objects.select_for_update(skip_locked=True).filter(
-            state=Job.State.QUEUED, kind__in=cancellable
+        jobs = (
+            Job.objects.select_for_update(skip_locked=True)
+            .filter(
+                state__in=[Job.State.QUEUED, Job.State.RUNNING],
+                kind__in=cancellable,
+                cancel_requested=False,
+            )
+            .exclude(document__processing_stage__in=INTAKE_STAGES)
         )
         if job_ids is not None:
             jobs = jobs.filter(pk__in=job_ids)
         for job in jobs.select_related("document").select_for_update(skip_locked=True, of=("self",)):
-            Job.objects.filter(pk=job.pk).update(
-                state=Job.State.FAILED, last_error="Cancelled", finished_at=now, updated_at=now
-            )
+            Job.objects.filter(pk=job.pk).update(cancel_requested=True, updated_at=timezone.now())
             n += 1
-            if job.kind in DOCUMENT_JOB_KINDS and job.document is not None:
-                _settle_cancelled(job.document)
+            job.cancel_requested = True
+            if job.state == Job.State.QUEUED:
+                finish_cancellation(job)
     return n
 
 
-def _settle_cancelled(document: Document) -> None:
+def finish_cancellation(job: Job) -> bool:
+    """Acknowledge cancellation only after execution has stopped."""
+    with transaction.atomic():
+        current = (
+            Job.objects.select_for_update()
+            .filter(
+                pk=job.pk,
+                lease_token=job.lease_token,
+                cancel_requested=True,
+                state__in=[Job.State.QUEUED, Job.State.RUNNING],
+            )
+            .first()
+        )
+        if current is None:
+            return False
+        if current.document_id and current.kind in DOCUMENT_JOB_KINDS:
+            document = Document.objects.select_for_update().get(pk=current.document_id)
+            _settle_cancelled(document, running=current.state == Job.State.RUNNING)
+        now = timezone.now()
+        Job.objects.filter(pk=current.pk).update(
+            state=Job.State.FAILED,
+            last_error="Cancelled",
+            finished_at=now,
+            locked_by="",
+            locked_until=None,
+            updated_at=now,
+        )
+        return True
+
+
+def _settle_cancelled(document: Document, *, running: bool = False) -> None:
     uuid = str(document.uuid)
-    untouched = (
-        bool(document.storage_original)
+    untouched = document.processing_stage == Stage.DONE or (
+        not running
+        and document.processing_stage != Stage.INDEX
+        and bool(document.storage_original)
         and not archive_intake_path(document).exists()
         and not enhanced_intake_path_for(uuid).exists()
     )
     if untouched:
-        reindex_needed = document.processing_stage == Stage.INDEX
         Document.objects.filter(pk=document.pk).update(
             processing_state=Document.State.DONE,
             processing_stage=Stage.DONE,
             processing_error="",
             processing_plan={},
         )
-        if reindex_needed:
-            reindex(document)
     else:
         Document.objects.filter(pk=document.pk).update(
             processing_state=Document.State.FAILED, processing_error=CANCELLED, processing_plan={}

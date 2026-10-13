@@ -321,7 +321,7 @@
       }
      }
     },
-    "description": "Cancel waiting jobs. Running ones cannot be interrupted safely and finish their step.",
+    "description": "Cancel processing at any stage after intake; running processes are stopped.",
     "tags": [
      "system"
     ],
@@ -5569,6 +5569,14 @@
        }
       ],
       "title": "Duration Seconds"
+     },
+     "cancellable": {
+      "title": "Cancellable",
+      "type": "boolean"
+     },
+     "cancel_requested": {
+      "title": "Cancel Requested",
+      "type": "boolean"
      }
     },
     "required": [
@@ -5587,7 +5595,9 @@
      "created_at",
      "started_at",
      "finished_at",
-     "duration_seconds"
+     "duration_seconds",
+     "cancellable",
+     "cancel_requested"
     ],
     "title": "ProcessingQueueItem",
     "type": "object"

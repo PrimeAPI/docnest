@@ -9,6 +9,7 @@ immediately.
 from __future__ import annotations
 
 import logging
+import uuid
 from collections.abc import Sequence
 from datetime import timedelta
 
@@ -57,17 +58,55 @@ def claim(worker_id: str, *, kinds: Sequence[str] | None = None) -> Job | None:
         jobs = Job.objects.select_for_update(skip_locked=True).filter(
             Q(state=Job.State.QUEUED, run_after__lte=now)
             | Q(state=Job.State.RUNNING, locked_until__lt=now)  # expired lease: worker died
+            | Q(state=Job.State.RUNNING, locked_until__isnull=True)
         )
         if kinds is not None:
             jobs = jobs.filter(kind__in=kinds)
-        job = jobs.order_by("-priority", "run_after", "id").first()
-        if job is None:
-            return None
+        while True:
+            job = jobs.order_by("-priority", "run_after", "id").first()
+            if job is None:
+                return None
+            if job.state == Job.State.RUNNING and job.document_id:
+                from apps.processing.execution import DOCUMENT_LOCK_NAMESPACE
+
+                with connection.cursor() as cursor:
+                    cursor.execute(
+                        "SELECT pg_try_advisory_xact_lock(%s, %s)",
+                        [DOCUMENT_LOCK_NAMESPACE, job.document_id],
+                    )
+                    if not cursor.fetchone()[0]:
+                        jobs = jobs.exclude(pk=job.pk)
+                        continue
+            if job.cancel_requested:
+                from apps.processing.pipeline import finish_cancellation
+
+                finish_cancellation(job)
+                continue
+            if job.attempts >= job.max_attempts:
+                message = "Worker stopped repeatedly; retry limit reached — use Reprocess to try again"
+                Job.objects.filter(pk=job.pk).update(
+                    state=Job.State.FAILED,
+                    last_error=message,
+                    finished_at=now,
+                    locked_by="",
+                    locked_until=None,
+                    updated_at=now,
+                )
+                if job.document_id and job.kind in (Job.Kind.INTAKE_DOCUMENT, Job.Kind.PROCESS_DOCUMENT):
+                    from apps.documents.models import Document
+
+                    Document.objects.filter(pk=job.document_id).update(
+                        processing_state=Document.State.FAILED,
+                        processing_error=message,
+                    )
+                continue
+            break
         job.state = Job.State.RUNNING
         job.attempts += 1
         job.started_at = now
         job.finished_at = None
         job.locked_by = worker_id
+        job.lease_token = uuid.uuid4()
         job.locked_until = now + timedelta(seconds=settings.JOB_LEASE_SECONDS)
         job.save(
             update_fields=[
@@ -76,6 +115,7 @@ def claim(worker_id: str, *, kinds: Sequence[str] | None = None) -> Job | None:
                 "started_at",
                 "finished_at",
                 "locked_by",
+                "lease_token",
                 "locked_until",
                 "updated_at",
             ]
@@ -105,7 +145,13 @@ def release_orphans() -> int:
 
 def complete(job: Job) -> bool:
     now = timezone.now()
-    updated = Job.objects.filter(pk=job.pk, state=Job.State.RUNNING, locked_by=job.locked_by).update(
+    updated = Job.objects.filter(
+        pk=job.pk,
+        state=Job.State.RUNNING,
+        locked_by=job.locked_by,
+        lease_token=job.lease_token,
+        cancel_requested=False,
+    ).update(
         state=Job.State.DONE,
         locked_by="",
         locked_until=None,
@@ -122,6 +168,8 @@ def renew(job: Job) -> bool:
         pk=job.pk,
         state=Job.State.RUNNING,
         locked_by=job.locked_by,
+        lease_token=job.lease_token,
+        locked_until__gt=timezone.now(),
     ).update(
         locked_until=timezone.now() + timedelta(seconds=settings.JOB_LEASE_SECONDS),
         updated_at=timezone.now(),
@@ -134,7 +182,13 @@ def retry_or_fail(job: Job, error: str, *, retryable: bool = True, delay: int | 
     error = error[:500]
     if retryable and job.attempts < job.max_attempts:
         backoff = delay if delay is not None else min(3600, 30 * 2 ** (job.attempts - 1))
-        updated = Job.objects.filter(pk=job.pk, state=Job.State.RUNNING, locked_by=job.locked_by).update(
+        updated = Job.objects.filter(
+            pk=job.pk,
+            state=Job.State.RUNNING,
+            locked_by=job.locked_by,
+            lease_token=job.lease_token,
+            cancel_requested=False,
+        ).update(
             state=Job.State.QUEUED,
             run_after=timezone.now() + timedelta(seconds=backoff),
             locked_by="",
@@ -146,7 +200,13 @@ def retry_or_fail(job: Job, error: str, *, retryable: bool = True, delay: int | 
         )
         return False if updated == 1 else None
     now = timezone.now()
-    updated = Job.objects.filter(pk=job.pk, state=Job.State.RUNNING, locked_by=job.locked_by).update(
+    updated = Job.objects.filter(
+        pk=job.pk,
+        state=Job.State.RUNNING,
+        locked_by=job.locked_by,
+        lease_token=job.lease_token,
+        cancel_requested=False,
+    ).update(
         state=Job.State.FAILED,
         locked_by="",
         locked_until=None,
@@ -159,7 +219,13 @@ def retry_or_fail(job: Job, error: str, *, retryable: bool = True, delay: int | 
 
 def defer(job: Job, seconds: int, reason: str) -> bool:
     """Re-queue without consuming an attempt (e.g. storage temporarily needs re-auth)."""
-    updated = Job.objects.filter(pk=job.pk, state=Job.State.RUNNING, locked_by=job.locked_by).update(
+    updated = Job.objects.filter(
+        pk=job.pk,
+        state=Job.State.RUNNING,
+        locked_by=job.locked_by,
+        lease_token=job.lease_token,
+        cancel_requested=False,
+    ).update(
         state=Job.State.QUEUED,
         attempts=max(0, job.attempts - 1),
         run_after=timezone.now() + timedelta(seconds=seconds),

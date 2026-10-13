@@ -31,7 +31,9 @@ for _ in $(seq 1 60); do
 done
 echo "E2E-Test-Password-123" | $STACK exec -T app docnest createuser e2e --password-stdin
 
-[ -f fixtures/crooked-page.png ] || ./make-fixtures.sh
+if [ ! -f fixtures/crooked-page.png ] || [ ! -f fixtures/queue-cancel.pdf ]; then
+  ./make-fixtures.sh
+fi
 [ -d node_modules ] || pnpm install
 DOCNEST_URL=http://localhost:8099 npx playwright test || status=$?
 

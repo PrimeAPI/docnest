@@ -5,10 +5,16 @@ cd "$(dirname "$0")/.."
 mkdir -p e2e/fixtures
 docker compose -f deploy/compose.dev.yml run --rm --no-deps -v "$PWD/e2e/fixtures:/out" dev python -c "
 import io
+import pikepdf
 from PIL import Image
 from tests.pdfs import page_image, scanned_pdf, INSURANCE_LINES, INVOICE_LINES, payslip_lines
 open('/out/insurance-scan.pdf','wb').write(scanned_pdf(INSURANCE_LINES))
 open('/out/invoice-scan.pdf','wb').write(scanned_pdf(INVOICE_LINES))
+with pikepdf.open(io.BytesIO(scanned_pdf(['Queue cancellation test', 'Preserved original 12345']))) as page, pikepdf.new() as many:
+    for _ in range(20):
+        many.pages.append(page.pages[0])
+    many.save('/out/queue-cancel.pdf')
+open('/out/queue-next.pdf','wb').write(scanned_pdf(['Queue continues after cancellation', 'Next scan 67890']))
 for n,(name,m) in enumerate([('Januar',1),('Februar',2),('März',3)]):
     open(f'/out/payslip-{m:02d}.pdf','wb').write(scanned_pdf(payslip_lines(name, m)))
 # a crooked page that the feeder scanned too long (grey backing below the sheet) + an empty backside

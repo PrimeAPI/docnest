@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import uuid
+
 from django.db import models
 from django.utils import timezone
 
@@ -37,6 +39,8 @@ class Job(models.Model):
     max_attempts = models.PositiveIntegerField(default=5)
     run_after = models.DateTimeField(default=timezone.now)
     locked_by = models.CharField(max_length=100, blank=True)
+    lease_token = models.UUIDField(default=uuid.uuid4, editable=False)
+    cancel_requested = models.BooleanField(default=False)
     locked_until = models.DateTimeField(null=True, blank=True)
     last_error = models.CharField(max_length=500, blank=True)
     started_at = models.DateTimeField(null=True, blank=True)

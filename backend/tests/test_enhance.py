@@ -288,6 +288,98 @@ def test_sheet_corner_beyond_the_scan_area_is_filled_not_cut(tmp_path):
     assert abs(image.height - sheet.height) <= 30  # full sheet height, missing corner painted as paper
 
 
+def card_scan(colour, angle=0.0, *, padded=True):
+    """ID-1 sized card on a scanner bed; synthetic artwork includes edge print."""
+    size = tuple(round(mm * DPI / 25.4) for mm in (85.6, 54))
+    card = Image.new("RGB", size, colour)
+    draw = ImageDraw.Draw(card)
+    ink = (255, 255, 255) if sum(colour) < 300 else (0, 0, 0)
+    draw.rectangle((5, 5, size[0] - 6, size[1] - 6), outline=ink, width=2)
+    draw.text((50, 80), "MEMBERSHIP CARD 1234", fill=ink)
+    for x in range(100, 350, 8):
+        draw.rectangle((x, 150, x + 3, 220), fill=ink)
+    rotated = card.rotate(angle, expand=True, fillcolor=(185, 190, 193), resample=Image.Resampling.BICUBIC)
+    scan = Image.new("RGB", (1240, 1754), (255, 255, 255) if padded else (185, 190, 193))
+    bed = Image.new("RGB", (1240, 30 + rotated.height if padded else 1754), (185, 190, 193))
+    bed.paste(rotated, (350, 30))
+    scan.paste(bed, (0, 0))
+    return card, scan
+
+
+@pytest.mark.parametrize("colour", [(12, 18, 75), (245, 245, 245), (80, 35, 25)])
+@pytest.mark.parametrize("angle,padded", [(0.0, True), (-9.0, True), (5.0, False)])
+def test_card_is_cropped_to_physical_size_with_edge_artwork_preserved(tmp_path, colour, angle, padded):
+    card, scan = card_scan(colour, angle, padded=padded)
+    result, dst = run(
+        tmp_path,
+        pdf_of(scan),
+        settings(**{**ONLY, "crop": True, "deskew": True, "cleanup": True, "remove_blank": True}),
+    )
+    report = result.pages[0]
+    assert report is not None and report.cropped and not report.blank and not report.cleaned
+    assert report.deskewed == pytest.approx(-angle, abs=0.3)
+    (image,) = page_images(dst)
+    assert image.width == pytest.approx(card.width, abs=8)
+    assert image.height == pytest.approx(card.height, abs=8)
+    # A 2 mm paper-shadow erasure would remove this border and change the artwork.
+    if angle == 0:
+        array = np.array(image)
+        ink = np.array((255, 255, 255) if sum(colour) < 300 else (0, 0, 0))
+        assert (np.max(np.abs(array[2:14].astype(int) - ink), axis=2) < 10).sum() > card.width
+    with pikepdf.open(dst) as pdf:
+        width = float(pdf.pages[0].mediabox[2]) * 25.4 / 72
+        height = float(pdf.pages[0].mediabox[3]) * 25.4 / 72
+        assert width == pytest.approx(85.6, abs=1.5)
+        assert height == pytest.approx(54, abs=1.5)
+
+
+def test_card_sized_logo_on_a_white_letter_is_not_cut_out(tmp_path):
+    card, _ = card_scan((12, 18, 75))
+    page = letter("RGB")
+    page.paste(card, (350, 30))
+    result, _ = run(tmp_path, pdf_of(page), settings(**{**ONLY, "crop": True}))
+    assert result.pages[0] is not None and not result.pages[0].cropped
+
+
+def test_multiple_cards_are_not_cropped_to_just_one():
+    card, scan = card_scan((12, 18, 75), padded=False)
+    scan.paste(card, (350, 550))
+    assert enhance.find_card(np.array(scan), DPI) is None
+
+
+def test_card_on_gradient_backing_with_rounded_corners():
+    card, scan = card_scan((245, 245, 245))
+    array = np.array(scan)
+    bed_height = 30 + card.height
+    for y in range(bed_height):
+        shade = round(175 + 25 * y / bed_height)
+        array[y] = (shade, shade + 5, shade + 8)
+    scan = Image.fromarray(array)
+    mask = Image.new("L", card.size, 0)
+    ImageDraw.Draw(mask).rounded_rectangle((0, 0, card.width - 1, card.height - 1), radius=14, fill=255)
+    scan.paste(card, (350, 30), mask)
+    found = enhance.find_card(np.array(scan), DPI)
+    assert found is not None
+    out = enhance.cut_out_sheet(np.array(scan), DPI, found, found.angle)
+    assert out.shape[1] == pytest.approx(card.width, abs=8)
+    assert out.shape[0] == pytest.approx(card.height, abs=8)
+
+
+def test_content_in_another_scan_region_prevents_card_crop():
+    _, scan = card_scan((12, 18, 75))
+    ImageDraw.Draw(scan).text((100, 800), "Another document: retain this content", fill=(0, 0, 0))
+    assert enhance.find_card(np.array(scan), DPI) is None
+
+
+def test_blank_removal_keeps_both_sides_of_a_dark_card(tmp_path):
+    _, front = card_scan((12, 18, 75))
+    _, back = card_scan((245, 245, 245))
+    result, dst = run(tmp_path, pdf_of(front, back), settings(**{**ONLY, "crop": True, "remove_blank": True}))
+    assert result.page_count == 2
+    assert all(p is not None and p.cropped and not p.blank for p in result.pages)
+    assert len(page_images(dst)) == 2
+
+
 # --- Cleanup ------------------------------------------------------------------------------
 
 

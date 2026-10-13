@@ -16,7 +16,7 @@ from datetime import timedelta
 
 import psycopg
 from django.conf import settings
-from django.db import close_old_connections, connection
+from django.db import close_old_connections, connection, connections
 from django.db.models import Q
 from django.utils import timezone
 
@@ -24,7 +24,7 @@ from apps.analysis import ai, classifier
 from apps.documents.intake import ensure_dirs
 from apps.documents.models import Document
 from apps.mail import inbox
-from apps.processing import pipeline, queue
+from apps.processing import execution, pipeline, queue
 from apps.processing.models import Job, SystemState, WorkerHeartbeat
 from apps.processing.preferences import (
     AI_MODEL_PULL_KEY,
@@ -62,9 +62,10 @@ REVIEW_RETENTION_DAYS = 60  # reports of overnight reviews
 
 
 class Worker:
-    def __init__(self) -> None:
+    def __init__(self, *, isolate_documents: bool | None = None) -> None:
         self.worker_id = f"{socket.gethostname()}-{os.getpid()}"
         self.stopping = False
+        self.isolate_documents = not settings.TESTING if isolate_documents is None else isolate_documents
         self._last_health = 0.0
         self._last_train = 0.0
         self._last_heartbeat = 0.0
@@ -136,7 +137,7 @@ class Worker:
         try:
             self.execute(job)
         finally:
-            close_old_connections()
+            connections.close_all()
 
     def _reap(self, active: set[Future[None]]) -> set[Future[None]]:
         remaining: set[Future[None]] = set()
@@ -171,10 +172,15 @@ class Worker:
         logger.info("job started", extra={"job": job.pk, "kind": job.kind, "attempt": job.attempts})
         try:
             with self.maintain_lease(job):
-                if job.kind == Job.Kind.INTAKE_DOCUMENT:
-                    pipeline.run(job.document_id, intake_only=True)  # type: ignore[arg-type]
+                if self.isolate_documents and job.kind in (
+                    *pipeline.DOCUMENT_JOB_KINDS,
+                    Job.Kind.REINDEX_DOCUMENT,
+                ):
+                    execution.run(job)
+                elif job.kind == Job.Kind.INTAKE_DOCUMENT:
+                    pipeline.run(job.document_id, intake_only=True, check=lambda: execution.check_job(job))  # type: ignore[arg-type]
                 elif job.kind == Job.Kind.PROCESS_DOCUMENT:
-                    pipeline.run(job.document_id)  # type: ignore[arg-type]
+                    pipeline.run(job.document_id, check=lambda: execution.check_job(job))  # type: ignore[arg-type]
                 elif job.kind == Job.Kind.PULL_MODEL:
                     self.pull_model(job)
                 elif job.kind == Job.Kind.DELETE_STORAGE:
@@ -205,8 +211,16 @@ class Worker:
                     inbox.fetch()
                 else:
                     raise pipeline.PermanentError(f"unknown job kind {job.kind}")
+        except pipeline.Cancelled:
+            pipeline.finish_cancellation(job)
+            logger.info("job cancelled", extra={"job": job.pk})
+            return
+        except pipeline.LeaseLost:
+            logger.warning("job lease lost; execution stopped", extra={"job": job.pk})
+            return
         except pipeline.StorageUnavailable as exc:
             if not queue.defer(job, 600, str(exc)):
+                pipeline.finish_cancellation(job)
                 logger.error("job ownership lost before deferral", extra={"job": job.pk})
                 return
             self._mark_document(job, Document.State.PENDING, "Waiting for storage: " + str(exc))
@@ -214,6 +228,7 @@ class Worker:
             return
         except pipeline.AnalysisModelUnavailable as exc:
             if not queue.defer(job, MODEL_RETRY_SECONDS, str(exc)):
+                pipeline.finish_cancellation(job)
                 logger.error("job ownership lost before deferral", extra={"job": job.pk})
                 return
             self._mark_document(job, Document.State.PENDING, "Waiting for the AI model: " + str(exc))
@@ -221,6 +236,7 @@ class Worker:
             return
         except pipeline.PermanentError as exc:
             if queue.retry_or_fail(job, str(exc), retryable=False) is None:
+                pipeline.finish_cancellation(job)
                 logger.error("job ownership lost before failure", extra={"job": job.pk})
                 return
             self._mark_document(job, Document.State.FAILED, str(exc))
@@ -230,6 +246,7 @@ class Worker:
             message = f"{type(exc).__name__}: {exc}"
             failed = queue.retry_or_fail(job, message)
             if failed is None:
+                pipeline.finish_cancellation(job)
                 logger.error("job ownership lost before retry", extra={"job": job.pk})
                 return
             state = Document.State.FAILED if failed else Document.State.PENDING
@@ -237,6 +254,7 @@ class Worker:
             logger.exception("job error", extra={"job": job.pk, "final": failed})
             return
         if not queue.complete(job):
+            pipeline.finish_cancellation(job)
             logger.error("job ownership lost before completion", extra={"job": job.pk})
             return
         logger.info("job done", extra={"job": job.pk})
@@ -244,24 +262,30 @@ class Worker:
     @contextmanager
     def maintain_lease(self, job: Job):
         """Renew the queue lease and worker heartbeat during long model inference."""
+        WorkerHeartbeat.objects.update_or_create(
+            worker_id=self.worker_id, defaults={"last_seen_at": timezone.now()}
+        )
         stopped = threading.Event()
         interval = max(1.0, min(30.0, settings.JOB_LEASE_SECONDS / 3))
 
         def heartbeat() -> None:
-            while not stopped.wait(interval):
-                try:
-                    close_old_connections()
-                    if not queue.renew(job):
-                        logger.error("job lease was lost", extra={"job": job.pk})
-                        return
-                    WorkerHeartbeat.objects.update_or_create(
-                        worker_id=self.worker_id,
-                        defaults={"last_seen_at": timezone.now()},
-                    )
-                except Exception:
-                    logger.exception("could not renew job lease", extra={"job": job.pk})
-                finally:
-                    close_old_connections()
+            try:
+                while not stopped.wait(interval):
+                    try:
+                        close_old_connections()
+                        if not queue.renew(job):
+                            logger.error("job lease was lost", extra={"job": job.pk})
+                            return
+                        WorkerHeartbeat.objects.update_or_create(
+                            worker_id=self.worker_id,
+                            defaults={"last_seen_at": timezone.now()},
+                        )
+                    except Exception:
+                        logger.exception("could not renew job lease", extra={"job": job.pk})
+                    finally:
+                        close_old_connections()
+            finally:
+                connections.close_all()
 
         thread = threading.Thread(target=heartbeat, name=f"lease-{job.pk}", daemon=True)
         thread.start()
@@ -273,9 +297,14 @@ class Worker:
 
     def _mark_document(self, job: Job, state: str, message: str) -> None:
         if job.kind in pipeline.DOCUMENT_JOB_KINDS and job.document_id:
-            Document.objects.filter(pk=job.document_id).update(
-                processing_state=state, processing_error=message[:500]
-            )
+            expected_job_state = Job.State.FAILED if state == Document.State.FAILED else Job.State.QUEUED
+            Document.objects.filter(
+                pk=job.document_id,
+                job__pk=job.pk,
+                job__lease_token=job.lease_token,
+                job__state=expected_job_state,
+                job__cancel_requested=False,
+            ).update(processing_state=state, processing_error=message[:500])
 
     def delete_storage(self, job: Job) -> None:
         folder = job.payload.get("folder")
@@ -353,6 +382,7 @@ class Worker:
         from apps.taxonomy.models import FilingProposal
 
         sessions.cleanup()
+        self.sweep_workspace()
 
         now = timezone.now()
         AuditLog.objects.filter(created_at__lt=now - timedelta(days=settings.AUDIT_RETENTION_DAYS)).delete()
@@ -407,9 +437,27 @@ class Worker:
                     if now - f.stat().st_mtime > 3600:
                         f.unlink(missing_ok=True)
                 continue
-            # doc-* workspaces belong to this (single) worker and are stale at startup;
-            # anything else (e.g. web downloads) only once it is clearly abandoned.
-            if not child.name.startswith("doc-") and now - child.stat().st_mtime < 3600:
+            if child.name.startswith("job-"):
+                parts = child.name.split("-", 2)
+                if (
+                    len(parts) > 1
+                    and parts[1].isdigit()
+                    and Job.objects.filter(
+                        pk=int(parts[1]), state=Job.State.RUNNING, locked_until__gt=timezone.now()
+                    ).exists()
+                ):
+                    continue
+            if (
+                child.name.startswith("doc-")
+                and Document.objects.filter(
+                    uuid=child.name.removeprefix("doc-"),
+                    job__state=Job.State.RUNNING,
+                    job__locked_until__gt=timezone.now(),
+                ).exists()
+            ):
+                continue
+            # Abandoned job workspaces can go immediately. Downloads may still be in use.
+            if not child.name.startswith(("doc-", "job-")) and now - child.stat().st_mtime < 3600:
                 continue
             if child.is_dir():
                 shutil.rmtree(child, ignore_errors=True)

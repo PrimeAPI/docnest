@@ -475,6 +475,76 @@ class Sheet:
 
     angle: float  # rotating counter-clockwise by this straightens the sheet's edges
     mask: np.ndarray  # uint8, 1 = paper, at detection resolution
+    edge_inset_mm: float = 2.0
+
+
+def find_card(array: np.ndarray, dpi: float) -> Sheet | None:
+    """Find a small rectangular card, of either colour, on a neutral scanner bed.
+
+    Require visible backing at both sides, a card-sized convex outline and no
+    other substantial objects. A logo on an ordinary white page is not backing.
+    Scanner padding may meet a card's edge (common with automatic scan lengths).
+    """
+    factor = min(1.0, 100 / dpi)
+    sdpi = dpi * factor
+    small = cv2.resize(array, None, fx=factor, fy=factor, interpolation=cv2.INTER_AREA)
+    rgb = small if small.ndim == 3 else cv2.cvtColor(small, cv2.COLOR_GRAY2RGB)
+    grey = cv2.cvtColor(rgb, cv2.COLOR_RGB2GRAY)
+    padding = _scan_padding(rgb, sdpi)
+    h, w = grey.shape
+    band = max(2, round(sdpi * 8 / 25.4))
+    if w < 6 * band or h < 6 * band:
+        return None
+    left = np.median(rgb[:, :band], axis=1)
+    right = np.median(rgb[:, -band:], axis=1)
+    backing = (left + right) / 2
+    level = backing.mean(axis=1)
+    valid = (
+        (level > 80)
+        & (level < 240)
+        & (np.max(np.abs(left - right), axis=1) < 25)
+        & (np.ptp(backing, axis=1) < _NEUTRAL_CHROMA)
+    )
+    if valid.sum() < sdpi * 25 / 25.4:
+        return None
+    if ((~valid[:, None]) & (padding == 0)).mean() > 0.01:
+        return None  # another scan region may contain content we must keep
+    distance = np.max(np.abs(rgb.astype(np.float32) - backing[:, None, :]), axis=2)
+    bed = ((distance < 35) & valid[:, None]).astype(np.uint8)
+    bed |= padding
+    _, labels = cv2.connectedComponents(bed, connectivity=4)
+    edges = np.unique(np.concatenate([labels[0], labels[-1], labels[:, 0], labels[:, -1]]))
+    outside = np.isin(labels, edges[edges > 0])
+    candidate = ((~outside) & valid[:, None]).astype(np.uint8)
+    kernel = np.ones((3, 3), np.uint8)
+    candidate = cv2.morphologyEx(candidate, cv2.MORPH_CLOSE, kernel)
+    candidate = cv2.morphologyEx(candidate, cv2.MORPH_OPEN, kernel)
+    count, labels, stats, _ = cv2.connectedComponentsWithStats(candidate, connectivity=4)
+    if count <= 1:
+        return None
+    biggest = 1 + int(np.argmax(stats[1:, cv2.CC_STAT_AREA]))
+    mask = (labels == biggest).astype(np.uint8)
+    if stats[1:, cv2.CC_STAT_AREA].sum() - mask.sum() > 0.03 * mask.sum():
+        return None
+    contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_NONE)
+    outline = max(contours, key=cv2.contourArea)
+    hull = cv2.convexHull(outline)
+    rectangle = cv2.minAreaRect(hull)
+    short, long = sorted(rectangle[1])
+    mm = 25.4 / sdpi
+    if not (30 <= short * mm <= 75 and 50 <= long * mm <= 110 and 1.3 <= long / short <= 2.1):
+        return None
+    area = cv2.contourArea(hull)
+    if area < 0.92 * short * long or mask.sum() < 0.85 * area:
+        return None
+    angle = _edge_angle(outline[:, 0, :].astype(np.float32))
+    if angle is None:
+        return None
+    shape = np.zeros_like(mask)
+    cv2.drawContours(shape, [hull], -1, 1, thickness=cv2.FILLED)
+    # Cards print right up to their edges: preserve these instead of whitening
+    # the 2 mm shadow border used for paper sheets.
+    return Sheet(angle=angle, mask=shape, edge_inset_mm=0.0)
 
 
 def find_sheet(array: np.ndarray, dpi: float) -> Sheet | None:
@@ -655,7 +725,7 @@ def cut_out_sheet(array: np.ndarray, dpi: float, sheet: Sheet, angle: float) -> 
     cols = np.flatnonzero(cols > 0.05 * np.median(cols[cols > 0]))
     top, bottom = int(rows[0]), int(rows[-1]) + 1
     left, right = int(cols[0]), int(cols[-1]) + 1
-    inset = max(1, round(dpi * 2 / 25.4))  # the sheet's edge casts a shadow: paint ~2 mm over
+    inset = round(dpi * sheet.edge_inset_mm / 25.4)
     out = array[top:bottom, left:right].copy()
     keep = cv2.erode(
         paper[top:bottom, left:right].astype(np.uint8),
@@ -838,9 +908,15 @@ def enhance_image(
     grey = array if array.ndim == 2 else cv2.cvtColor(array, cv2.COLOR_RGB2GRAY)
 
     # A sheet on a visible backing: its own edges give the angle and the outline to cut along.
-    sheet = find_sheet(array, dpi) if options.crop and not bilevel else None
+    card = None
+    sheet = None
+    if options.crop and not bilevel:
+        card = find_card(array, dpi)
+        sheet = card or find_sheet(array, dpi)
     if sheet is not None:
-        angle = sheet_angle(array, dpi, sheet) if options.deskew else 0.0
+        angle = (
+            (sheet.angle if card is not None else sheet_angle(array, dpi, sheet)) if options.deskew else 0.0
+        )
         if abs(angle) < max(options.deskew_min_angle, 0.01):
             angle = 0.0
         array = cut_out_sheet(array, dpi, sheet, angle)
@@ -866,7 +942,9 @@ def enhance_image(
             report.deskewed = round(angle, 2)
             pixels_changed = True
 
-    if options.cleanup:
+    # A card's coloured background and tiny printed marks are artwork, not
+    # uneven paper illumination or dust. Preserve them after cropping.
+    if options.cleanup and card is None:
         strength = options.cleanup_strength
         before = array
         if not bilevel and options.cleanup_background:
@@ -885,7 +963,8 @@ def enhance_image(
     else:
         result = Image.fromarray(array)
 
-    if options.remove_blank and is_blank(result, options.blank_threshold, dpi):
+    # White-on-dark logos can look blank to the paper/ink classifier.
+    if options.remove_blank and card is None and is_blank(result, options.blank_threshold, dpi):
         report.blank = True
     return result, report, pixels_changed
 
