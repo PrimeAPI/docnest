@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { cleanup, fireEvent, render, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, waitFor } from "@testing-library/react";
 import { MemoryRouter } from "react-router";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { type Schemas } from "@/api/client";
@@ -34,7 +34,10 @@ beforeEach(() => {
 afterEach(() => { cleanup(); qc.clear(); });
 
 function show(running: Schemas["ProcessingQueueItem"][], queued: Schemas["ProcessingQueueItem"][] = []) {
-  mocks.queue.mockReturnValue({ data: { running, queued, queued_total: queued.length, history: [], concurrency: 1 } });
+  mocks.queue.mockReturnValue({
+    data: { running, queued, queued_total: queued.length, history: [], concurrency: 1 },
+    dataUpdatedAt: Date.now(),
+  });
   const view = render(
     <QueryClientProvider client={qc}><MemoryRouter><ProcessingQueueButton /></MemoryRouter></QueryClientProvider>,
   );
@@ -78,4 +81,50 @@ it("can cancel all post-intake processing with explicit confirmation", async () 
   await waitFor(() => expect(mocks.post).toHaveBeenCalledWith("/api/v1/processing/queue/cancel", {
     body: { job_ids: null },
   }));
+});
+
+
+it("carries the measured time forward between polls instead of standing still", () => {
+  vi.useFakeTimers();
+  try {
+    // The server measured 4h 32m 2s when it answered; the queue is polled only every few seconds.
+    const view = show([item({ duration_seconds: 16_322 })]);
+    expect(view.getByText("4h 32m 2s")).toBeTruthy();
+    act(() => void vi.advanceTimersByTime(3_000));
+    expect(view.getByText("4h 32m 5s")).toBeTruthy();
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
+it("shows what a finished job took, and says when a job is on another attempt", () => {
+  const view = show([item({ attempts: 3 })], []);
+  expect(view.getByText("Attempt 3")).toBeTruthy();
+});
+
+it("measures a finished job from its own start and end", () => {
+  mocks.queue.mockReturnValue({
+    dataUpdatedAt: Date.now(),
+    data: {
+      running: [],
+      queued: [],
+      queued_total: 0,
+      concurrency: 1,
+      history: [
+        item({
+          state: "done",
+          outcome: "done",
+          cancellable: false,
+          started_at: "2026-10-13T00:00:00Z",
+          finished_at: "2026-10-13T00:02:05Z",
+          duration_seconds: 125,
+        }),
+      ],
+    },
+  });
+  const view = render(
+    <QueryClientProvider client={qc}><MemoryRouter><ProcessingQueueButton /></MemoryRouter></QueryClientProvider>,
+  );
+  fireEvent.click(view.getByRole("button", { name: /Processing queue:/ }));
+  expect(view.getByText("2m 5s")).toBeTruthy();
 });

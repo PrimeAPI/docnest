@@ -57,6 +57,7 @@ export function formatBytes(n: number): string {
   return `${(n / 1024 / 1024 / 1024).toFixed(2)} GB`;
 }
 
+/** A rounded length, for averages and medians: "12s", "2m 5s", "2h 3m". */
 export function formatDuration(seconds?: number | null): string {
   if (seconds === null || seconds === undefined || !Number.isFinite(seconds)) return "—";
   const total = Math.max(0, Math.round(seconds));
@@ -66,6 +67,16 @@ export function formatDuration(seconds?: number | null): string {
   if (minutes < 60) return `${minutes}m ${remaining}s`;
   const hours = Math.floor(minutes / 60);
   return `${hours}h ${minutes % 60}m`;
+}
+
+/** A clock that keeps every second, however long it runs: "2s", "32m 2s", "4h 32m 2s". */
+export function formatElapsed(seconds?: number | null): string {
+  if (seconds === null || seconds === undefined || !Number.isFinite(seconds)) return "—";
+  const total = Math.max(0, Math.floor(seconds));
+  const parts = [`${total % 60}s`];
+  if (total >= 60) parts.unshift(`${Math.floor(total / 60) % 60}m`);
+  if (total >= 3600) parts.unshift(`${Math.floor(total / 3600)}h`);
+  return parts.join(" ");
 }
 
 export const TAG_COLORS = [

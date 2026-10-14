@@ -1,13 +1,13 @@
 import * as Popover from "@radix-ui/react-popover";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { CheckCircle2, ChevronRight, CircleAlert, Clock3, Loader2, Rows3, X } from "lucide-react";
-import { type ReactNode, useState } from "react";
+import { type ReactNode, useEffect, useState } from "react";
 import { Link } from "react-router";
 import { toast } from "sonner";
 import { call, client, type Schemas } from "@/api/client";
 import { keys, useInvalidateDocuments, useProcessingQueue } from "@/api/queries";
 import { Spinner } from "@/components/ui/misc";
-import { cn, formatDateTime, formatDuration } from "@/lib/utils";
+import { cn, formatDateTime, formatElapsed } from "@/lib/utils";
 
 type QueueItem = Schemas["ProcessingQueueItem"];
 
@@ -44,8 +44,11 @@ function QueueDetail({ item, queued }: { item: QueueItem; queued: boolean }) {
   const processor = item.backend === "docling" ? "Docling" : "OCRmyPDF";
   if (queued)
     return (
-      <span className="truncate">
-        Waiting for {item.phase === "intake" ? "intake" : item.phase === "processing" ? "processing" : "indexing"}
+      <span className="flex min-w-0 items-center gap-1.5">
+        <span className="truncate">
+          Waiting for {item.phase === "intake" ? "intake" : item.phase === "processing" ? "processing" : "indexing"}
+        </span>
+        {item.attempts > 0 && <Chip>Attempt {item.attempts + 1}</Chip>}
       </span>
     );
   if (item.state === "running" && item.cancel_requested)
@@ -59,6 +62,8 @@ function QueueDetail({ item, queued }: { item: QueueItem; queued: boolean }) {
           {STEPS[item.stage] ?? item.stage}
         </span>
         {item.phase === "processing" && <Chip>{processor}</Chip>}
+        {/* A new attempt starts its own clock: say so rather than let the time seem to jump back. */}
+        {item.attempts > 1 && <Chip>Attempt {item.attempts}</Chip>}
       </span>
     );
   const ended = {
@@ -94,10 +99,32 @@ function useCancel() {
   });
 }
 
-function QueueRow({ item, queued = false }: { item: QueueItem; queued?: boolean }) {
+/** How long a job has been running, as a clock rather than the value the last poll carried.
+ *
+ * The queue is polled every few seconds, so a served duration stands still between answers
+ * and jumps when one arrives. The server's elapsed time stays the measurement — a browser
+ * clock that is off must not change it — and this only carries it forward between polls, so
+ * the time runs continuously however long the job takes.
+ */
+function useElapsed(item: QueueItem, measuredAt: number): number | null {
+  const ticking = item.state === "running" && item.duration_seconds !== null;
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    if (!ticking) return;
+    setNow(Date.now());
+    const timer = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(timer);
+  }, [ticking, measuredAt]);
+  if (item.duration_seconds === null) return null;
+  if (!ticking || !measuredAt) return item.duration_seconds;
+  return item.duration_seconds + Math.max(0, (now - measuredAt) / 1000);
+}
+
+function QueueRow({ item, queued = false, measuredAt }: { item: QueueItem; queued?: boolean; measuredAt: number }) {
   const running = item.state === "running";
   const failed = item.state === "failed";
   const cancel = useCancel();
+  const elapsed = useElapsed(item, measuredAt);
   return (
     <Link
       to={`/documents/${item.document_id}`}
@@ -119,7 +146,7 @@ function QueueRow({ item, queued = false }: { item: QueueItem; queued?: boolean 
           <X className="size-3.5" />
         </button>
       )}
-      <div className="flex min-w-0 items-center gap-2">
+      <div className={cn("flex min-w-0 items-center gap-2", item.cancellable && "pr-6")}>
         {running ? (
           <Loader2 className="size-4 shrink-0 animate-spin text-primary" />
         ) : failed ? (
@@ -129,11 +156,9 @@ function QueueRow({ item, queued = false }: { item: QueueItem; queued?: boolean 
         ) : (
           <Clock3 className="size-4 shrink-0 text-muted-foreground" />
         )}
-        <span className={cn("min-w-0 flex-1 truncate text-sm font-medium", item.cancellable && "pr-6")}>{item.title}</span>
-        {item.duration_seconds !== null && (
-          <span className="shrink-0 text-xs tabular-nums text-muted-foreground">
-            {formatDuration(item.duration_seconds)}
-          </span>
+        <span className="min-w-0 flex-1 truncate text-sm font-medium">{item.title}</span>
+        {elapsed !== null && (
+          <span className="shrink-0 text-xs tabular-nums text-muted-foreground">{formatElapsed(elapsed)}</span>
         )}
       </div>
       <div className="mt-1 flex items-center justify-between gap-2 pl-6 text-xs text-muted-foreground">
@@ -169,6 +194,7 @@ function QueueSection({
   queued = false,
   empty,
   cancelAll = false,
+  measuredAt,
 }: {
   title: string;
   items: QueueItem[];
@@ -176,6 +202,7 @@ function QueueSection({
   queued?: boolean;
   empty: string;
   cancelAll?: boolean;
+  measuredAt: number;
 }) {
   const cancel = useCancel();
   const [confirming, setConfirming] = useState(false);
@@ -213,7 +240,7 @@ function QueueSection({
       {items.length ? (
         <div className="space-y-2">
           {items.map((item) => (
-            <QueueRow key={item.id} item={item} queued={queued} />
+            <QueueRow key={item.id} item={item} queued={queued} measuredAt={measuredAt} />
           ))}
         </div>
       ) : (
@@ -287,7 +314,13 @@ export function ProcessingQueueButton() {
                 <p className="text-sm text-destructive">Could not load the processing queue.</p>
               ) : queue.data ? (
                 <>
-                  <QueueSection title="Processing now" items={queue.data.running} cancelAll empty="Nothing is being processed." />
+                  <QueueSection
+                    title="Processing now"
+                    items={queue.data.running}
+                    cancelAll
+                    empty="Nothing is being processed."
+                    measuredAt={queue.dataUpdatedAt}
+                  />
                   <QueueSection
                     title="Queued"
                     items={queue.data.queued}
@@ -295,8 +328,14 @@ export function ProcessingQueueButton() {
                     queued
                     cancelAll
                     empty="No documents are waiting."
+                    measuredAt={queue.dataUpdatedAt}
                   />
-                  <QueueSection title="Recent" items={queue.data.history} empty="No recent processing history." />
+                  <QueueSection
+                    title="Recent"
+                    items={queue.data.history}
+                    empty="No recent processing history."
+                    measuredAt={queue.dataUpdatedAt}
+                  />
                 </>
               ) : null}
             </div>

@@ -6,6 +6,7 @@ import {
   formatDateInput,
   formatDateTime,
   formatDuration,
+  formatElapsed,
   parseDateInput,
 } from "./utils";
 
@@ -19,6 +20,13 @@ describe("utils", () => {
     expect(formatDuration(12.4)).toBe("12s");
     expect(formatDuration(125)).toBe("2m 5s");
     expect(formatDuration(7_380)).toBe("2h 3m");
+  });
+  it("keeps every second in an elapsed time, however long it runs", () => {
+    expect(formatElapsed(2.9)).toBe("2s");
+    expect(formatElapsed(62)).toBe("1m 2s");
+    expect(formatElapsed(3_600)).toBe("1h 0m 0s");
+    expect(formatElapsed(16_322)).toBe("4h 32m 2s");
+    expect(formatElapsed(null)).toBe("—");
   });
   it("formats dates consistently as DD.MM.YYYY", () => {
     expect(formatDate(null)).toBe("—");
