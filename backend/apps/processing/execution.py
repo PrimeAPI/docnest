@@ -7,6 +7,7 @@ Only the supervisor settles cancellation, after the process group is gone.
 from __future__ import annotations
 
 import contextlib
+import logging
 import multiprocessing
 import os
 import signal
@@ -19,6 +20,8 @@ from typing import Any
 from django.conf import settings
 from django.db import connection
 from django.utils import timezone
+
+logger = logging.getLogger(__name__)
 
 POLL_SECONDS = 0.25
 # Cancellation, lease and stage checks hit the database; once per second per running job is
@@ -50,6 +53,93 @@ def check_job(job: Any) -> None:
         raise pipeline.LeaseLost()
     if current["cancel_requested"]:
         raise pipeline.Cancelled()
+
+
+def _oom_kills() -> int | None:
+    """How often this container's memory limit has killed a process, as the kernel counts it.
+
+    None when the counter cannot be read, so "no kill recorded" is never claimed on a guess.
+    """
+    for path in (Path("/sys/fs/cgroup/memory.events"), Path("/sys/fs/cgroup/memory/memory.oom_control")):
+        try:
+            for line in path.read_text().splitlines():
+                name, _, value = line.partition(" ")
+                if name == "oom_kill":
+                    return int(value)
+        except (OSError, ValueError):
+            continue
+    return None
+
+
+def _peak_memory(pid: int) -> int:
+    """The highest resident memory this process has reached, in bytes (0 if it cannot be read)."""
+    try:
+        for line in Path(f"/proc/{pid}/status").read_text().splitlines():
+            if line.startswith("VmHWM:"):
+                return int(line.split()[1]) * 1024
+    except (OSError, ValueError, IndexError):
+        return 0
+    return 0
+
+
+def _memory_limit() -> int:
+    """The container's memory limit in bytes, or 0 when it is not limited or unreadable."""
+    try:
+        value = Path("/sys/fs/cgroup/memory.max").read_text().strip()
+        return 0 if value == "max" else int(value)
+    except (OSError, ValueError):
+        return 0
+
+
+def _size(value: int) -> str:
+    return f"{value / 1024**3:.1f} GB" if value >= 1024**3 else f"{round(value / 1024**2)} MB"
+
+
+def _why_it_stopped(exitcode: int | None, stage: str | None, peak: int, oom_before: int | None) -> str:
+    """Describe an attempt that ended without reporting anything, in the terms of the run.
+
+    A killed process leaves no exception behind, so this is the only account of it the
+    document will ever get: which step, how it died, how much memory it had taken, and
+    whether the kernel says the container ran out.
+    """
+    from apps.processing import pipeline
+
+    step = pipeline.stage_label(stage)
+    if exitcode is not None and exitcode < 0:
+        try:
+            how = signal.Signals(-exitcode).name
+        except ValueError:
+            how = f"signal {-exitcode}"
+        first = f"{step} was killed ({how})"
+    else:
+        first = f"{step} stopped unexpectedly (exit {exitcode})"
+    if peak:  # 0 means the step ended before its memory could be read, not that it used none
+        first += f" after reaching {_size(peak)}"
+    parts = [first]
+    oom_after = _oom_kills()
+    if oom_before is not None and oom_after is not None and oom_after > oom_before:
+        limit = _memory_limit()
+        parts.append(
+            f"the container ran out of memory (limit {_size(limit)})"
+            if limit
+            else "the container ran out of memory"
+        )
+        parts.append("give it more memory, or lower DOCNEST_PROCESSING_CONCURRENCY and DOCNEST_TMP_SIZE")
+    elif exitcode == -signal.SIGKILL:
+        parts.append("the container's memory limit recorded no kill, so look for it on the host (dmesg)")
+    return f"{'; '.join(parts)}. The original is preserved — use Reprocess to try again."[:500]
+
+
+def _record_failure(job: Any, stage: str | None, message: str) -> None:
+    """Leave the account in the document's processing history, where a killed step leaves none."""
+    from apps.documents.models import ProcessingEvent
+
+    if not job.document_id:
+        return
+    with contextlib.suppress(Exception):  # diagnosing a failure must not create another one
+        ProcessingEvent.objects.create(
+            document_id=job.document_id, stage=stage or "", outcome="failed", message=message[:500]
+        )
 
 
 def _stage_limit(stage: str | None, pages: int | None) -> float:
@@ -184,6 +274,8 @@ def run(job: Any) -> None:
         started = time.monotonic()
         result = None
         checked = 0.0
+        peak = 0  # the child's own high-water mark, read while it is still alive
+        oom_before = _oom_kills()
         try:
             process.start()
             sender.close()
@@ -192,6 +284,8 @@ def run(job: Any) -> None:
                 # must not poll it four times a second each.
                 if time.monotonic() - checked >= DB_POLL_SECONDS:
                     checked = time.monotonic()
+                    if process.pid is not None:
+                        peak = max(peak, _peak_memory(process.pid))
                     check_job(job)
                     current_stage, pages = Job.objects.values_list(
                         "document__processing_stage", "document__page_count"
@@ -200,7 +294,11 @@ def run(job: Any) -> None:
                         stage, started = current_stage, time.monotonic()
                     limit = _stage_limit(stage, pages)
                     if time.monotonic() - started > limit:
-                        raise TimeoutError(f"Processing stage {stage} exceeded {limit:g}s")
+                        waited = f"{limit / 60:.0f} min" if limit >= 90 else f"{limit:g} s"
+                        raise pipeline.Stopped(
+                            f"{pipeline.stage_label(stage)} was still running after {waited} and was "
+                            "stopped. The original is preserved — use Reprocess to try again."
+                        )
                 if result is None:
                     if receiver.poll(POLL_SECONDS):
                         with contextlib.suppress(EOFError):
@@ -216,9 +314,26 @@ def run(job: Any) -> None:
                     result = receiver.recv()
             process.join(timeout=5)
             check_job(job)
-            if process.exitcode != 0 or result is None:
-                raise RuntimeError(
-                    f"Processing subprocess stopped (exit {process.exitcode}); original preserved"
+            if result is None:
+                # Nobody reported anything: the process was killed mid-step. Say which step,
+                # and what the system knows about why, or the document fails without a reason.
+                message = _why_it_stopped(process.exitcode, stage, peak, oom_before)
+                logger.error(
+                    "processing was killed",
+                    extra={
+                        "job": job.pk,
+                        "document": job.document_id,
+                        "stage": stage,
+                        "exitcode": process.exitcode,
+                        "peak_bytes": peak,
+                    },
+                )
+                _record_failure(job, stage, message)
+                raise pipeline.Stopped(message)
+            if process.exitcode != 0:
+                raise pipeline.Stopped(
+                    f"{pipeline.stage_label(stage)} reported its result but then stopped "
+                    f"(exit {process.exitcode}); the original is preserved"
                 )
             outcome, message = result
             exceptions = {

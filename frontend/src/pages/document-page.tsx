@@ -114,7 +114,10 @@ function SidePanel({ doc }: { doc: DocumentDetail }) {
       {doc.processing_state === "failed" && (
         <div className="mb-4 rounded-md border border-destructive/30 bg-destructive/10 p-3 text-sm text-destructive">
           <strong>Processing failed:</strong> {doc.processing_error}
-          <p className="mt-1 text-xs">The original file is safe. Use “Reprocess” to try again.</p>
+          <p className="mt-1 text-xs">
+            The original file is safe. Use “Reprocess” to try again; the History tab lists every step and
+            what it reported.
+          </p>
         </div>
       )}
       {doc.series_suggestion && <SeriesSuggestion doc={doc} />}

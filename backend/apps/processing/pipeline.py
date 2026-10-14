@@ -83,6 +83,21 @@ INTAKE_STEPS = [Stage.ASSEMBLE, Stage.VALIDATE]
 PROCESSING_STAGES = [Stage.ENHANCE, Stage.OCR, Stage.ANALYZE, Stage.STORE, Stage.INDEX]
 DOCUMENT_JOB_KINDS = (Job.Kind.INTAKE_DOCUMENT, Job.Kind.PROCESS_DOCUMENT)
 STORAGE_STATE_KEY = "storage_status"
+# What a stage is called where a person reads it, so a failure names the step they know.
+STAGE_LABELS: dict[str, str] = {
+    Stage.RECEIVED: "intake",
+    Stage.ASSEMBLE: "building the PDF",
+    Stage.VALIDATE: "checking the file",
+    Stage.ENHANCE: "scan enhancement",
+    Stage.OCR: "text recognition",
+    Stage.ANALYZE: "analysis",
+    Stage.STORE: "storing",
+    Stage.INDEX: "indexing",
+}
+
+
+def stage_label(stage: str | None) -> str:
+    return STAGE_LABELS.get(stage or "", stage or "processing")
 
 
 class PermanentError(Exception):
@@ -95,6 +110,13 @@ class StorageUnavailable(Exception):
 
 class AnalysisModelUnavailable(Exception):
     """The AI model cannot be reached or is not installed; retry later without using attempts."""
+
+
+class Stopped(RuntimeError):
+    """An attempt ended for a reason already described in words a reader can act on.
+
+    Its message is shown as it is, without an exception class in front of it.
+    """
 
 
 class Cancelled(Exception):

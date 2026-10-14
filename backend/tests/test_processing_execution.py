@@ -17,7 +17,7 @@ from django.test import Client
 from django.utils import timezone
 
 from apps.documents import files
-from apps.documents.models import Document
+from apps.documents.models import Document, ProcessingEvent
 from apps.processing import execution, pipeline, queue
 from apps.processing.models import Job
 from apps.processing.worker import Worker
@@ -111,7 +111,7 @@ def test_hung_stage_times_out_and_releases_its_slot(scanner, isolated_dirs, sett
     _assert_stopped(pid)
     job.refresh_from_db()
     assert job.state == Job.State.FAILED
-    assert "exceeded 2s" in job.last_error
+    assert "text recognition was still running after 2 s and was stopped" in job.last_error
     assert Document.objects.get().processing_state == "failed"
 
 
@@ -194,9 +194,41 @@ def test_native_crashes_retry_then_fail_without_leaking_workspaces(scanner, isol
     assert worker.run_once()
     job.refresh_from_db()
     assert job.state == Job.State.FAILED and job.attempts == 2
-    assert "exit -9" in job.last_error
+    # A killed step leaves no exception behind, so the supervisor has to account for it:
+    # which step it was, and how it died.
+    assert "scan enhancement was killed (SIGKILL)" in job.last_error
+    assert "Reprocess" in job.last_error
+    document = Document.objects.get()
+    assert document.processing_error == job.last_error
+    failure = ProcessingEvent.objects.filter(document=document, outcome="failed").last()
+    assert failure is not None, "the document's history must show where processing stopped"
+    assert failure.stage == Document.Stage.ENHANCE
+    assert "SIGKILL" in failure.message
     assert not worker.run_once()
     assert not list((isolated_dirs / "work").glob("job-*"))
+
+
+def test_a_step_that_runs_out_of_memory_says_so(monkeypatch):
+    """The kernel's own count of memory kills decides, so the reason is read, not guessed."""
+    monkeypatch.setattr(execution, "_memory_limit", lambda: 2 * 1024**3)
+    monkeypatch.setattr(execution, "_oom_kills", lambda: 4)
+    message = execution._why_it_stopped(-9, "ocr", 1_900_000_000, oom_before=3)
+    assert "text recognition was killed (SIGKILL) after reaching 1.8 GB" in message
+    assert "ran out of memory (limit 2.0 GB)" in message
+    assert "DOCNEST_PROCESSING_CONCURRENCY" in message
+
+    # Same kill, but nothing recorded against the limit: do not claim it was memory.
+    monkeypatch.setattr(execution, "_oom_kills", lambda: 3)
+    other = execution._why_it_stopped(-9, "ocr", 0, oom_before=3)
+    assert "ran out of memory" not in other
+    assert "dmesg" in other
+    assert "reaching" not in other  # an unmeasured peak is not reported as none
+
+    # A counter that cannot be read must not become an answer either.
+    monkeypatch.setattr(execution, "_oom_kills", lambda: None)
+    unknown = execution._why_it_stopped(-11, "enhance", 0, oom_before=None)
+    assert "scan enhancement was killed (SIGSEGV)" in unknown
+    assert "memory" not in unknown
 
 
 def test_lease_loss_stops_stale_process_without_overwriting_replacement(scanner, isolated_dirs, monkeypatch):

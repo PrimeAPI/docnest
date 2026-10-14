@@ -243,7 +243,8 @@ class Worker:
             logger.warning("job failed permanently", extra={"job": job.pk, "error": str(exc)[:200]})
             return
         except Exception as exc:
-            message = f"{type(exc).__name__}: {exc}"
+            # A Stopped already reads as an explanation; anything else needs its type named.
+            message = str(exc) if isinstance(exc, pipeline.Stopped) else f"{type(exc).__name__}: {exc}"
             failed = queue.retry_or_fail(job, message)
             if failed is None:
                 pipeline.finish_cancellation(job)

@@ -219,6 +219,7 @@ To try an unreleased version, set `DOCNEST_VERSION=edge` (newest tested `main`) 
 | Banner “Proton Drive needs a new login” | Run `docker compose exec app docnest proton-login`. Uploads keep being accepted and stored encrypted in the meantime; they are moved to Proton Drive automatically afterwards. |
 | “The processing worker is not running” | `docker compose logs app` — look for errors from the `worker` process. |
 | Document shows *Processing failed* | Open it → History tab shows the stage and error. Use *Reprocess*. The original file is never lost. |
+| *… was killed (SIGKILL)* | The step was shot down from outside, nearly always for memory. The message says which step, how much it had reached, and — when the container's own limit did it — that it ran out; `docker compose logs app` has the same under `processing was killed`, with the peak in bytes. Give the container more memory, lower `DOCNEST_PROCESSING_CONCURRENCY`, or lower `DOCNEST_TMP_SIZE` (that RAM disk counts against the container's memory). |
 | Upload returns 413 | Raise `DOCNEST_MAX_UPLOAD_MB` and your proxy's body size limit. |
 | Forgot the password | `docker compose exec app docnest createuser <name>` generates a new one. |
 | Login says “Too many attempts” | Wait 15 minutes (lockout) or check the security log for attacks. |
