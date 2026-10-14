@@ -1,3 +1,4 @@
+import json
 from datetime import date
 from io import BytesIO
 from urllib.error import HTTPError
@@ -276,7 +277,7 @@ def test_model_answer_is_parsed_and_checked(settings, monkeypatch):
     settings.OLLAMA_URL = "http://ollama:11434"
     sent: list[dict] = []
 
-    def request(path, payload=None, *, timeout):
+    def request(path, payload, *, timeout):
         sent.append(payload)
         return {
             "message": {
@@ -286,7 +287,7 @@ def test_model_answer_is_parsed_and_checked(settings, monkeypatch):
             }
         }
 
-    monkeypatch.setattr("apps.analysis.ai._request", request)
+    monkeypatch.setattr("apps.analysis.ai._streamed", request)
     fields = ai.analyze(
         "qwen3-vl:8b",
         images=[b"png"],
@@ -307,13 +308,13 @@ def test_models_without_reasoning_mode_are_retried_without_it(settings, monkeypa
     settings.OLLAMA_URL = "http://ollama:11434"
     sent: list[dict] = []
 
-    def request(path, payload=None, *, timeout):
+    def request(path, payload, *, timeout):
         sent.append(dict(payload))
         if "think" in payload:
             raise ai.ModelFailed('Ollama error 400: "gemma3:12b" does not support thinking')
         return {"message": {"content": '```json\n{"sender": "Finanzamt Delmenhorst"}\n```'}}
 
-    monkeypatch.setattr("apps.analysis.ai._request", request)
+    monkeypatch.setattr("apps.analysis.ai._streamed", request)
     fields = ai.analyze("gemma3:12b", images=[], text="", types=[])
     assert fields.sender == "Finanzamt Delmenhorst"
     assert len(sent) == 2 and "think" not in sent[1]
@@ -428,7 +429,7 @@ def test_all_ollama_requests_and_downloads_use_the_saved_server(settings, monkey
     monkeypatch.setattr("urllib.request.urlopen", urlopen)
     ai._request("/api/tags", timeout=10)
     ai._request("/api/show", {"model": "m"}, timeout=10)
-    ai._request("/api/chat", {"model": "m"}, timeout=10)
+    ai._streamed("/api/chat", {"model": "m"}, timeout=10)
     ai.pull("m")
     assert sent == [f"https://remote:11434/ollama/api/{path}" for path in ("tags", "show", "chat", "pull")]
 
@@ -520,6 +521,41 @@ def test_cloudflare_blocks_are_distinguished_from_invalid_api_keys(
     assert "authentication failed" not in str(error.value)
 
 
+@pytest.mark.parametrize("code", [504, 522, 524])
+def test_a_proxy_timeout_waits_for_the_model_instead_of_guessing(settings, monkeypatch, code):
+    """Cloudflare answers 524 after 100 s. The model was reading, so the document waits."""
+    settings.OLLAMA_URL = "https://remote-server"
+
+    def urlopen(request, *, timeout):
+        raise HTTPError(request.full_url, code, "Timeout", {}, BytesIO(b""))
+
+    monkeypatch.setattr("urllib.request.urlopen", urlopen)
+    with pytest.raises(ai.ModelUnavailable, match="timed out") as error:
+        ai.analyze("qwen3-vl:4b-instruct", images=[b"png"], text="x", types=[])
+    assert f"HTTP {code}" in str(error.value)
+
+
+def test_the_answer_is_streamed_so_proxies_do_not_time_out(settings, monkeypatch):
+    """A silent minutes-long request is cut off by proxies; the answer must arrive in pieces."""
+    settings.OLLAMA_URL = "https://remote-server"
+    sent: list[dict] = []
+    # The model writes its JSON answer token by token, as Ollama sends it.
+    chunks = [
+        json.dumps({"message": {"content": piece}}).encode() + b"\n"
+        for piece in ('{"sender":', ' "Energie Nord AG"', "}")
+    ]
+    chunks.append(json.dumps({"done": True, "done_reason": "stop"}).encode() + b"\n")
+
+    def urlopen(request, *, timeout):
+        sent.append(json.loads(request.data))
+        return BytesIO(b"".join(chunks))
+
+    monkeypatch.setattr("urllib.request.urlopen", urlopen)
+    fields = ai.analyze("qwen3-vl:4b-instruct", images=[], text="x", types=[])
+    assert fields.sender == "Energie Nord AG"
+    assert sent[0]["stream"] is True
+
+
 def test_ai_model_can_be_chosen_and_downloaded(api, settings, monkeypatch):
     settings.OLLAMA_URL = "http://ollama:11434"
     monkeypatch.setattr(
@@ -572,7 +608,7 @@ def test_ai_model_can_be_chosen_and_downloaded(api, settings, monkeypatch):
 def test_thinking_model_that_never_answers_is_explained(settings, monkeypatch):
     settings.OLLAMA_URL = "http://ollama:11434"
     monkeypatch.setattr(
-        "apps.analysis.ai._request",
+        "apps.analysis.ai._streamed",
         lambda *_a, **_k: {
             "message": {"content": "", "thinking": "Okay, let's see"},
             "done_reason": "length",
@@ -658,11 +694,11 @@ def test_title_is_asked_for_in_german(settings, monkeypatch):
     settings.OLLAMA_URL = "http://ollama:11434"
     sent: list[dict] = []
 
-    def request(path, payload=None, *, timeout):
+    def request(path, payload, *, timeout):
         sent.append(payload)
         return {"message": {"content": '{"german_title": "Erweitertes Führungszeugnis"}'}}
 
-    monkeypatch.setattr("apps.analysis.ai._request", request)
+    monkeypatch.setattr("apps.analysis.ai._streamed", request)
     fields = ai.analyze("m", images=[], text="Enhanced Certificate of Conduct", types=[])
     assert fields.title == "Erweitertes Führungszeugnis"
     assert "german_title" in sent[0]["format"]["required"]

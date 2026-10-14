@@ -23,7 +23,12 @@ from apps.processing.models import Job
 from apps.processing.worker import Worker
 from tests.conftest import upload
 from tests.pdfs import INVOICE_LINES, text_pdf
-from tests.processing_children import _blocking_child, _crashing_child, _supervisor_child
+from tests.processing_children import (
+    _blocking_child,
+    _crashing_child,
+    _quick_child,
+    _supervisor_child,
+)
 
 pytestmark = pytest.mark.django_db(transaction=True)
 J = "application/json"
@@ -240,3 +245,33 @@ def test_supervisor_death_stops_children_and_workspace_recovery_is_safe(scanner,
             supervisor.kill()
         supervisor.join(timeout=5)
         supervisor.close()
+
+
+def test_a_process_that_finishes_at_once_is_not_taken_for_a_crash(scanner, isolated_dirs, monkeypatch):
+    """The supervisor reads the result even when the child sends it and exits in the same breath.
+
+    Without draining the pipe after the process ends, such an attempt looks like a crashed
+    subprocess, and a document that is already stored gets processed all over again.
+    """
+    upload(Client(), scanner[1], text_pdf(INVOICE_LINES))
+    Worker().run_once()
+    monkeypatch.setattr(execution, "_child", _quick_child)
+    monkeypatch.setattr(execution, "POLL_SECONDS", 0)  # worst case: never wait on the pipe
+    for _ in range(8):
+        job = queue.claim("supervisor")
+        assert job is not None
+        execution.run(job)  # a lost result would raise "Processing subprocess stopped"
+        Job.objects.filter(pk=job.pk).update(
+            state=Job.State.QUEUED, locked_until=None, run_after=timezone.now(), attempts=0
+        )
+
+
+def test_page_by_page_stages_may_take_longer_for_a_long_document(settings):
+    settings.PROCESSING_STAGE_TIMEOUT_SECONDS = 100
+    settings.PROCESSING_PAGE_TIMEOUT_SECONDS = 10
+    assert execution._stage_limit(pipeline.Stage.OCR, 1) == 100
+    assert execution._stage_limit(pipeline.Stage.ENHANCE, 50) == 590
+    assert execution._stage_limit(pipeline.Stage.ENHANCE, None) == 100
+    # Stages that do not work page by page keep the flat limit; analysis waits for the model.
+    assert execution._stage_limit(pipeline.Stage.STORE, 500) == 100
+    assert execution._stage_limit(pipeline.Stage.ANALYZE, 1) == settings.AI_TIMEOUT_SECONDS + 120

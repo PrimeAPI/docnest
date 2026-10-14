@@ -246,6 +246,26 @@ def test_coloured_letterhead_band_is_not_cropped(tmp_path):
     assert not dst.exists()
 
 
+def test_diagonal_letterhead_corner_is_not_mistaken_for_the_paper_edge(tmp_path):
+    """A dark banner cutting across a corner looks exactly like a sheet lying crooked.
+
+    Straightening or cutting along it would tilt the whole page out of the text's
+    orientation and paint over the design, leaving nothing for OCR to read.
+    """
+    page = letter("RGB")
+    draw = ImageDraw.Draw(page)
+    draw.polygon([(0, 0), (page.width, 0), (0, page.height // 3)], fill=(20, 22, 25))
+    array = np.array(page)
+    found = enhance.find_sheet(array, DPI)
+    assert found is not None and abs(found.angle) > 20  # the banner does look like a crooked sheet
+    assert enhance.trusted_sheet(array, DPI) is None  # ...until the text on the page is consulted
+
+    result, dst = run(tmp_path, pdf_of(page), settings(**{**ONLY, "crop": True, "deskew": True}))
+    report = result.pages[0]
+    assert report is not None and not report.cropped and not report.deskewed
+    assert not dst.exists()  # nothing to change: the page is upright already
+
+
 def test_page_without_background_is_not_cropped(tmp_path):
     result, _ = run(tmp_path, pdf_of(letter()), settings(**{**ONLY, "crop": True}))
     assert result.pages[0] is not None and not result.pages[0].cropped

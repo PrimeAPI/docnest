@@ -21,6 +21,13 @@ from django.db import connection
 from django.utils import timezone
 
 POLL_SECONDS = 0.25
+# Cancellation, lease and stage checks hit the database; once per second per running job is
+# responsive enough and keeps a full queue of supervisors off the database.
+DB_POLL_SECONDS = 1.0
+# The child verifies its own lease less often than the supervisor polls: once per second is
+# enough to stop an orphan, and it keeps the database load of a full queue low.
+GUARD_POLL_SECONDS = 1.0
+GUARD_MAX_FAILURES = 10  # ~10 s of failed lease checks before a process stops itself
 DOCUMENT_LOCK_NAMESPACE = 39826
 
 
@@ -43,6 +50,22 @@ def check_job(job: Any) -> None:
         raise pipeline.LeaseLost()
     if current["cancel_requested"]:
         raise pipeline.Cancelled()
+
+
+def _stage_limit(stage: str | None, pages: int | None) -> float:
+    """How long a stage may run before the attempt is considered hung.
+
+    Enhancement and text recognition work page by page, so a long document needs
+    proportionally longer; the limit must bound a hung process, not a thick letter.
+    """
+    from apps.processing import pipeline
+
+    limit = float(settings.PROCESSING_STAGE_TIMEOUT_SECONDS)
+    if stage == pipeline.Stage.ANALYZE:
+        return max(limit, settings.AI_TIMEOUT_SECONDS + 120)
+    if stage in (pipeline.Stage.ENHANCE, pipeline.Stage.OCR):
+        return limit + settings.PROCESSING_PAGE_TIMEOUT_SECONDS * max(0, (pages or 0) - 1)
+    return limit
 
 
 def _child(job_id: int, lease_token: str, config: dict[str, Any], root: str, sender: Any) -> None:
@@ -70,7 +93,8 @@ def _child(job_id: int, lease_token: str, config: dict[str, Any], root: str, sen
 
     def guard() -> None:
         # An OOM-killed supervisor must not leave an orphan writing to the archive.
-        while not stopped.wait(POLL_SECONDS):
+        failures = 0
+        while not stopped.wait(GUARD_POLL_SECONDS):
             try:
                 if parent is None or not parent.is_alive():
                     os.killpg(os.getpgrp(), signal.SIGKILL)
@@ -82,11 +106,18 @@ def _child(job_id: int, lease_token: str, config: dict[str, Any], root: str, sen
                     locked_until__gt=timezone.now(),
                 ).exists():
                     os.killpg(os.getpgrp(), signal.SIGKILL)
+                failures = 0
             except Exception:
-                # Fail closed: a disconnected process must not keep mutating files.
-                os.killpg(os.getpgrp(), signal.SIGKILL)
+                # Fail closed, but not on a hiccup: a database restart or a short network
+                # outage must not kill a healthy job. Only a process that cannot confirm
+                # its lease for a while must stop mutating files.
+                failures += 1
+                if failures >= GUARD_MAX_FAILURES:
+                    os.killpg(os.getpgrp(), signal.SIGKILL)
             finally:
-                close_old_connections()
+                # The guard itself must survive what it survives the job for.
+                with contextlib.suppress(Exception):
+                    close_old_connections()
 
     threading.Thread(target=guard, name="processing-guard", daemon=True).start()
     try:
@@ -152,27 +183,37 @@ def run(job: Any) -> None:
         stage = None
         started = time.monotonic()
         result = None
+        checked = 0.0
         try:
             process.start()
             sender.close()
             while True:
-                check_job(job)
-                current_stage = Job.objects.values_list("document__processing_stage", flat=True).get(
-                    pk=job.pk
-                )
-                if current_stage != stage:
-                    stage, started = current_stage, time.monotonic()
-                limit = settings.PROCESSING_STAGE_TIMEOUT_SECONDS
-                if stage == pipeline.Stage.ANALYZE:
-                    limit = max(limit, settings.AI_TIMEOUT_SECONDS + 120)
-                if time.monotonic() - started > limit:
-                    raise TimeoutError(f"Processing stage {stage} exceeded {limit}s")
-                if result is None and receiver.poll(POLL_SECONDS):
-                    with contextlib.suppress(EOFError):
-                        result = receiver.recv()
+                # Ownership and progress come from the database; a full queue of supervisors
+                # must not poll it four times a second each.
+                if time.monotonic() - checked >= DB_POLL_SECONDS:
+                    checked = time.monotonic()
+                    check_job(job)
+                    current_stage, pages = Job.objects.values_list(
+                        "document__processing_stage", "document__page_count"
+                    ).get(pk=job.pk)
+                    if current_stage != stage:
+                        stage, started = current_stage, time.monotonic()
+                    limit = _stage_limit(stage, pages)
+                    if time.monotonic() - started > limit:
+                        raise TimeoutError(f"Processing stage {stage} exceeded {limit:g}s")
+                if result is None:
+                    if receiver.poll(POLL_SECONDS):
+                        with contextlib.suppress(EOFError):
+                            result = receiver.recv()
+                else:
+                    time.sleep(POLL_SECONDS)
                 if not process.is_alive():
                     break
-                time.sleep(POLL_SECONDS)
+            # The child may have sent its result in the moment it exited: read it before
+            # judging the attempt, or a finished document would be reprocessed needlessly.
+            if result is None and receiver.poll(POLL_SECONDS):
+                with contextlib.suppress(EOFError):
+                    result = receiver.recv()
             process.join(timeout=5)
             check_job(job)
             if process.exitcode != 0 or result is None:

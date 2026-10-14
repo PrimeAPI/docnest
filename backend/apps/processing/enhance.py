@@ -22,6 +22,8 @@ Per scanned page, each step can be switched off in the settings:
    edges give the angle (up to 30°), refined by the text on it; the page is
    rotated once, cropped to the sheet, and everything outside the sheet
    (wedges, edge shadow, missing corners) is painted in the paper colour.
+   A shape whose edges the text on it contradicts is not a sheet — a dark band
+   printed across a corner looks exactly like one — and is left to step 3.
 3. Otherwise **crop + deskew**: uniform backing bands beyond the paper edge
    and a paper-edge shadow line followed only by empty background are cut
    (coloured letterhead bands survive), then jdeskew (Adaptive Radial
@@ -41,7 +43,7 @@ import io
 import logging
 import re
 import subprocess
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 
 import cv2
@@ -467,6 +469,9 @@ _SHEET_DPI = 50  # detection resolution
 _NEUTRAL_CHROMA = 45  # backing plates are grey, though often slightly tinted
 _SHEET_REFINE_ANGLE = 1.0  # degrees the text may deviate from the sheet's edges
 _MAX_SHEET_ANGLE = 30.0  # degrees; a sheet's own edges are trusted further than text-based deskew
+# The text is looked for over the whole range an edge angle can come from: searching only the
+# refine range would read a page tilted far off as straight and confirm the very angle in doubt.
+_SHEET_CHECK_ANGLE = _MAX_SHEET_ANGLE + 1.0
 
 
 @dataclass
@@ -697,14 +702,33 @@ def _edge_angle(points: np.ndarray) -> float | None:
     return round(best_angle, 2)
 
 
-def sheet_angle(array: np.ndarray, dpi: float, sheet: Sheet) -> float:
-    """The sheet's edge angle, refined by the text on it (print is often a little off the paper edge)."""
+def sheet_angle(array: np.ndarray, dpi: float, sheet: Sheet) -> float | None:
+    """The sheet's edge angle, refined by the text on it (print is often a little off the paper edge).
+
+    None when the text contradicts the edges: a printed band running diagonally across a
+    page (a letterhead corner) looks exactly like a sheet edge, and straightening or
+    cutting along it would tilt the whole page and paint over its design.
+    """
     factor = min(1.0, 150 / dpi)
     small = cv2.resize(array, None, fx=factor, fy=factor, interpolation=cv2.INTER_AREA)
     straightened = cut_out_sheet(small, dpi * factor, sheet, sheet.angle)
     grey = straightened if straightened.ndim == 2 else cv2.cvtColor(straightened, cv2.COLOR_RGB2GRAY)
-    residual = estimate_skew(grey, dpi * factor, _SHEET_REFINE_ANGLE)
+    residual = estimate_skew(grey, dpi * factor, _SHEET_CHECK_ANGLE)
+    if abs(residual) > _SHEET_REFINE_ANGLE:
+        return None
     return round(sheet.angle + residual, 2)
+
+
+def trusted_sheet(array: np.ndarray, dpi: float) -> Sheet | None:
+    """A sheet whose edges the text on it confirms, carrying its straightening angle."""
+    sheet = find_sheet(array, dpi)
+    if sheet is None:
+        return None
+    angle = sheet_angle(array, dpi, sheet)
+    if angle is None:
+        logger.debug("sheet edges contradict the text on the page", extra={"angle": sheet.angle})
+        return None
+    return replace(sheet, angle=angle)
 
 
 def cut_out_sheet(array: np.ndarray, dpi: float, sheet: Sheet, angle: float) -> np.ndarray:
@@ -912,11 +936,10 @@ def enhance_image(
     sheet = None
     if options.crop and not bilevel:
         card = find_card(array, dpi)
-        sheet = card or find_sheet(array, dpi)
+        # Cards carry no text to check their edges against; a sheet's edges must agree with its text.
+        sheet = card or trusted_sheet(array, dpi)
     if sheet is not None:
-        angle = (
-            (sheet.angle if card is not None else sheet_angle(array, dpi, sheet)) if options.deskew else 0.0
-        )
+        angle = sheet.angle if options.deskew else 0.0
         if abs(angle) < max(options.deskew_min_angle, 0.01):
             angle = 0.0
         array = cut_out_sheet(array, dpi, sheet, angle)

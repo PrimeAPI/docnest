@@ -352,29 +352,41 @@ def stage_ocr(document: Document, work: Path) -> None:
     archive = work / "archive.pdf"
     archive.unlink(missing_ok=True)
     backend = document.ocr_backend or get_default_ocr_backend()
+    docling_problem = ""
     if backend == Document.OcrBackend.DOCLING:
-        result = docling_backend.convert(src)
-        # Docling produces a structured document rather than a searchable PDF.
-        # Keep the (enhanced) input as the archive and expose its richer output separately.
-        shutil.copyfile(src, archive)
-        crypto_fields.set_content(
-            document,
-            result.markdown,
-            structured=result.structured,
-            layout=result.layout,
-            content_format="markdown",
-        )
-        document.ocr_backend = backend
-        document.save(update_fields=["ocr_backend"])
-        thumb = pdf.thumbnail(archive)
-        if thumb:
-            crypto_fields.set_thumbnail(document, thumb)
-        encrypt_file(archive, archive_intake_path(document), aad=_archive_aad(document))
-        return
+        try:
+            result = docling_backend.convert(src)
+        except docling_backend.DoclingFailed as exc:
+            # Keep the document usable: recognise it with OCRmyPDF instead of failing the run,
+            # and say so — the document then has text and a searchable archive, but no structure.
+            logger.warning(
+                "Docling failed; recognising with OCRmyPDF instead", extra={"document": str(document.uuid)}
+            )
+            docling_problem = f"Docling could not read this document ({exc}); OCRmyPDF was used"[:500]
+            backend = Document.OcrBackend.OCRMYPDF
+            archive.unlink(missing_ok=True)
+        else:
+            # Docling produces a structured document rather than a searchable PDF.
+            # Keep the (enhanced) input as the archive and expose its richer output separately.
+            shutil.copyfile(src, archive)
+            crypto_fields.set_content(
+                document,
+                result.markdown,
+                structured=result.structured,
+                layout=result.layout,
+                content_format="markdown",
+            )
+            document.ocr_backend = backend
+            document.save(update_fields=["ocr_backend"])
+            thumb = pdf.thumbnail(archive)
+            if thumb:
+                crypto_fields.set_thumbnail(document, thumb)
+            encrypt_file(archive, archive_intake_path(document), aad=_archive_aad(document))
+            return
     if backend != Document.OcrBackend.OCRMYPDF:
         raise PermanentError(f"Unknown OCR backend: {backend}")
 
-    message = ""
+    message = docling_problem
     # OCRmyPDF straightens and rotates on its own only where DocNest's enhancement did not.
     used = EnhanceSettings.from_json(document.enhancement.get("settings") or {"enabled": False})
     try:
@@ -389,7 +401,7 @@ def stage_ocr(document: Document, work: Path) -> None:
         # Keep the document usable: archive = original, text from any existing text layer.
         logger.warning("OCR failed, continuing without text layer", extra={"document": str(document.uuid)})
         shutil.copyfile(src, archive)
-        message = str(exc)
+        message = f"{message}. {exc}"[:500] if message else str(exc)
     text = pdf.extract_text(archive)
     crypto_fields.set_content(document, text, content_format="text")
     document.ocr_backend = backend
@@ -461,11 +473,12 @@ def _model_fields(document: Document, work: Path, text: str) -> tuple[ai.ModelFi
         return None, {"by": "rules"}
     src = _processed_local(document, work)
     page_limit = get_ai_pages()
-    pages = range(1, min(document.page_count or 1, page_limit) + 1)
+    page_count = document.page_count or 0
+    pages = range(1, min(page_count or 1, page_limit) + 1)
     images = [
         image for page in pages if (image := pdf.render_page(src, page, long_edge=settings.AI_IMAGE_SIZE))
     ]
-    if document.page_count > page_limit:
+    if page_count > page_limit:
         # Stored OCR text has no reliable page separators. Use page-scoped text so
         # short opening pages cannot let later pages slip into the model's prompt.
         text_src = (
@@ -493,7 +506,9 @@ def _model_fields(document: Document, work: Path, text: str) -> tuple[ai.ModelFi
         fields = ai.analyze(
             model, images=images, text=text, types=types, tags=tags, context=_mail_context(document)
         )
-    except ai.ModelUnavailable as exc:
+    except (ai.ModelUnavailable, ai.ModelCrashed) as exc:
+        # A model that cannot be reached, and one that stops while running (out of memory, or a
+        # shared server under load), are both worth waiting for. Never guess with the rules instead.
         raise AnalysisModelUnavailable(str(exc)) from exc
     except ai.ModelFailed as exc:
         logger.warning(

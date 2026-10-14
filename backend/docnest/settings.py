@@ -230,6 +230,9 @@ JOB_LEASE_SECONDS = env_int("DOCNEST_JOB_LEASE_SECONDS", 1800)
 JOB_MAX_ATTEMPTS = env_int("DOCNEST_JOB_MAX_ATTEMPTS", 5)
 # Hard limit per stage, including native model hangs. Analysis may legitimately take longer.
 PROCESSING_STAGE_TIMEOUT_SECONDS = env_int("DOCNEST_PROCESSING_STAGE_TIMEOUT_SECONDS", 1800)
+# Added per page beyond the first where a stage works page by page (enhancement, recognition),
+# so a long document is not mistaken for a hung process.
+PROCESSING_PAGE_TIMEOUT_SECONDS = env_int("DOCNEST_PROCESSING_PAGE_TIMEOUT_SECONDS", 60)
 WORKER_POLL_SECONDS = env_int("DOCNEST_WORKER_POLL_SECONDS", 30)
 PROCESSING_CONCURRENCY = env_int("DOCNEST_PROCESSING_CONCURRENCY", 1)
 JOB_HISTORY_HOURS = env_int("DOCNEST_JOB_HISTORY_HOURS", 24)

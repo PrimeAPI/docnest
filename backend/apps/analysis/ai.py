@@ -15,6 +15,7 @@ import base64
 import json
 import logging
 import re
+import time
 import urllib.error
 import urllib.request
 from dataclasses import dataclass
@@ -29,6 +30,8 @@ from apps.processing.preferences import get_ollama_api_key, get_ollama_url
 logger = logging.getLogger(__name__)
 
 LIST_TIMEOUT = 10
+# A proxy in front of Ollama ran out of patience, rather than Ollama itself.
+GATEWAY_TIMEOUTS = {504, 522, 524}
 # Shown in Settings as a starting point; any Ollama model works.
 MAX_TAGS = 4
 MAX_KNOWN_TAGS = 80  # existing tags offered to the model; more only cost time
@@ -142,6 +145,30 @@ def _access_error(exc: urllib.error.HTTPError) -> str:
     )
 
 
+def _failure(exc: urllib.error.HTTPError) -> Exception:
+    """The exception that describes an HTTP error from Ollama or a proxy in front of it."""
+    if exc.code in {401, 403}:
+        return ModelUnavailable(_access_error(exc))
+    detail = _error_detail(exc)
+    if exc.code == 404:
+        return ModelUnavailable(detail or "Model not found in Ollama")
+    if exc.code >= 500 and "not found" in detail.lower():
+        return ModelUnavailable(detail)
+    if exc.code in GATEWAY_TIMEOUTS:
+        # The proxy gave up waiting for the server, not the model: the answer may well
+        # have been on its way. Wait and ask again rather than guessing with the rules.
+        return ModelUnavailable(
+            f"The server in front of Ollama timed out (HTTP {exc.code}) while the model was reading. "
+            "A smaller model answers within such a limit; raise the proxy's timeout to keep this one"
+        )
+    if exc.code >= 500:
+        return ModelCrashed(
+            f"The AI model stopped while reading ({detail or exc.code}); "
+            "a smaller model or more memory for the server helps"
+        )
+    return ModelFailed(f"Ollama error {exc.code}: {detail}")
+
+
 def _request(path: str, payload: dict[str, Any] | None = None, *, timeout: float) -> dict[str, Any]:
     url = get_ollama_url()
     if not url:
@@ -157,24 +184,59 @@ def _request(path: str, payload: dict[str, Any] | None = None, *, timeout: float
         with urllib.request.urlopen(request, timeout=timeout) as response:  # noqa: S310
             return json.loads(response.read().decode())
     except urllib.error.HTTPError as exc:
-        if exc.code in {401, 403}:
-            raise ModelUnavailable(_access_error(exc)) from exc
-        detail = _error_detail(exc)
-        if exc.code == 404:
-            raise ModelUnavailable(detail or "Model not found in Ollama") from exc
-        if exc.code >= 500 and "not found" in detail.lower():
-            raise ModelUnavailable(detail) from exc
-        if exc.code >= 500:
-            raise ModelCrashed(
-                f"The AI model stopped while reading ({detail or exc.code}); "
-                "a smaller model or more memory for the server helps"
-            ) from exc
-        raise ModelFailed(f"Ollama error {exc.code}: {detail}") from exc
+        raise _failure(exc) from exc
     except (urllib.error.URLError, ConnectionError, TimeoutError) as exc:
         reason = getattr(exc, "reason", exc)
         raise ModelUnavailable(f"Ollama is not reachable at {url}: {reason}") from exc
     except json.JSONDecodeError as exc:
         raise ModelFailed("Ollama returned invalid JSON") from exc
+
+
+def _streamed(path: str, payload: dict[str, Any], *, timeout: float) -> dict[str, Any]:
+    """Run a request whose answer arrives in pieces, and return it as one response.
+
+    Reading a document takes a model minutes. A silent request that long is cut off by
+    proxies and load balancers (Cloudflare answers HTTP 524 after 100 s), so DocNest asks
+    for a stream: the answer flows while the model writes it and the connection stays busy.
+    """
+    url = get_ollama_url()
+    if not url:
+        raise ModelUnavailable("No Ollama server is configured (DOCNEST_OLLAMA_URL)")
+    request = urllib.request.Request(  # noqa: S310 - URL comes from the operator's configuration
+        url + path,
+        data=json.dumps({**payload, "stream": True}).encode(),
+        headers=_headers(),
+        method="POST",
+    )
+    content: list[str] = []
+    last: dict[str, Any] | None = None
+    started = time.monotonic()
+    try:
+        with urllib.request.urlopen(request, timeout=timeout) as response:  # noqa: S310
+            for raw in response:
+                line = raw.decode(errors="replace").strip()
+                if not line:
+                    continue
+                try:
+                    chunk = json.loads(line)
+                except json.JSONDecodeError as exc:
+                    raise ModelFailed("Ollama returned invalid JSON") from exc
+                if not isinstance(chunk, dict):
+                    raise ModelFailed("Ollama returned invalid JSON")
+                if error := chunk.get("error"):
+                    raise ModelCrashed(f"The AI model stopped while reading ({str(error)[:200]})")
+                content.append(str((chunk.get("message") or {}).get("content") or ""))
+                last = chunk
+                if time.monotonic() - started > timeout:
+                    raise ModelUnavailable(f"The AI model did not finish within {timeout:.0f} s")
+    except urllib.error.HTTPError as exc:
+        raise _failure(exc) from exc
+    except (urllib.error.URLError, ConnectionError, TimeoutError) as exc:
+        reason = getattr(exc, "reason", exc)
+        raise ModelUnavailable(f"Ollama is not reachable at {url}: {reason}") from exc
+    if last is None:
+        raise ModelFailed("Ollama sent an empty answer")
+    return {**last, "message": {"role": "assistant", "content": "".join(content)}}
 
 
 def _error_detail(exc: urllib.error.HTTPError) -> str:
@@ -338,7 +400,6 @@ def analyze(
         "model": model,
         "messages": [{"role": "system", "content": SYSTEM_PROMPT}, message],
         "format": _schema([t.slug for t in types]),
-        "stream": False,
         "think": False,
         "keep_alive": "10m",
         "options": {
@@ -353,13 +414,13 @@ def analyze(
 def _chat(payload: dict[str, Any], *, timeout: float | None = None) -> dict[str, Any]:
     """Run a chat request that must answer with a JSON object."""
     try:
-        response = _request("/api/chat", payload, timeout=timeout or settings.AI_TIMEOUT_SECONDS)
+        response = _streamed("/api/chat", payload, timeout=timeout or settings.AI_TIMEOUT_SECONDS)
     except ModelFailed as exc:
         if "think" not in str(exc).lower():
             raise
         # Models without a reasoning mode reject the switch instead of ignoring it.
         payload.pop("think", None)
-        response = _request("/api/chat", payload, timeout=timeout or settings.AI_TIMEOUT_SECONDS)
+        response = _streamed("/api/chat", payload, timeout=timeout or settings.AI_TIMEOUT_SECONDS)
     content = str((response.get("message") or {}).get("content") or "")
     if not content.strip() and response.get("done_reason") == "length":
         raise ModelFailed(
@@ -546,7 +607,6 @@ def name_folders(
             },
             "required": ["groups"],
         },
-        "stream": False,
         "think": False,
         "keep_alive": "10m",
         "options": {
@@ -641,7 +701,6 @@ def read_filing_wishes(model: str, wish: str) -> FilingWishes:
             },
             "required": ["rules", "style"],
         },
-        "stream": False,
         "think": False,
         "keep_alive": "10m",
         "options": {
@@ -733,7 +792,6 @@ def _assist_payload(model: str, prompt: str, schema: dict[str, Any]) -> dict[str
             {"role": "user", "content": prompt},
         ],
         "format": schema,
-        "stream": False,
         "think": False,
         "keep_alive": "10m",
         "options": {
@@ -883,7 +941,6 @@ def ask(
             "model": model,
             "messages": [{"role": "system", "content": system}, {"role": "user", "content": prompt}],
             "format": schema,
-            "stream": False,
             "think": think,
             "keep_alive": "30m",
             "options": {

@@ -53,3 +53,15 @@ def _supervisor_child(job_id, config):
 
     execution._child = _blocking_child
     execution.run(Job.objects.get(pk=job_id))
+
+
+def _quick_child(job_id, lease_token, config, root, sender):
+    """Report success and vanish in the same instant, once the supervisor is already polling."""
+    import os
+    import time
+
+    os.setsid()
+    time.sleep(0.5)
+    sender.send(("ok", ""))
+    sender.close()
+    os._exit(0)
