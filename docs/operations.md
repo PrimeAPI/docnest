@@ -218,6 +218,7 @@ To try an unreleased version, set `DOCNEST_VERSION=edge` (newest tested `main`) 
 |---|---|
 | Banner “Proton Drive needs a new login” | Run `docker compose exec app docnest proton-login`. Uploads keep being accepted and stored encrypted in the meantime; they are moved to Proton Drive automatically afterwards. |
 | “The processing worker is not running” | `docker compose logs app` — look for errors from the `worker` process. |
+| A queued job never starts (*Processing now* stays empty) | The queue shows why it waits: *Retrying at …* with the error, e.g. the AI model's server is not reachable (retried every 10 minutes without using attempts) or a failed attempt (retried with growing delays). Fix the cause, or turn on the [debug log](#debug-log). |
 | Document shows *Processing failed* | Open it → History tab shows the stage and error. Use *Reprocess*. The original file is never lost. |
 | *… was killed (SIGKILL)* | The step was shot down from outside, nearly always for memory. The message says which step, how much it had reached, and — when the container's own limit did it — that it ran out; `docker compose logs app` has the same under `processing was killed`, with the peak in bytes. Give the container more memory, lower `DOCNEST_PROCESSING_CONCURRENCY`, or lower `DOCNEST_TMP_SIZE` (that RAM disk counts against the container's memory). |
 | Upload returns 413 | Raise `DOCNEST_MAX_UPLOAD_MB` and your proxy's body size limit. |
@@ -226,3 +227,23 @@ To try an unreleased version, set `DOCNEST_VERSION=edge` (newest tested `main`) 
 | Passkeys don't work | The browser URL must exactly match `DOCNEST_BASE_URL` (same host, HTTPS). |
 | `Missing required secret …` at start | The file in `secrets/` is missing, empty or not readable by UID 10001 — run `./init-secrets.sh` again. |
 | `… is world-accessible` at start | `chmod 400 secrets/<file>` (`db_password`: `chmod 440`). |
+
+### Debug log
+
+For problems the console log does not explain, set `DOCNEST_DEBUG_LOG=true` in `.env` and run `docker compose up -d`. Every process — web server, worker, and the subprocess of each document job — then also writes everything it does to one file per day, `docnest-debug-YYYY-MM-DD.log`, in `DOCNEST_DEBUG_LOG_DIR` (default `/var/lib/docnest/data/debug-logs`, on the `data` volume):
+
+- at start: version, every setting and `DOCNEST_*` variable, free disk space, and (worker) the settings saved under Settings → System;
+- every 30 seconds: the queue — each queued job, when it is due and why it waits, and each running job's worker and lease;
+- each job: claiming, its subprocess and exit code, every stage with its duration, retries, deferrals and failures with tracebacks;
+- AI analysis: model, number and size of page images, request sizes, HTTP status and timings of each Ollama request, token counts;
+- web requests: method, path, status and duration (without query strings).
+
+Copy the files out with:
+
+```bash
+docker compose cp app:/var/lib/docnest/data/debug-logs ./debug-logs
+```
+
+To have them on the host directly, mount a directory instead: create it with `mkdir debug-logs && sudo chown 10001 debug-logs`, add `- ./debug-logs:/var/lib/docnest/debug-logs` under the app's `volumes:` and set `DOCNEST_DEBUG_LOG_DIR=/var/lib/docnest/debug-logs`.
+
+Like the console log, the debug log contains no document text, titles or extracted values (only document IDs, sizes and timings), and secrets are shown only as *set* or *empty*. It does contain IDs, paths and error messages, so share it with care. Files older than `DOCNEST_DEBUG_LOG_DAYS` (7) are deleted; switch the debug log off again when you are done.

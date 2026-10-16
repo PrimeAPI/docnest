@@ -33,6 +33,14 @@ The editor submits the visible orders it started from; applying a stale editor i
 
 View edits intentionally do not rerun OCR or rewrite the full-text search content. Hidden text is still retained and searchable, just as hidden pages remain in Original. On a genuinely new merged or split document, its search text comes only from its copied pages.
 
+## Sharing documents
+
+Open a document and select **Share**. Create a link for anyone who has it, or require an additional passphrase. Each link has independent permissions for the untouched original and OCR text. Recipients can view and download the current enhanced PDF without a DocNest account; they cannot edit, reprocess or browse the archive.
+
+The dialog lists active links with separate copy buttons for the viewing page and the direct enhanced-PDF URL. A direct link returns PDF bytes; a passphrase-protected PDF link takes the browser through the passphrase form first and then opens the PDF. Protected access lasts twelve hours in that browser. **Revoke** immediately disables a link for subsequent requests, including browsers that already unlocked it. Moving a document to the trash suspends all its links; restoring it makes unrevoked links available again.
+
+Links show the current document, so subsequent page edits and reprocessing also affect its shared enhanced PDF. Enhanced applies the same visible-page order as the owner's viewer and download. The original remains complete, and OCR text can contain hidden pages; hiding a page is not redaction. Disable original and OCR access when sharing only the visible PDF pages.
+
 ## What this replaces
 
 The previous implementation registered every altered page list as an upload, trashed the source and reran OCR and AI. That was unnecessary for hiding a blank backside, and duplicated work even for real compositions. It is replaced by a lightweight presentation plus a storage/index-only path for genuinely new documents—not a new general-purpose versioning framework.

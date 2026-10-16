@@ -9,6 +9,8 @@ from apps.core.api import router as core_router
 from apps.core.auth import mfa_auth
 from apps.documents.alterations_api import router as alterations_router
 from apps.documents.api import router as documents_router
+from apps.documents.sharing_api import manage_router as shares_manage_router
+from apps.documents.sharing_api import public_router as shares_public_router
 from apps.mail.api import router as mail_router
 from apps.paper.api import router as paper_router
 from apps.scanners.api import manage_router as scanners_manage_router
@@ -30,6 +32,8 @@ web_api.add_router("/", core_router)
 web_api.add_router("/auth", auth_router)
 web_api.add_router("/account", account_router)
 web_api.add_router("/documents", documents_router)
+web_api.add_router("/documents", shares_manage_router)
+web_api.add_router("/shares", shares_public_router)
 web_api.add_router("/", taxonomy_router)
 web_api.add_router("/paper", paper_router)
 web_api.add_router("/scanners", scanners_manage_router)

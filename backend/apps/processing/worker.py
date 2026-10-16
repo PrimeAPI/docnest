@@ -85,6 +85,8 @@ class Worker:
         ensure_dirs()
         self.sweep_workspace()
         logger.info("worker started", extra={"worker": self.worker_id})
+        self.log_preferences()
+        self.log_queue("queue at start")
         active: dict[str, set[Future[None]]] = {lane: set() for lane in LANES}
         executor = ThreadPoolExecutor(
             max_workers=MAX_PROCESSING_CONCURRENCY * 2 + 1,
@@ -105,8 +107,15 @@ class Worker:
                     job = queue.claim(self.worker_id)
                     if job is not None:
                         if job.kind in LANE_OF:
+                            logger.debug(
+                                "job started in its lane", extra={"job": job.pk, "lane": LANE_OF[job.kind]}
+                            )
                             active[LANE_OF[job.kind]].add(executor.submit(self._execute_in_thread, job))
                         else:
+                            logger.debug(
+                                "job runs exclusively: no other job starts until it ends",
+                                extra={"job": job.pk, "kind": job.kind},
+                            )
                             self.execute(job)
                         claimed = True
 
@@ -116,6 +125,15 @@ class Worker:
                         job = queue.claim(self.worker_id, kinds=kinds)
                         if job is None:
                             break
+                        logger.debug(
+                            "job started in its lane",
+                            extra={
+                                "job": job.pk,
+                                "lane": lane,
+                                "lane_active": len(active[lane]) + 1,
+                                "limit": limit,
+                            },
+                        )
                         active[lane].add(executor.submit(self._execute_in_thread, job))
                         claimed = True
                 if self.stopping or claimed:
@@ -169,7 +187,18 @@ class Worker:
     # -- jobs
 
     def execute(self, job: Job) -> None:
-        logger.info("job started", extra={"job": job.pk, "kind": job.kind, "attempt": job.attempts})
+        logger.info(
+            "job started",
+            extra={
+                "job": job.pk,
+                "kind": job.kind,
+                "attempt": job.attempts,
+                "document": job.document_id,
+                "isolated": self.isolate_documents
+                and job.kind in (*pipeline.DOCUMENT_JOB_KINDS, Job.Kind.REINDEX_DOCUMENT),
+            },
+        )
+        started = time.monotonic()
         try:
             with self.maintain_lease(job):
                 if self.isolate_documents and job.kind in (
@@ -213,7 +242,9 @@ class Worker:
                     raise pipeline.PermanentError(f"unknown job kind {job.kind}")
         except pipeline.Cancelled:
             pipeline.finish_cancellation(job)
-            logger.info("job cancelled", extra={"job": job.pk})
+            logger.info(
+                "job cancelled", extra={"job": job.pk, "seconds": round(time.monotonic() - started, 1)}
+            )
             return
         except pipeline.LeaseLost:
             logger.warning("job lease lost; execution stopped", extra={"job": job.pk})
@@ -224,7 +255,9 @@ class Worker:
                 logger.error("job ownership lost before deferral", extra={"job": job.pk})
                 return
             self._mark_document(job, Document.State.PENDING, "Waiting for storage: " + str(exc))
-            logger.warning("storage unavailable, job deferred", extra={"job": job.pk})
+            logger.warning(
+                "storage unavailable, job deferred", extra={"job": job.pk, "error": str(exc)[:300]}
+            )
             return
         except pipeline.AnalysisModelUnavailable as exc:
             if not queue.defer(job, MODEL_RETRY_SECONDS, str(exc)):
@@ -232,7 +265,10 @@ class Worker:
                 logger.error("job ownership lost before deferral", extra={"job": job.pk})
                 return
             self._mark_document(job, Document.State.PENDING, "Waiting for the AI model: " + str(exc))
-            logger.warning("AI model unavailable, job deferred", extra={"job": job.pk})
+            logger.warning(
+                "AI model unavailable, job deferred",
+                extra={"job": job.pk, "retry_in_s": MODEL_RETRY_SECONDS, "error": str(exc)[:300]},
+            )
             return
         except pipeline.PermanentError as exc:
             if queue.retry_or_fail(job, str(exc), retryable=False) is None:
@@ -258,7 +294,7 @@ class Worker:
             pipeline.finish_cancellation(job)
             logger.error("job ownership lost before completion", extra={"job": job.pk})
             return
-        logger.info("job done", extra={"job": job.pk})
+        logger.info("job done", extra={"job": job.pk, "seconds": round(time.monotonic() - started, 1)})
 
     @contextmanager
     def maintain_lease(self, job: Job):
@@ -347,6 +383,8 @@ class Worker:
 
     def periodic(self) -> None:
         now = time.monotonic()
+        if now - self._last_heartbeat > HEARTBEAT_INTERVAL and settings.DEBUG_LOG:
+            self.log_queue("queue")
         if now - self._last_heartbeat > HEARTBEAT_INTERVAL:
             WorkerHeartbeat.objects.update_or_create(
                 worker_id=self.worker_id, defaults={"last_seen_at": timezone.now()}
@@ -357,22 +395,80 @@ class Worker:
                 logger.warning("released jobs of a worker that stopped", extra={"jobs": released})
         if now - self._last_health > HEALTHCHECK_INTERVAL:
             self._last_health = now
-            self.check_storage()
+            with self.timed("storage healthcheck"):
+                self.check_storage()
             if backup.is_due():
+                logger.debug("database backup is due")
                 backup.schedule()
         if now - self._last_mail > MAIL_CHECK_INTERVAL:
             self._last_mail = now
             if inbox.is_due():
+                logger.debug("email inbox check is due")
                 inbox.schedule()
         if now - self._last_cleanup > CLEANUP_INTERVAL:
             self._last_cleanup = now
-            self.cleanup()
+            with self.timed("cleanup"):
+                self.cleanup()
         if now - self._last_train > TRAIN_INTERVAL:
             self._last_train = now
             dirty = SystemState.objects.filter(key="classifier_dirty", value__dirty=True).exists()
             if dirty:
+                logger.debug("classifier needs training")
                 SystemState.objects.filter(key="classifier_dirty").update(value={"dirty": False})
                 queue.enqueue(Job.Kind.TRAIN_CLASSIFIER)
+
+    @contextmanager
+    def timed(self, task: str):
+        """Log how long a maintenance task held up the worker loop."""
+        started = time.monotonic()
+        logger.debug("%s started", task)
+        try:
+            yield
+        finally:
+            logger.debug("%s finished", task, extra={"seconds": round(time.monotonic() - started, 2)})
+
+    def log_preferences(self) -> None:
+        """Settings saved in the database (Settings → System) override the environment."""
+        if not settings.DEBUG_LOG:
+            return
+        from apps.processing import preferences
+
+        try:
+            values = {
+                "default_ocr_backend": preferences.get_default_ocr_backend(),
+                "docling_field_detection": preferences.get_docling_field_detection(),
+                "processing_concurrency": preferences.get_processing_concurrency(),
+                "ai_model": preferences.get_ai_model() or "<none: rule-based analysis>",
+                "ollama_url": preferences.get_ollama_url() or "<none>",
+                "ollama_auth": "bearer key set" if preferences.get_ollama_api_key() else "none",
+                "ai_pages": preferences.get_ai_pages(),
+                "enhance": preferences.get_enhance_settings().to_json(),
+                "storage_backend": settings.STORAGE_BACKEND,
+            }
+            for key, value in values.items():
+                logger.info("preference %s = %s", key, value)
+            for state in SystemState.objects.all().order_by("key"):
+                logger.info("system state %s = %s", state.key, str(state.value)[:500])
+        except Exception:
+            logger.exception("could not read the saved preferences")
+
+    def log_queue(self, label: str) -> None:
+        if not settings.DEBUG_LOG:
+            return
+        try:
+            info = queue.snapshot()
+            logger.debug(
+                "%s: %s queued (%s due now), %s running",
+                label,
+                info["queued"],
+                info["queued_due"],
+                info["running"],
+                extra={"worker": self.worker_id},
+            )
+            for entry in info["jobs"]:  # type: ignore[attr-defined]
+                logger.debug("  %s", " ".join(f"{k}={v}" for k, v in entry.items()))
+        except Exception:
+            logger.exception("could not describe the queue")
 
     def cleanup(self) -> None:
         """Retention: audit entries, login throttles, finished jobs, stale scan sessions, proposals."""
@@ -474,6 +570,7 @@ class Worker:
             if ready:
                 for _ in conn.notifies(timeout=0):
                     pass
+                logger.debug("woken up: a job was queued")
         except (psycopg.Error, OSError, ValueError):
             logger.warning("LISTEN connection failed; falling back to polling")
             self._listen_conn = None

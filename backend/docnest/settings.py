@@ -255,18 +255,27 @@ USE_TZ = True
 
 # --- Logging ----------------------------------------------------------------
 
-LOG_LEVEL = env("DOCNEST_LOG_LEVEL", "INFO")
+LOG_LEVEL = env("DOCNEST_LOG_LEVEL", "INFO").upper()
+# Troubleshooting: every process also writes everything (DEBUG level) to a file per day
+# in DEBUG_LOG_DIR, starting with its configuration (see apps/core/debuglog.py).
+DEBUG_LOG = env_bool("DOCNEST_DEBUG_LOG", default=False)
+DEBUG_LOG_DIR = Path(env("DOCNEST_DEBUG_LOG_DIR", str(DATA_DIR / "debug-logs")))
+DEBUG_LOG_DAYS = env_int("DOCNEST_DEBUG_LOG_DAYS", 7)
 LOGGING = {
     "version": 1,
     "disable_existing_loggers": False,
     "filters": {"redact": {"()": "apps.core.logging.RedactingFilter"}},
-    "formatters": {"json": {"()": "apps.core.logging.JsonFormatter"}},
+    "formatters": {
+        "json": {"()": "apps.core.logging.JsonFormatter"},
+        "text": {"()": "apps.core.debuglog.TextFormatter"},
+    },
     "handlers": {
         "console": {
             "class": "logging.StreamHandler",
             "stream": "ext://sys.stdout",
             "formatter": "json",
             "filters": ["redact"],
+            "level": LOG_LEVEL,
         }
     },
     "root": {"handlers": ["console"], "level": LOG_LEVEL},
@@ -277,3 +286,30 @@ LOGGING = {
         "PIL": {"level": "WARNING"},
     },
 }
+if DEBUG_LOG:
+    LOGGING["handlers"]["debug_file"] = {  # type: ignore[index]
+        "()": "apps.core.debuglog.DailyFileHandler",
+        "directory": str(DEBUG_LOG_DIR),
+        "keep_days": DEBUG_LOG_DAYS,
+        "formatter": "text",
+        "filters": ["redact"],
+        "level": "DEBUG",
+    }
+    LOGGING["root"] = {"handlers": ["console", "debug_file"], "level": "DEBUG"}
+    LOGGING["loggers"].update(  # type: ignore[attr-defined]
+        {
+            # Chatty libraries: what they do at DEBUG level says nothing about DocNest.
+            "django.db.backends": {"level": "INFO"},
+            "django.template": {"level": "INFO"},
+            "django.utils.autoreload": {"level": "INFO"},
+            "urllib3": {"level": "INFO"},
+            "httpx": {"level": "INFO"},
+            "httpcore": {"level": "INFO"},
+            "asyncio": {"level": "INFO"},
+            "filelock": {"level": "INFO"},
+            "multipart": {"level": "INFO"},
+            "matplotlib": {"level": "INFO"},
+            "ocrmypdf": {"level": "INFO"},
+        }
+    )
+    MIDDLEWARE.insert(0, "apps.core.debuglog.RequestLogMiddleware")

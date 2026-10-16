@@ -131,6 +131,21 @@ class Document(models.Model):
         self.field_sources = {**self.field_sources, field: source}
 
 
+class DocumentShare(models.Model):
+    """A revocable capability, independent of the document's UUID."""
+
+    token_hash = models.CharField(max_length=64, unique=True, editable=False)
+    token_enc = models.BinaryField()
+    document = models.ForeignKey(Document, on_delete=models.CASCADE, related_name="shares")
+    password_hash = models.CharField(max_length=128, blank=True)
+    allow_original = models.BooleanField(default=False)
+    allow_text = models.BooleanField(default=True)
+    created_at = models.DateTimeField(default=timezone.now)
+
+    class Meta:
+        ordering = ["-created_at", "-pk"]
+
+
 class DocumentTag(models.Model):
     document = models.ForeignKey(Document, on_delete=models.CASCADE)
     tag = models.ForeignKey(Tag, on_delete=models.CASCADE)

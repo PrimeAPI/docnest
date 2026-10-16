@@ -53,6 +53,7 @@ import { ErrorNote, Spinner } from "@/components/ui/misc";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { StatusBadge, TagChip } from "@/features/documents/document-row";
 import { DocumentViewer } from "@/features/documents/document-viewer";
+import { ShareDialog } from "@/features/documents/share-dialog";
 import { FolderSelect } from "@/features/folders/folder-ui";
 import { PaperCard } from "@/features/paper/paper";
 import { describeEnhancement } from "@/features/processing/enhancement";
@@ -220,6 +221,7 @@ function Header({ doc }: { doc: DocumentDetail }) {
             <Download /> Download
           </a>
         </Button>
+        <ShareDialog id={doc.id} />
         <AssistantButton ids={[doc.id]} scope="this document" />
         <Button
           variant="outline"

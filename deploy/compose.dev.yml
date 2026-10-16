@@ -30,6 +30,7 @@ x-dev: &dev
     DOCNEST_OLLAMA_URL: ${DOCNEST_OLLAMA_URL:-http://ollama:11434}  # docker compose --profile ai up -d ollama
     DOCNEST_OLLAMA_API_KEY: ${DOCNEST_OLLAMA_API_KEY:-}
     DOCNEST_PROCESSING_CONCURRENCY: ${DOCNEST_PROCESSING_CONCURRENCY:-1}
+    DOCNEST_DEBUG_LOG: ${DOCNEST_DEBUG_LOG:-false}  # writes to backend/.data/debug-logs
     DOCNEST_DOCLING_ARTIFACTS_PATH: /app/backend/.data/models
     HF_HOME: /app/backend/.data/models/.cache/huggingface
     HF_HUB_DISABLE_TELEMETRY: "1"

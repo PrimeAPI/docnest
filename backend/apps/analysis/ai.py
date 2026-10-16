@@ -180,15 +180,54 @@ def _request(path: str, payload: dict[str, Any] | None = None, *, timeout: float
         headers=_headers(),
         method="POST" if data is not None else "GET",
     )
+    # Sizes and timings only: the payload holds the document's pages and text.
+    request_info = {
+        "url": url + path,
+        "method": request.get_method(),
+        "model": (payload or {}).get("model"),
+        "request_kb": len(data or b"") // 1024,
+        "timeout_s": timeout,
+        "auth": "bearer" if get_ollama_api_key() else "none",
+    }
+    started = time.monotonic()
+    logger.debug("ollama request", extra=request_info)
     try:
         with urllib.request.urlopen(request, timeout=timeout) as response:  # noqa: S310
-            return json.loads(response.read().decode())
+            body = response.read()
+            logger.debug(
+                "ollama response",
+                extra={
+                    **request_info,
+                    "status": getattr(response, "status", None),
+                    "response_kb": len(body) // 1024,
+                    "seconds": round(time.monotonic() - started, 2),
+                },
+            )
+            return json.loads(body.decode())
     except urllib.error.HTTPError as exc:
+        logger.debug(
+            "ollama HTTP error",
+            extra={
+                **request_info,
+                "status": exc.code,
+                "server": exc.headers.get("Server", "") if exc.headers is not None else "",
+                "seconds": round(time.monotonic() - started, 2),
+            },
+        )
         raise _failure(exc) from exc
     except (urllib.error.URLError, ConnectionError, TimeoutError) as exc:
         reason = getattr(exc, "reason", exc)
+        logger.debug(
+            "ollama not reachable",
+            extra={
+                **request_info,
+                "error": f"{type(exc).__name__}: {reason}",
+                "seconds": round(time.monotonic() - started, 2),
+            },
+        )
         raise ModelUnavailable(f"Ollama is not reachable at {url}: {reason}") from exc
     except json.JSONDecodeError as exc:
+        logger.debug("ollama answered invalid JSON", extra=request_info)
         raise ModelFailed("Ollama returned invalid JSON") from exc
 
 
@@ -211,8 +250,26 @@ def _streamed(path: str, payload: dict[str, Any], *, timeout: float) -> dict[str
     content: list[str] = []
     last: dict[str, Any] | None = None
     started = time.monotonic()
+    # Sizes and timings only: the payload holds the document's pages and text.
+    request_info = {
+        "url": url + path,
+        "model": payload.get("model"),
+        "request_kb": len(request.data or b"") // 1024,  # type: ignore[arg-type]
+        "timeout_s": timeout,
+        "auth": "bearer" if get_ollama_api_key() else "none",
+        "stream": True,
+    }
+    logger.debug("ollama request", extra=request_info)
     try:
         with urllib.request.urlopen(request, timeout=timeout) as response:  # noqa: S310
+            logger.debug(
+                "ollama answer started",
+                extra={
+                    **request_info,
+                    "status": getattr(response, "status", None),
+                    "seconds": round(time.monotonic() - started, 2),
+                },
+            )
             for raw in response:
                 line = raw.decode(errors="replace").strip()
                 if not line:
@@ -224,16 +281,45 @@ def _streamed(path: str, payload: dict[str, Any], *, timeout: float) -> dict[str
                 if not isinstance(chunk, dict):
                     raise ModelFailed("Ollama returned invalid JSON")
                 if error := chunk.get("error"):
+                    logger.debug(
+                        "ollama reported an error mid-answer",
+                        extra={**request_info, "error": str(error)[:200], "chunks": len(content)},
+                    )
                     raise ModelCrashed(f"The AI model stopped while reading ({str(error)[:200]})")
                 content.append(str((chunk.get("message") or {}).get("content") or ""))
                 last = chunk
                 if time.monotonic() - started > timeout:
+                    logger.debug(
+                        "ollama answer took too long", extra={**request_info, "chunks": len(content)}
+                    )
                     raise ModelUnavailable(f"The AI model did not finish within {timeout:.0f} s")
     except urllib.error.HTTPError as exc:
+        logger.debug(
+            "ollama HTTP error",
+            extra={
+                **request_info,
+                "status": exc.code,
+                "server": exc.headers.get("Server", "") if exc.headers is not None else "",
+                "seconds": round(time.monotonic() - started, 2),
+            },
+        )
         raise _failure(exc) from exc
     except (urllib.error.URLError, ConnectionError, TimeoutError) as exc:
         reason = getattr(exc, "reason", exc)
+        logger.debug(
+            "ollama not reachable",
+            extra={
+                **request_info,
+                "error": f"{type(exc).__name__}: {reason}",
+                "seconds": round(time.monotonic() - started, 2),
+                "chunks": len(content),
+            },
+        )
         raise ModelUnavailable(f"Ollama is not reachable at {url}: {reason}") from exc
+    logger.debug(
+        "ollama answer finished",
+        extra={**request_info, "chunks": len(content), "seconds": round(time.monotonic() - started, 2)},
+    )
     if last is None:
         raise ModelFailed("Ollama sent an empty answer")
     return {**last, "message": {"role": "assistant", "content": "".join(content)}}
@@ -419,9 +505,25 @@ def _chat(payload: dict[str, Any], *, timeout: float | None = None) -> dict[str,
         if "think" not in str(exc).lower():
             raise
         # Models without a reasoning mode reject the switch instead of ignoring it.
+        logger.debug(
+            "model rejected the reasoning switch; asking again without it", extra={"error": str(exc)}
+        )
         payload.pop("think", None)
         response = _streamed("/api/chat", payload, timeout=timeout or settings.AI_TIMEOUT_SECONDS)
     content = str((response.get("message") or {}).get("content") or "")
+    logger.debug(
+        "model statistics",
+        extra={
+            "model": response.get("model"),
+            "done_reason": response.get("done_reason"),
+            "prompt_tokens": response.get("prompt_eval_count"),
+            "answer_tokens": response.get("eval_count"),
+            "load_s": round((response.get("load_duration") or 0) / 1e9, 1),
+            "prompt_s": round((response.get("prompt_eval_duration") or 0) / 1e9, 1),
+            "answer_s": round((response.get("eval_duration") or 0) / 1e9, 1),
+            "answer_chars": len(content),
+        },
+    )
     if not content.strip() and response.get("done_reason") == "length":
         raise ModelFailed(
             "The model used up its answer length before answering. Reasoning models do that; "

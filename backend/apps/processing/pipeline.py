@@ -456,6 +456,10 @@ def stage_analyze(document: Document, work: Path) -> None:
     ]
     evidence = "\n".join([*evidence_lines, text])
     mode = get_docling_field_detection()
+    logger.debug(
+        "docling field detection",
+        extra={"document": str(document.uuid), "mode": mode, "low_confidence": detected.low_confidence},
+    )
     # The AI model reads more than Docling's small extraction model; never run both.
     if model_fields is None and (mode == "vlm" or (mode == "hybrid" and detected.low_confidence)):
         try:
@@ -492,6 +496,13 @@ def _model_fields(document: Document, work: Path, text: str) -> tuple[ai.ModelFi
     plan = document.processing_plan
     model = plan["ai_model"] if isinstance(plan.get("ai_model"), str) else get_ai_model()
     if not model or not ai.configured():
+        logger.debug(
+            "analysis by rules",
+            extra={
+                "document": str(document.uuid),
+                "reason": "no AI model chosen" if not model else "no Ollama server configured",
+            },
+        )
         return None, {"by": "rules"}
     src = _processed_local(document, work)
     page_limit = get_ai_pages()
@@ -523,18 +534,37 @@ def _model_fields(document: Document, work: Path, text: str) -> tuple[ai.ModelFi
         .order_by("is_suggested", "-uses", "name")
         .values_list("name", flat=True)[: ai.MAX_KNOWN_TAGS]
     )
+    context = _mail_context(document)
+    logger.debug(
+        "asking the AI model",
+        extra={
+            "document": str(document.uuid),
+            "model": model,
+            "model_from": "reprocess choice" if isinstance(plan.get("ai_model"), str) else "settings",
+            "page_limit": page_limit,
+            "images": len(images),
+            "image_kb": sum(len(i) for i in images) // 1024,
+            "text_chars": len(text),
+            "types": len(types),
+            "known_tags": len(tags),
+            "mail_context_chars": len(context),
+        },
+    )
     started = time.monotonic()
     try:
-        fields = ai.analyze(
-            model, images=images, text=text, types=types, tags=tags, context=_mail_context(document)
-        )
+        fields = ai.analyze(model, images=images, text=text, types=types, tags=tags, context=context)
     except (ai.ModelUnavailable, ai.ModelCrashed) as exc:
         # A model that cannot be reached, and one that stops while running (out of memory, or a
         # shared server under load), are both worth waiting for. Never guess with the rules instead.
+        logger.warning(
+            "AI model unavailable; the job waits and retries",
+            extra={"document": str(document.uuid), "model": model, "error": str(exc)[:300]},
+        )
         raise AnalysisModelUnavailable(str(exc)) from exc
     except ai.ModelFailed as exc:
         logger.warning(
-            "AI analysis failed; using rule-based detection", extra={"document": str(document.uuid)}
+            "AI analysis failed; using rule-based detection",
+            extra={"document": str(document.uuid), "model": model, "error": str(exc)[:300]},
         )
         ProcessingEvent.objects.create(
             document=document,
@@ -544,6 +574,21 @@ def _model_fields(document: Document, work: Path, text: str) -> tuple[ai.ModelFi
         )
         return None, {"by": "rules", "model": model, "problem": str(exc)[:300]}
     seconds = time.monotonic() - started
+    logger.debug(
+        "AI model answered",
+        extra={
+            "document": str(document.uuid),
+            "model": model,
+            "seconds": round(seconds, 1),
+            # Which fields it filled, never their values: those are document content.
+            "filled": ",".join(
+                name
+                for name in ("sender", "recipient", "title", "document_date", "document_type", "tags")
+                if getattr(fields, name)
+            )
+            or "none",
+        },
+    )
     ProcessingEvent.objects.create(
         document=document,
         stage=Stage.ANALYZE,
@@ -648,7 +693,21 @@ def run(document_id: int, *, intake_only: bool = False, check: Callable[[], None
     """
     check()
     document = Document.objects.get(pk=document_id)
+    doc = str(document.uuid)
+    logger.debug(
+        "pipeline run",
+        extra={
+            "document": doc,
+            "stage": document.processing_stage,
+            "state": document.processing_state,
+            "plan": document.processing_plan,
+            "intake_only": intake_only,
+            "ocr_backend": document.ocr_backend or f"default ({get_default_ocr_backend()})",
+            "pages": document.page_count,
+        },
+    )
     if document.deleted_at is not None:
+        logger.debug("pipeline skipped: document is deleted", extra={"document": doc})
         return
     if document.processing_stage == Stage.RECEIVED:
         _advance(document, Stage.ASSEMBLE)
@@ -663,25 +722,52 @@ def run(document_id: int, *, intake_only: bool = False, check: Callable[[], None
             if intake_only and stage not in INTAKE_STAGES:
                 with transaction.atomic():
                     Document.objects.filter(pk=document.pk).update(processing_state=Document.State.PENDING)
-                    enqueue(document)
+                    job = enqueue(document)
+                logger.debug(
+                    "intake finished; processing handed over",
+                    extra={"document": doc, "next_stage": stage, "job": job.pk if job else None},
+                )
                 return
             if not planned(document, stage):
+                logger.debug("stage %s skipped: not part of this run", stage, extra={"document": doc})
                 _advance(document, ORDER[ORDER.index(stage) + 1])
                 continue
             started = time.monotonic()
+            logger.debug("stage %s started", stage, extra={"document": doc})
             try:
                 STAGES[stage](document, work)
-            except AnalysisModelUnavailable:
+            except AnalysisModelUnavailable as exc:
+                logger.debug(
+                    "stage %s waits for the AI model",
+                    stage,
+                    extra={
+                        "document": doc,
+                        "seconds": round(time.monotonic() - started, 1),
+                        "error": str(exc),
+                    },
+                )
                 raise  # waiting, not failing: the worker retries later
             except Exception as exc:
+                logger.debug(
+                    "stage %s failed",
+                    stage,
+                    extra={"document": doc, "seconds": round(time.monotonic() - started, 1)},
+                    exc_info=True,
+                )
                 _event(document, stage, "failed", started, _describe(exc))
                 raise
+            logger.debug(
+                "stage %s finished",
+                stage,
+                extra={"document": doc, "seconds": round(time.monotonic() - started, 1)},
+            )
             _event(document, stage, "ok", started)
             check()
             document.refresh_from_db()
             _advance(document, ORDER[ORDER.index(stage) + 1])
 
     check()
+    logger.debug("pipeline finished", extra={"document": doc})
     with transaction.atomic():
         Document.objects.filter(pk=document.pk).update(
             processing_state=Document.State.DONE,
@@ -693,6 +779,10 @@ def run(document_id: int, *, intake_only: bool = False, check: Callable[[], None
 
 def restart_from(document: Document, stage: str, plan: dict[str, object] | None = None) -> None:
     """Prepare a document for reprocessing from `stage` (used by the reprocess action)."""
+    logger.debug(
+        "document reset for reprocessing",
+        extra={"document": str(document.uuid), "from_stage": stage, "plan": plan or {}},
+    )
     document.processing_stage = stage
     document.processing_state = Document.State.PENDING
     document.processing_error = ""

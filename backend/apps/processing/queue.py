@@ -42,7 +42,21 @@ def enqueue(
                 run_after=timezone.now() + timedelta(seconds=delay),
             )
     except IntegrityError:
+        logger.debug(
+            "job not queued: an equivalent job is already active",
+            extra={"kind": kind, "document": getattr(document, "pk", None)},
+        )
         return None
+    logger.debug(
+        "job queued",
+        extra={
+            "job": job.pk,
+            "kind": kind,
+            "document": getattr(document, "pk", None),
+            "priority": priority,
+            "delay": delay,
+        },
+    )
     transaction.on_commit(_notify)
     return job
 
@@ -75,15 +89,24 @@ def claim(worker_id: str, *, kinds: Sequence[str] | None = None) -> Job | None:
                         [DOCUMENT_LOCK_NAMESPACE, job.document_id],
                     )
                     if not cursor.fetchone()[0]:
+                        logger.debug(
+                            "expired job skipped: its previous attempt still holds the document",
+                            extra={"job": job.pk, "document": job.document_id},
+                        )
                         jobs = jobs.exclude(pk=job.pk)
                         continue
             if job.cancel_requested:
                 from apps.processing.pipeline import finish_cancellation
 
+                logger.debug("cancelled job settled instead of claimed", extra={"job": job.pk})
                 finish_cancellation(job)
                 continue
             if job.attempts >= job.max_attempts:
                 message = "Worker stopped repeatedly; retry limit reached — use Reprocess to try again"
+                logger.warning(
+                    "job failed: retry limit reached when claiming",
+                    extra={"job": job.pk, "kind": job.kind, "attempts": job.attempts},
+                )
                 Job.objects.filter(pk=job.pk).update(
                     state=Job.State.FAILED,
                     last_error=message,
@@ -120,6 +143,19 @@ def claim(worker_id: str, *, kinds: Sequence[str] | None = None) -> Job | None:
                 "updated_at",
             ]
         )
+        logger.debug(
+            "job claimed",
+            extra={
+                "job": job.pk,
+                "kind": job.kind,
+                "document": job.document_id,
+                "attempt": job.attempts,
+                "max_attempts": job.max_attempts,
+                "priority": job.priority,
+                "waited_s": int((now - job.created_at).total_seconds()),
+                "reclaimed": bool(job.last_error) or job.attempts > 1,
+            },
+        )
         return job
 
 
@@ -136,11 +172,12 @@ def release_orphans() -> int:
 
     now = timezone.now()
     alive = WorkerHeartbeat.objects.filter(last_seen_at__gte=now - timedelta(seconds=WORKER_SILENT_SECONDS))
-    return (
+    released = (
         Job.objects.filter(state=Job.State.RUNNING, locked_until__gt=now)
         .exclude(locked_by__in=alive.values("worker_id"))
         .update(locked_until=now, updated_at=now)
     )
+    return released
 
 
 def complete(job: Job) -> bool:
@@ -159,6 +196,7 @@ def complete(job: Job) -> bool:
         finished_at=now,
         updated_at=now,
     )
+    logger.debug("job marked done", extra={"job": job.pk, "owned": updated == 1})
     return updated == 1
 
 
@@ -174,6 +212,8 @@ def renew(job: Job) -> bool:
         locked_until=timezone.now() + timedelta(seconds=settings.JOB_LEASE_SECONDS),
         updated_at=timezone.now(),
     )
+    if updated != 1:
+        logger.debug("job lease could not be renewed", extra={"job": job.pk})
     return updated == 1
 
 
@@ -198,6 +238,18 @@ def retry_or_fail(job: Job, error: str, *, retryable: bool = True, delay: int | 
             last_error=error,
             updated_at=timezone.now(),
         )
+        logger.info(
+            "job queued again for a retry",
+            extra={
+                "job": job.pk,
+                "kind": job.kind,
+                "attempt": job.attempts,
+                "max_attempts": job.max_attempts,
+                "retry_in_s": backoff,
+                "owned": updated == 1,
+                "error": error,
+            },
+        )
         return False if updated == 1 else None
     now = timezone.now()
     updated = Job.objects.filter(
@@ -213,6 +265,17 @@ def retry_or_fail(job: Job, error: str, *, retryable: bool = True, delay: int | 
         last_error=error,
         finished_at=now,
         updated_at=now,
+    )
+    logger.info(
+        "job failed",
+        extra={
+            "job": job.pk,
+            "kind": job.kind,
+            "attempt": job.attempts,
+            "retryable": retryable,
+            "owned": updated == 1,
+            "error": error,
+        },
     )
     return True if updated == 1 else None
 
@@ -236,4 +299,49 @@ def defer(job: Job, seconds: int, reason: str) -> bool:
         last_error=reason[:500],
         updated_at=timezone.now(),
     )
+    logger.info(
+        "job deferred without using an attempt",
+        extra={
+            "job": job.pk,
+            "kind": job.kind,
+            "retry_in_s": seconds,
+            "owned": updated == 1,
+            "reason": reason,
+        },
+    )
     return updated == 1
+
+
+def snapshot(limit: int = 20) -> dict[str, object]:
+    """What is queued and running, and why queued jobs wait (for the debug log)."""
+    now = timezone.now()
+    active = Job.objects.filter(state__in=[Job.State.QUEUED, Job.State.RUNNING])
+    jobs = []
+    for job in active.order_by("state", "-priority", "run_after", "id")[:limit]:
+        entry: dict[str, object] = {
+            "job": job.pk,
+            "kind": job.kind,
+            "state": job.state,
+            "document": job.document_id,
+            "attempts": f"{job.attempts}/{job.max_attempts}",
+            "priority": job.priority,
+        }
+        if job.state == Job.State.QUEUED:
+            wait = (job.run_after - now).total_seconds()
+            entry["due"] = "now" if wait <= 0 else f"in {int(wait)}s"
+        else:
+            entry["worker"] = job.locked_by
+            entry["lease_left_s"] = (
+                int((job.locked_until - now).total_seconds()) if job.locked_until else None
+            )
+        if job.cancel_requested:
+            entry["cancel_requested"] = True
+        if job.last_error:
+            entry["last_error"] = job.last_error[:200]
+        jobs.append(entry)
+    return {
+        "queued": active.filter(state=Job.State.QUEUED).count(),
+        "queued_due": active.filter(state=Job.State.QUEUED, run_after__lte=now).count(),
+        "running": active.filter(state=Job.State.RUNNING).count(),
+        "jobs": jobs,
+    }

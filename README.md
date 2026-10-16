@@ -18,6 +18,7 @@
 - **Filing suggestions** — select the loose documents of a folder and DocNest proposes subfolders for them (`Work` → `Work/Verdienstabrechnungen/2026`), learning what each folder means from what is already in it. Add instructions (“Stadtwerke nach Wohnung/Nebenkosten”, “English folder names”) and ask again; move single documents between the suggested folders; nothing moves until you apply.
 - **Series** — monthly payslips, phone bills or bank statements are grouped and labelled (“March 2026”), with gaps highlighted.
 - **Human override** — every automatic value can be corrected; your edits are never overwritten.
+- **Document sharing** — revocable read-only links, optionally protected by a passphrase, with PDF downloads, optional original/OCR access and copyable direct enhanced-PDF links.
 - **Proton Drive storage** — documents are stored end-to-end encrypted in your Proton Drive; DocNest holds files only temporarily.
 
 ## Security at a glance

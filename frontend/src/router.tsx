@@ -15,10 +15,12 @@ import { SeriesDetailPage, SeriesPage } from "@/pages/series-page";
 import { SettingsPage } from "@/pages/settings-page";
 import { TodosPage } from "@/pages/todos-page";
 import { TrashPage } from "@/pages/trash-page";
+import { SharedDocumentPage } from "@/pages/shared-document-page";
 
 export const router = createBrowserRouter([
   { path: "/login", element: <LoginPage /> },
   { path: "/setup", element: <SetupPage /> },
+  { path: "/share/:shareId", element: <SharedDocumentPage /> },
   {
     element: (
       <AuthGate>

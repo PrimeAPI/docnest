@@ -42,7 +42,16 @@ function Chip({ children, tone = "muted" }: { children: ReactNode; tone?: "muted
 function QueueDetail({ item, queued }: { item: QueueItem; queued: boolean }) {
   const phase = PHASES[item.phase] ?? item.phase;
   const processor = item.backend === "docling" ? "Docling" : "OCRmyPDF";
-  if (queued)
+  if (queued) {
+    // A retry or a wait for the AI model: say why and when, not just "waiting".
+    const later = new Date(item.run_after).getTime() > Date.now();
+    if (later || item.error)
+      return (
+        <span className="truncate" title={item.error || undefined}>
+          {later ? `Retrying at ${formatDateTime(item.run_after)}` : "Retrying"}
+          {item.error && ` · ${item.error}`}
+        </span>
+      );
     return (
       <span className="flex min-w-0 items-center gap-1.5">
         <span className="truncate">
@@ -51,6 +60,7 @@ function QueueDetail({ item, queued }: { item: QueueItem; queued: boolean }) {
         {item.attempts > 0 && <Chip>Attempt {item.attempts + 1}</Chip>}
       </span>
     );
+  }
   if (item.state === "running" && item.cancel_requested)
     return <span>Stopping processing…</span>;
   if (item.state === "running")

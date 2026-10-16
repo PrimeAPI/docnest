@@ -20,7 +20,7 @@ function item(overrides: Partial<Schemas["ProcessingQueueItem"]> = {}): Schemas[
   return {
     id: 1, document_id: "doc-1", title: "Loyalty card", state: "running", phase: "processing",
     stage: "ocr", step: 2, steps: 5, outcome: "", backend: "docling", attempts: 1, error: "",
-    created_at: "2026-10-13T00:00:00Z", started_at: "2026-10-13T00:00:00Z",
+    created_at: "2026-10-13T00:00:00Z", run_after: "2026-10-13T00:00:00Z", started_at: "2026-10-13T00:00:00Z",
     finished_at: null, duration_seconds: 23, cancellable: true, cancel_requested: false, ...overrides,
   };
 }
@@ -83,7 +83,6 @@ it("can cancel all post-intake processing with explicit confirmation", async () 
   }));
 });
 
-
 it("carries the measured time forward between polls instead of standing still", () => {
   vi.useFakeTimers();
   try {
@@ -127,4 +126,13 @@ it("measures a finished job from its own start and end", () => {
   );
   fireEvent.click(view.getByRole("button", { name: /Processing queue:/ }));
   expect(view.getByText("2m 5s")).toBeTruthy();
+});
+
+it("says why a queued job waits and when it is tried again", () => {
+  const later = new Date(Date.now() + 10 * 60_000).toISOString();
+  const view = show([], [
+    item({ id: 3, state: "queued", run_after: later, error: "Ollama is not reachable at http://ollama:11434" }),
+  ]);
+  expect(view.getByText(/Retrying at .* · Ollama is not reachable/)).toBeTruthy();
+  expect(view.queryByText("Waiting for processing")).toBeNull();
 });

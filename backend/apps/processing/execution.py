@@ -174,6 +174,11 @@ def _child(job_id: int, lease_token: str, config: dict[str, Any], root: str, sen
 
     from django.db import close_old_connections
 
+    from apps.core import debuglog
+
+    debuglog.set_role(f"job-{job_id}")
+    logger.debug("job subprocess started", extra={"job": job_id, "workdir": root})
+
     from apps.documents.models import Document
     from apps.processing import pipeline
     from apps.processing.models import Job
@@ -187,6 +192,7 @@ def _child(job_id: int, lease_token: str, config: dict[str, Any], root: str, sen
         while not stopped.wait(GUARD_POLL_SECONDS):
             try:
                 if parent is None or not parent.is_alive():
+                    logger.error("job subprocess killing itself: the worker is gone", extra={"job": job_id})
                     os.killpg(os.getpgrp(), signal.SIGKILL)
                 close_old_connections()
                 if not Job.objects.filter(
@@ -195,6 +201,10 @@ def _child(job_id: int, lease_token: str, config: dict[str, Any], root: str, sen
                     state=Job.State.RUNNING,
                     locked_until__gt=timezone.now(),
                 ).exists():
+                    logger.warning(
+                        "job subprocess killing itself: the job is no longer running or its lease expired",
+                        extra={"job": job_id},
+                    )
                     os.killpg(os.getpgrp(), signal.SIGKILL)
                 failures = 0
             except Exception:
@@ -202,7 +212,13 @@ def _child(job_id: int, lease_token: str, config: dict[str, Any], root: str, sen
                 # outage must not kill a healthy job. Only a process that cannot confirm
                 # its lease for a while must stop mutating files.
                 failures += 1
+                logger.warning(
+                    "job subprocess could not confirm its lease",
+                    extra={"job": job_id, "failures": failures, "limit": GUARD_MAX_FAILURES},
+                    exc_info=True,
+                )
                 if failures >= GUARD_MAX_FAILURES:
+                    logger.error("job subprocess killing itself: lost the database", extra={"job": job_id})
                     os.killpg(os.getpgrp(), signal.SIGKILL)
             finally:
                 # The guard itself must survive what it survives the job for.
@@ -219,6 +235,7 @@ def _child(job_id: int, lease_token: str, config: dict[str, Any], root: str, sen
             cursor.execute("SELECT pg_try_advisory_lock(%s, %s)", [DOCUMENT_LOCK_NAMESPACE, job.document_id])
             if not cursor.fetchone()[0]:
                 raise RuntimeError("Previous processing attempt is still stopping")
+        logger.debug("document lock taken", extra={"job": job_id, "document": job.document_id})
         if job.kind == Job.Kind.REINDEX_DOCUMENT:
             pipeline.reindex(Document.objects.get(pk=job.document_id))
         else:
@@ -227,18 +244,31 @@ def _child(job_id: int, lease_token: str, config: dict[str, Any], root: str, sen
                 intake_only=job.kind == Job.Kind.INTAKE_DOCUMENT,
                 check=lambda: check_job(job),
             )
+        logger.debug("job subprocess finished", extra={"job": job_id, "outcome": "ok"})
         sender.send(("ok", ""))
     except pipeline.Cancelled:
+        logger.debug("job subprocess finished", extra={"job": job_id, "outcome": "cancelled"})
         sender.send(("cancelled", ""))
     except pipeline.LeaseLost:
+        logger.debug("job subprocess finished", extra={"job": job_id, "outcome": "lease lost"})
         sender.send(("lost", ""))
     except pipeline.StorageUnavailable as exc:
+        logger.debug(
+            "job subprocess finished", extra={"job": job_id, "outcome": "storage", "error": str(exc)}
+        )
         sender.send(("storage", str(exc)[:500]))
     except pipeline.AnalysisModelUnavailable as exc:
+        logger.debug(
+            "job subprocess finished", extra={"job": job_id, "outcome": "analysis", "error": str(exc)}
+        )
         sender.send(("analysis", str(exc)[:500]))
     except pipeline.PermanentError as exc:
+        logger.debug(
+            "job subprocess finished", extra={"job": job_id, "outcome": "permanent", "error": str(exc)}
+        )
         sender.send(("permanent", str(exc)[:500]))
     except Exception as exc:
+        logger.debug("job subprocess failed", extra={"job": job_id}, exc_info=True)
         sender.send(("error", f"{type(exc).__name__}: {exc}"[:500]))
     finally:
         stopped.set()
@@ -279,6 +309,7 @@ def run(job: Any) -> None:
         try:
             process.start()
             sender.close()
+            logger.debug("job subprocess spawned", extra={"job": job.pk, "pid": process.pid})
             while True:
                 # Ownership and progress come from the database; a full queue of supervisors
                 # must not poll it four times a second each.
@@ -291,9 +322,23 @@ def run(job: Any) -> None:
                         "document__processing_stage", "document__page_count"
                     ).get(pk=job.pk)
                     if current_stage != stage:
+                        logger.debug(
+                            "supervisor sees stage %s",
+                            current_stage,
+                            extra={
+                                "job": job.pk,
+                                "previous": stage,
+                                "previous_s": round(time.monotonic() - started, 1),
+                                "peak_mb": peak // (1024 * 1024) if peak else None,
+                            },
+                        )
                         stage, started = current_stage, time.monotonic()
                     limit = _stage_limit(stage, pages)
                     if time.monotonic() - started > limit:
+                        logger.error(
+                            "stage ran over its time limit; stopping the job subprocess",
+                            extra={"job": job.pk, "stage": stage, "limit_s": limit, "pages": pages},
+                        )
                         waited = f"{limit / 60:.0f} min" if limit >= 90 else f"{limit:g} s"
                         raise pipeline.Stopped(
                             f"{pipeline.stage_label(stage)} was still running after {waited} and was "
@@ -313,6 +358,15 @@ def run(job: Any) -> None:
                 with contextlib.suppress(EOFError):
                     result = receiver.recv()
             process.join(timeout=5)
+            logger.debug(
+                "job subprocess exited",
+                extra={
+                    "job": job.pk,
+                    "exit": process.exitcode,
+                    "result": result[0] if result else None,
+                    "peak_mb": peak // (1024 * 1024) if peak else None,
+                },
+            )
             check_job(job)
             if result is None:
                 # Nobody reported anything: the process was killed mid-step. Say which step,

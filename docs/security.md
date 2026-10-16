@@ -39,6 +39,14 @@ The classifier that learns from your corrections uses the same hashed terms as f
 - **Re-authentication** — creating scanner tokens, managing second factors and similar actions require the password again if the last sign-in is older than 10 minutes.
 - **CSRF** protection on every state-changing request.
 
+## Document sharing
+
+Creating, listing and revoking share links requires a fully authenticated session. The public read-only `/api/v1/shares/` endpoints accept a separate random UUIDv4 capability for one document; the document's UUID alone grants no access. Share UUIDs are encrypted at rest and looked up by SHA-256 digest. Links optionally require a passphrase stored with Argon2id. Passphrase submissions require CSRF protection and have persistent per-share/IP and per-IP failure limits (5 and 20 attempts respectively per 15 minutes).
+
+A successful passphrase grants that browser session access to only that share for twelve hours, without authenticating it to the archive. Every request checks that the share still exists, its document is not trashed, and the requested original/OCR permissions are enabled. Revocation removes the share immediately. Share responses disable caching, referrer transmission and indexing; raw PDFs retain the normal sandboxing headers. Audit entries record creation, revocation, unlocking and failed attempts without recording link secrets or passphrases.
+
+Recipients can retain downloaded documents. Hiding pages in Enhanced does not remove them from the original or the separately stored OCR text; these permissions are explicitly selectable in the Share dialog.
+
 ## Scanner separation (SEC04)
 
 The upload API (`/api/upload/v1/`) and the web API (`/api/v1/`) use different authentication classes: scanner bearer tokens are never accepted on the web API, and session cookies are never accepted on the upload API. Tokens are 256-bit random secrets stored as SHA-256 hashes, scoped (`upload`, `upload:status`), revocable, optionally IP-restricted, and failed token attempts are rate-limited per IP.
@@ -61,7 +69,7 @@ Uploaded files go straight to the encrypted intake. Plaintext copies needed for 
 
 ## Logs (SEC08)
 
-Logs are structured JSON. Document text is never passed to the logger (enforced by tests that run the full pipeline and search the captured logs for document words). A redaction filter additionally masks anything that looks like a password, token, cookie or key. Gunicorn access logs are disabled because URLs contain search queries. The Proton CLI log level is `WARNING`.
+Logs are structured JSON. Document text is never passed to the logger (enforced by tests that run the full pipeline and search the captured logs for document words). A redaction filter additionally masks anything that looks like a password, token, cookie or key. Gunicorn access logs are disabled because URLs contain search queries. The Proton CLI log level is `WARNING`. The optional debug log (`DOCNEST_DEBUG_LOG`, off by default) follows the same rules: it writes to files with mode 0600 in a 0700 directory on the data volume, shows secrets only as set or empty, logs request paths without query strings, and deletes files after `DOCNEST_DEBUG_LOG_DAYS`.
 
 ## Secure defaults (SEC09)
 

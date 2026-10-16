@@ -187,6 +187,7 @@ class ProcessingQueueItem(Schema):
     attempts: int
     error: str
     created_at: datetime
+    run_after: datetime  # a queued job starts no earlier: retries and waits for the AI model
     started_at: datetime | None
     finished_at: datetime | None
     duration_seconds: float | None
@@ -484,6 +485,7 @@ def _queue_item(job: Job, now: datetime) -> ProcessingQueueItem:
         attempts=job.attempts,
         error=job.last_error,
         created_at=job.created_at,
+        run_after=job.run_after,
         started_at=job.started_at,
         finished_at=job.finished_at,
         duration_seconds=round(duration, 1) if duration is not None else None,

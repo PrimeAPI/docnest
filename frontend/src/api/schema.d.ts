@@ -779,6 +779,109 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/documents/{doc_id}/shares": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Shares */
+        get: operations["apps_documents_sharing_api_list_shares"];
+        put?: never;
+        /** Create Share */
+        post: operations["apps_documents_sharing_api_create_share"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/documents/{doc_id}/shares/{share_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Revoke Share */
+        delete: operations["apps_documents_sharing_api_revoke_share"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/shares/{share_id}/unlock": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Unlock Share */
+        post: operations["apps_documents_sharing_api_unlock_share"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/shares/{share_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Shared Document */
+        get: operations["apps_documents_sharing_api_shared_document"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/shares/{share_id}/file": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Shared File */
+        get: operations["apps_documents_sharing_api_shared_file"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/shares/{share_id}/text": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Shared Text */
+        get: operations["apps_documents_sharing_api_shared_text"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/folders": {
         parameters: {
             query?: never;
@@ -1957,6 +2060,11 @@ export interface components {
              * Format: date-time
              */
             created_at: string;
+            /**
+             * Run After
+             * Format: date-time
+             */
+            run_after: string;
             /** Started At */
             started_at: string | null;
             /** Finished At */
@@ -2750,6 +2858,65 @@ export interface components {
             data: {
                 [key: string]: unknown;
             };
+        };
+        /** ShareOut */
+        ShareOut: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Protected */
+            protected: boolean;
+            /** Allow Original */
+            allow_original: boolean;
+            /** Allow Text */
+            allow_text: boolean;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /** Url */
+            url: string;
+            /** Pdf Url */
+            pdf_url: string;
+        };
+        /** ShareIn */
+        ShareIn: {
+            /**
+             * Passphrase
+             * @default
+             */
+            passphrase: string;
+            /**
+             * Allow Original
+             * @default false
+             */
+            allow_original: boolean;
+            /**
+             * Allow Text
+             * @default true
+             */
+            allow_text: boolean;
+        };
+        /** UnlockIn */
+        UnlockIn: {
+            /** Passphrase */
+            passphrase: string;
+        };
+        /** SharedDocumentOut */
+        SharedDocumentOut: {
+            /** Title */
+            title: string;
+            /** Document Date */
+            document_date: string | null;
+            /** Page Count */
+            page_count: number;
+            /** Allow Original */
+            allow_original: boolean;
+            /** Allow Text */
+            allow_text: boolean;
         };
         /** FolderOut */
         FolderOut: {
@@ -4984,6 +5151,166 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["DocumentDetail"];
+                };
+            };
+        };
+    };
+    apps_documents_sharing_api_list_shares: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                doc_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ShareOut"][];
+                };
+            };
+        };
+    };
+    apps_documents_sharing_api_create_share: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                doc_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ShareIn"];
+            };
+        };
+        responses: {
+            /** @description Created */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ShareOut"];
+                };
+            };
+        };
+    };
+    apps_documents_sharing_api_revoke_share: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                doc_id: string;
+                share_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    apps_documents_sharing_api_unlock_share: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                share_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UnlockIn"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    apps_documents_sharing_api_shared_document: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                share_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SharedDocumentOut"];
+                };
+            };
+        };
+    };
+    apps_documents_sharing_api_shared_file: {
+        parameters: {
+            query?: {
+                variant?: "archive" | "original";
+                download?: boolean;
+            };
+            header?: never;
+            path: {
+                share_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    apps_documents_sharing_api_shared_text: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                share_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TextOut"];
                 };
             };
         };

@@ -2213,6 +2213,287 @@
     ]
    }
   },
+  "/api/v1/documents/{doc_id}/shares": {
+   "get": {
+    "operationId": "apps_documents_sharing_api_list_shares",
+    "summary": "List Shares",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "doc_id",
+      "schema": {
+       "format": "uuid",
+       "title": "Doc Id",
+       "type": "string"
+      },
+      "required": true
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "OK",
+      "content": {
+       "application/json": {
+        "schema": {
+         "items": {
+          "$ref": "#/components/schemas/ShareOut"
+         },
+         "title": "Response",
+         "type": "array"
+        }
+       }
+      }
+     }
+    },
+    "tags": [
+     "sharing"
+    ],
+    "security": [
+     {
+      "MfaSessionAuth": []
+     }
+    ]
+   },
+   "post": {
+    "operationId": "apps_documents_sharing_api_create_share",
+    "summary": "Create Share",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "doc_id",
+      "schema": {
+       "format": "uuid",
+       "title": "Doc Id",
+       "type": "string"
+      },
+      "required": true
+     }
+    ],
+    "responses": {
+     "201": {
+      "description": "Created",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/ShareOut"
+        }
+       }
+      }
+     }
+    },
+    "tags": [
+     "sharing"
+    ],
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/ShareIn"
+       }
+      }
+     },
+     "required": true
+    },
+    "security": [
+     {
+      "MfaSessionAuth": []
+     }
+    ]
+   }
+  },
+  "/api/v1/documents/{doc_id}/shares/{share_id}": {
+   "delete": {
+    "operationId": "apps_documents_sharing_api_revoke_share",
+    "summary": "Revoke Share",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "doc_id",
+      "schema": {
+       "format": "uuid",
+       "title": "Doc Id",
+       "type": "string"
+      },
+      "required": true
+     },
+     {
+      "in": "path",
+      "name": "share_id",
+      "schema": {
+       "format": "uuid",
+       "title": "Share Id",
+       "type": "string"
+      },
+      "required": true
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "OK"
+     }
+    },
+    "tags": [
+     "sharing"
+    ],
+    "security": [
+     {
+      "MfaSessionAuth": []
+     }
+    ]
+   }
+  },
+  "/api/v1/shares/{share_id}/unlock": {
+   "post": {
+    "operationId": "apps_documents_sharing_api_unlock_share",
+    "summary": "Unlock Share",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "share_id",
+      "schema": {
+       "format": "uuid",
+       "title": "Share Id",
+       "type": "string"
+      },
+      "required": true
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "OK"
+     }
+    },
+    "tags": [
+     "shared documents"
+    ],
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/UnlockIn"
+       }
+      }
+     },
+     "required": true
+    }
+   }
+  },
+  "/api/v1/shares/{share_id}": {
+   "get": {
+    "operationId": "apps_documents_sharing_api_shared_document",
+    "summary": "Shared Document",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "share_id",
+      "schema": {
+       "format": "uuid",
+       "title": "Share Id",
+       "type": "string"
+      },
+      "required": true
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "OK",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/SharedDocumentOut"
+        }
+       }
+      }
+     }
+    },
+    "tags": [
+     "shared documents"
+    ]
+   }
+  },
+  "/api/v1/shares/{share_id}/file": {
+   "get": {
+    "operationId": "apps_documents_sharing_api_shared_file",
+    "summary": "Shared File",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "share_id",
+      "schema": {
+       "format": "uuid",
+       "title": "Share Id",
+       "type": "string"
+      },
+      "required": true
+     },
+     {
+      "in": "query",
+      "name": "variant",
+      "schema": {
+       "default": "archive",
+       "enum": [
+        "archive",
+        "original"
+       ],
+       "title": "Variant",
+       "type": "string"
+      },
+      "required": false
+     },
+     {
+      "in": "query",
+      "name": "download",
+      "schema": {
+       "default": false,
+       "title": "Download",
+       "type": "boolean"
+      },
+      "required": false
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "OK"
+     }
+    },
+    "tags": [
+     "shared documents"
+    ]
+   }
+  },
+  "/api/v1/shares/{share_id}/text": {
+   "get": {
+    "operationId": "apps_documents_sharing_api_shared_text",
+    "summary": "Shared Text",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "share_id",
+      "schema": {
+       "format": "uuid",
+       "title": "Share Id",
+       "type": "string"
+      },
+      "required": true
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "OK",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/TextOut"
+        }
+       }
+      }
+     }
+    },
+    "tags": [
+     "shared documents"
+    ]
+   }
+  },
   "/api/v1/folders": {
    "get": {
     "operationId": "apps_taxonomy_api_list_folders",
@@ -5535,6 +5816,11 @@
       "title": "Created At",
       "type": "string"
      },
+     "run_after": {
+      "format": "date-time",
+      "title": "Run After",
+      "type": "string"
+     },
      "started_at": {
       "anyOf": [
        {
@@ -5593,6 +5879,7 @@
      "attempts",
      "error",
      "created_at",
+     "run_after",
      "started_at",
      "finished_at",
      "duration_seconds",
@@ -7882,6 +8169,129 @@
      "data"
     ],
     "title": "StructureOut",
+    "type": "object"
+   },
+   "ShareOut": {
+    "properties": {
+     "id": {
+      "format": "uuid",
+      "title": "Id",
+      "type": "string"
+     },
+     "protected": {
+      "title": "Protected",
+      "type": "boolean"
+     },
+     "allow_original": {
+      "title": "Allow Original",
+      "type": "boolean"
+     },
+     "allow_text": {
+      "title": "Allow Text",
+      "type": "boolean"
+     },
+     "created_at": {
+      "format": "date-time",
+      "title": "Created At",
+      "type": "string"
+     },
+     "url": {
+      "title": "Url",
+      "type": "string"
+     },
+     "pdf_url": {
+      "title": "Pdf Url",
+      "type": "string"
+     }
+    },
+    "required": [
+     "id",
+     "protected",
+     "allow_original",
+     "allow_text",
+     "created_at",
+     "url",
+     "pdf_url"
+    ],
+    "title": "ShareOut",
+    "type": "object"
+   },
+   "ShareIn": {
+    "properties": {
+     "passphrase": {
+      "default": "",
+      "maxLength": 1024,
+      "title": "Passphrase",
+      "type": "string"
+     },
+     "allow_original": {
+      "default": false,
+      "title": "Allow Original",
+      "type": "boolean"
+     },
+     "allow_text": {
+      "default": true,
+      "title": "Allow Text",
+      "type": "boolean"
+     }
+    },
+    "title": "ShareIn",
+    "type": "object"
+   },
+   "UnlockIn": {
+    "properties": {
+     "passphrase": {
+      "maxLength": 1024,
+      "minLength": 1,
+      "title": "Passphrase",
+      "type": "string"
+     }
+    },
+    "required": [
+     "passphrase"
+    ],
+    "title": "UnlockIn",
+    "type": "object"
+   },
+   "SharedDocumentOut": {
+    "properties": {
+     "title": {
+      "title": "Title",
+      "type": "string"
+     },
+     "document_date": {
+      "anyOf": [
+       {
+        "format": "date",
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Document Date"
+     },
+     "page_count": {
+      "title": "Page Count",
+      "type": "integer"
+     },
+     "allow_original": {
+      "title": "Allow Original",
+      "type": "boolean"
+     },
+     "allow_text": {
+      "title": "Allow Text",
+      "type": "boolean"
+     }
+    },
+    "required": [
+     "title",
+     "document_date",
+     "page_count",
+     "allow_original",
+     "allow_text"
+    ],
+    "title": "SharedDocumentOut",
     "type": "object"
    },
    "FolderOut": {

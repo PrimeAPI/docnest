@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from datetime import date, datetime
 from pathlib import Path
 from typing import Literal
@@ -41,6 +42,7 @@ from apps.taxonomy.services import (
     resolve_or_create_tag,
 )
 
+logger = logging.getLogger(__name__)
 router = Router(tags=["documents"])
 
 
@@ -860,6 +862,13 @@ def document_file(
     download: bool = False,
 ) -> HttpResponse | FileResponse:
     document = get_document(doc_id, trashed=True)
+    return serve_document_file(request, document, variant, download)
+
+
+def serve_document_file(
+    request: HttpRequest, document: Document, variant: str, download: bool
+) -> FileResponse:
+    """Serve a file after the caller has checked its own access policy."""
     try:
         fh = files.fetch(document, variant)
     except FileNotFoundError as exc:
@@ -978,7 +987,18 @@ def start_reprocess(
     if background:
         plan["background"] = True  # a batch: new scans go first
     pipeline.restart_from(document, stage, plan)
-    pipeline.enqueue(document)
+    job = pipeline.enqueue(document)
+    logger.debug(
+        "reprocess requested",
+        extra={
+            "document": str(document.uuid),
+            "requested": data.resolved_steps(),
+            "steps": steps,
+            "from_stage": stage,
+            "job": job.pk if job else None,
+            "batch": background,
+        },
+    )
     if not quiet:
         audit("document.reprocess", request=request, target=str(document.uuid), stage=stage, steps=steps)
     return stage

@@ -37,6 +37,10 @@ class SecurityHeadersMiddleware:
         response.headers.setdefault("X-Frame-Options", "DENY")
         if request.path.startswith("/api/"):
             response.headers.setdefault("Cache-Control", "no-store")
+        if request.path.startswith(("/share/", "/api/v1/shares/")):
+            response["Referrer-Policy"] = "no-referrer"
+            response["X-Robots-Tag"] = "noindex, nofollow, noarchive"
+            response["Cache-Control"] = "no-store"
         return response
 
 
