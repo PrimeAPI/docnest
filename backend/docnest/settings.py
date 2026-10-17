@@ -214,7 +214,8 @@ OLLAMA_URL = env("DOCNEST_OLLAMA_URL", "").rstrip("/")
 OLLAMA_API_KEY = env("DOCNEST_OLLAMA_API_KEY", "")
 AI_MODEL = env("DOCNEST_AI_MODEL", "")
 AI_TIMEOUT_SECONDS = env_int("DOCNEST_AI_TIMEOUT_SECONDS", 3600)
-AI_CONTEXT_TOKENS = env_int("DOCNEST_AI_CONTEXT_TOKENS", 4096)
+# num_ctx sent with every request; 0 (default) sends none, so the server's OLLAMA_CONTEXT_LENGTH applies
+AI_CONTEXT_TOKENS = env_int("DOCNEST_AI_CONTEXT_TOKENS", 0)
 # What the model reads per document. Every image tile and text token costs time on a CPU;
 # the sender, title and date are on the first page, and the image beats the OCR text.
 AI_PAGES = env_int("DOCNEST_AI_PAGES", 1)  # default limit for both page images and OCR text

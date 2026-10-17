@@ -556,6 +556,66 @@ def test_the_answer_is_streamed_so_proxies_do_not_time_out(settings, monkeypatch
     assert sent[0]["stream"] is True
 
 
+def answer(sent: list[dict], errors: list[bytes] | None = None):
+    """An Ollama stand-in that records each request and fails with `errors` first."""
+    errors = list(errors or [])
+
+    def urlopen(request, *, timeout):
+        sent.append(json.loads(request.data))
+        if errors:
+            raise HTTPError(request.full_url, 400, "Bad Request", {}, BytesIO(errors.pop(0)))
+        return BytesIO(json.dumps({"message": {"content": "{}"}, "done": True}).encode() + b"\n")
+
+    return urlopen
+
+
+@pytest.mark.parametrize(("configured", "expected"), [(0, None), (16384, 16384)])
+def test_num_ctx_is_sent_only_when_configured(settings, monkeypatch, configured, expected):
+    """Unset, the server's OLLAMA_CONTEXT_LENGTH applies; a request's num_ctx would override it."""
+    settings.OLLAMA_URL = "https://remote-server"
+    settings.AI_CONTEXT_TOKENS = configured
+    sent: list[dict] = []
+    monkeypatch.setattr("urllib.request.urlopen", answer(sent))
+    ai.analyze("qwen3-vl:8b-instruct", images=[], text="x", types=[])
+    assert sent[0]["options"].get("num_ctx") == expected
+    assert sent[0]["think"] is False
+
+
+CONTEXT_ERROR = json.dumps(
+    {
+        "error": {
+            "code": 400,
+            "message": "request (4402 tokens) exceeds the available context size (4096 tokens)",
+            "type": "exceed_context_size_error",
+            "n_prompt_tokens": 4402,
+            "n_ctx": 4096,
+        }
+    }
+).encode()
+
+
+def test_a_context_too_small_is_retried_once_with_room_for_the_prompt(settings, monkeypatch):
+    settings.OLLAMA_URL = "https://remote-server"
+    settings.AI_CONTEXT_TOKENS = 4096
+    sent: list[dict] = []
+    monkeypatch.setattr("urllib.request.urlopen", answer(sent, [CONTEXT_ERROR]))
+    ai.analyze("qwen3-vl:8b-instruct", images=[], text="x", types=[])
+    # 4402 prompt tokens + 2048 for the answer, rounded up to whole 1024s
+    assert [r["options"].get("num_ctx") for r in sent] == [4096, 7168]
+
+
+def test_a_context_too_small_says_so_with_the_numbers(settings, monkeypatch):
+    settings.OLLAMA_URL = "https://remote-server"
+    sent: list[dict] = []
+    monkeypatch.setattr("urllib.request.urlopen", answer(sent, [CONTEXT_ERROR, CONTEXT_ERROR]))
+    with pytest.raises(ai.ContextTooSmall) as error:
+        ai.analyze("qwen3-vl:8b-instruct", images=[], text="x", types=[])
+    message = str(error.value)
+    assert "4402 tokens" in message and "4096 tokens" in message
+    assert "DOCNEST_AI_CONTEXT_TOKENS" in message
+    assert len(sent) == 2
+
+
 def test_ai_model_can_be_chosen_and_downloaded(api, settings, monkeypatch):
     settings.OLLAMA_URL = "http://ollama:11434"
     monkeypatch.setattr(

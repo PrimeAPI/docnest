@@ -36,6 +36,7 @@ GATEWAY_TIMEOUTS = {504, 522, 524}
 MAX_TAGS = 4
 MAX_KNOWN_TAGS = 80  # existing tags offered to the model; more only cost time
 MAX_ANSWER_TOKENS = 2048  # the answer is ~100 tokens; this only stops a runaway generation
+MAX_CONTEXT_TOKENS = 32768  # the most an automatic retry asks for after "context too small"
 # Shown in Settings as a starting point; any Ollama model works. "-instruct" variants answer
 # directly, while reasoning ("thinking") variants spend minutes deliberating first.
 SUGGESTED_MODELS = [
@@ -57,6 +58,25 @@ class ModelFailed(Exception):
 
 class ModelCrashed(Exception):
     """Ollama failed while running the model (often: not enough memory). Retry; never guess instead."""
+
+
+class ContextTooSmall(ModelFailed):
+    """The prompt does not fit the model's context window (num_ctx)."""
+
+    def __init__(self, prompt_tokens: int, context_tokens: int):
+        self.prompt_tokens = prompt_tokens
+        self.context_tokens = context_tokens
+        super().__init__(
+            f"The request ({prompt_tokens} tokens) does not fit the model's context of "
+            f"{context_tokens} tokens. Raise DOCNEST_AI_CONTEXT_TOKENS, or leave it unset so the "
+            "Ollama server's default (OLLAMA_CONTEXT_LENGTH) applies"
+        )
+
+
+def _context(tokens: int = 0) -> dict[str, int]:
+    """num_ctx for a request's options. None configured: the Ollama server's default applies."""
+    tokens = tokens if tokens > 0 else settings.AI_CONTEXT_TOKENS
+    return {"num_ctx": tokens} if tokens > 0 else {}
 
 
 @dataclass(frozen=True)
@@ -149,7 +169,13 @@ def _failure(exc: urllib.error.HTTPError) -> Exception:
     """The exception that describes an HTTP error from Ollama or a proxy in front of it."""
     if exc.code in {401, 403}:
         return ModelUnavailable(_access_error(exc))
-    detail = _error_detail(exc)
+    error = _error_body(exc)
+    if isinstance(error, dict) and error.get("type") == "exceed_context_size_error":
+        try:
+            return ContextTooSmall(int(error["n_prompt_tokens"]), int(error["n_ctx"]))
+        except (KeyError, TypeError, ValueError):
+            pass
+    detail = _error_text(error)
     if exc.code == 404:
         return ModelUnavailable(detail or "Model not found in Ollama")
     if exc.code >= 500 and "not found" in detail.lower():
@@ -325,11 +351,22 @@ def _streamed(path: str, payload: dict[str, Any], *, timeout: float) -> dict[str
     return {**last, "message": {"role": "assistant", "content": "".join(content)}}
 
 
-def _error_detail(exc: urllib.error.HTTPError) -> str:
+def _error_body(exc: urllib.error.HTTPError) -> Any:
+    """The "error" value of an error response: a string, or an object with a "message"."""
     try:
-        return str(json.loads(exc.read().decode()).get("error", ""))[:300]
+        return json.loads(exc.read().decode()).get("error", "")
     except Exception:
         return ""
+
+
+def _error_text(error: Any) -> str:
+    if isinstance(error, dict):
+        error = error.get("message") or error
+    return str(error or "")[:300]
+
+
+def _error_detail(exc: urllib.error.HTTPError) -> str:
+    return _error_text(_error_body(exc))
 
 
 def list_models() -> list[ModelInfo]:
@@ -490,7 +527,7 @@ def analyze(
         "keep_alive": "10m",
         "options": {
             "temperature": 0,
-            "num_ctx": settings.AI_CONTEXT_TOKENS,
+            **_context(),
             "num_predict": MAX_ANSWER_TOKENS,
         },
     }
@@ -500,16 +537,43 @@ def analyze(
 def _chat(payload: dict[str, Any], *, timeout: float | None = None) -> dict[str, Any]:
     """Run a chat request that must answer with a JSON object."""
     try:
-        response = _streamed("/api/chat", payload, timeout=timeout or settings.AI_TIMEOUT_SECONDS)
+        response = _chat_once(payload, timeout=timeout)
+    except ContextTooSmall as exc:
+        # Ask once more with a window that holds the prompt and the longest allowed answer.
+        options = payload.setdefault("options", {})
+        needed = exc.prompt_tokens + int(options.get("num_predict") or MAX_ANSWER_TOKENS)
+        larger = min(-(-needed // 1024) * 1024, MAX_CONTEXT_TOKENS)
+        if larger <= exc.context_tokens:
+            raise
+        logger.warning(
+            "the prompt does not fit the model's context; asking once more with a larger one",
+            extra={
+                "prompt_tokens": exc.prompt_tokens,
+                "num_ctx": exc.context_tokens,
+                "retry_num_ctx": larger,
+            },
+        )
+        options["num_ctx"] = larger
+        response = _chat_once(payload, timeout=timeout)
+    return _answer(response)
+
+
+def _chat_once(payload: dict[str, Any], *, timeout: float | None) -> dict[str, Any]:
+    try:
+        return _streamed("/api/chat", payload, timeout=timeout or settings.AI_TIMEOUT_SECONDS)
     except ModelFailed as exc:
-        if "think" not in str(exc).lower():
+        if isinstance(exc, ContextTooSmall) or "think" not in str(exc).lower():
             raise
         # Models without a reasoning mode reject the switch instead of ignoring it.
         logger.debug(
             "model rejected the reasoning switch; asking again without it", extra={"error": str(exc)}
         )
         payload.pop("think", None)
-        response = _streamed("/api/chat", payload, timeout=timeout or settings.AI_TIMEOUT_SECONDS)
+        return _streamed("/api/chat", payload, timeout=timeout or settings.AI_TIMEOUT_SECONDS)
+
+
+def _answer(response: dict[str, Any]) -> dict[str, Any]:
+    """The JSON object a chat response answers with."""
     content = str((response.get("message") or {}).get("content") or "")
     logger.debug(
         "model statistics",
@@ -713,7 +777,7 @@ def name_folders(
         "keep_alive": "10m",
         "options": {
             "temperature": 0,
-            "num_ctx": settings.AI_CONTEXT_TOKENS,
+            **_context(),
             "num_predict": MAX_ANSWER_TOKENS,
         },
     }
@@ -807,7 +871,7 @@ def read_filing_wishes(model: str, wish: str) -> FilingWishes:
         "keep_alive": "10m",
         "options": {
             "temperature": 0,
-            "num_ctx": settings.AI_CONTEXT_TOKENS,
+            **_context(),
             "num_predict": MAX_ANSWER_TOKENS,
         },
     }
@@ -898,7 +962,7 @@ def _assist_payload(model: str, prompt: str, schema: dict[str, Any]) -> dict[str
         "keep_alive": "10m",
         "options": {
             "temperature": 0,
-            "num_ctx": settings.AI_CONTEXT_TOKENS,
+            **_context(),
             "num_predict": MAX_ANSWER_TOKENS,
         },
     }
@@ -1047,7 +1111,7 @@ def ask(
             "keep_alive": "30m",
             "options": {
                 "temperature": 0.2 if think else 0,
-                "num_ctx": context if context > 0 else settings.AI_CONTEXT_TOKENS,
+                **_context(context),
                 "num_predict": THINKING_ANSWER_TOKENS if think else MAX_ANSWER_TOKENS,
             },
         },
