@@ -163,6 +163,7 @@ docker compose exec app docnest resetmfa <name>         # lost all second factor
 docker compose exec app docnest proton-login            # renew the Proton session
 docker compose exec app docnest proton fs list /my-files/DocNest
 docker compose exec app docnest backup                  # back up the database to Proton Drive now
+docker compose exec app docnest export                  # export the whole instance (see "Move to another server")
 docker compose logs -f app
 ```
 
@@ -200,6 +201,43 @@ docker compose up -d
 Use the same `secrets/master_key` as the backup — a different key cannot decrypt the data.
 
 The list of backups to prune is stored in the database itself, so after restoring an older dump DocNest no longer knows about backups uploaded after it. Delete those by hand in Proton Drive if you want to clean them up.
+
+## Move to another server (export & import)
+
+An export is one password-protected ZIP (AES-256, opens with 7-Zip) that holds everything that is not in Proton Drive:
+
+| In the export | Not in the export |
+|---|---|
+| The whole database: folders, tags, series, encrypted text and search index, all settings made in the web UI (AI server and API key, email inbox, scanners, …) | The documents in Proton Drive — they stay where they are and the new server uses them |
+| The master key | Downloaded Docling and Ollama models (downloaded again on use) |
+| The Proton Drive sign-in | `.env` and `./secrets` — the export lists the `.env` settings, and the import names the ones that differ |
+| The `data` volume: documents waiting for Proton Drive, scan sessions, local storage | View cache and debug logs |
+
+**Export** — *Settings → System → Export & import → Export everything*, choose a password (at least 12 characters with three character classes, or 20+ characters), wait, *Download*. Processing pauses while the export runs, and it waits for running jobs to finish. The file stays on the server for 6 hours at most (or delete it right away). From the command line: `docker compose exec app docnest export`, then `docker compose cp app:<printed path> .`.
+
+The ZIP and its password open your whole archive: the master key and the Proton Drive sign-in are inside. Keep both like the master key.
+
+**Import on the new server**
+
+```bash
+# the usual install: compose.yml, .env (copy the settings you need from the old one), init-secrets.sh
+docker compose up -d
+docker compose exec app docnest createuser <name>
+```
+
+Sign in, set up your passkey or authenticator app, then *Settings → System → Export & import → Import an export*: choose the ZIP and its password. DocNest checks the file, shows what it contains and which `.env` settings differ, and after your confirmation replaces all data and restarts. **Your accounts on the new server stay** — password, passkeys, authenticator app, and you stay signed in; the accounts of the export are not taken over. Recovery codes cannot be moved (they exist only as hashes under the old key): generate new ones under *Settings → Security*.
+
+To take over the old accounts as well, import into a server **without** users: the sign-in page offers *Restore an export with its accounts*, which asks for the setup code (`docker compose exec app docnest import-code`). From the command line: `docker compose exec -T -e DOCNEST_TRANSFER_PASSWORD app docnest import - < docnest-export-….zip` (with the password in that environment variable) — it keeps existing accounts the same way.
+
+Then **shut the old server down**: two servers with the same Proton Drive sign-in sign each other out, and both would fetch the same email inbox.
+
+Notes:
+
+- The new server keeps its own `secrets/master_key`; the old instance's key is stored in the data volume, encrypted with it (`master-key.imported`). The old server's `master_key` is what decrypts your data from now on — keep your offline copy of it. Losing the new server's `secrets/master_key` makes the stored key unreadable.
+- Only when the old accounts are taken over: passkeys and security keys are bound to the domain. With a different `DOCNEST_BASE_URL`, sign in with the authenticator app or a recovery code and register them again.
+- An export can only be imported into the same or a newer DocNest version (migrations run after the import).
+- The reverse proxy must allow the upload: raise `client_max_body_size` (nginx) / `max_size` (Caddy) for `/api/v1/transfer/import/upload`, or import from the command line. The ZIP is stored in the `data` volume while it is imported, and unpacked next to the data it replaces: leave free space of about twice its size.
+- If the import fails before the database is replaced, nothing changes. The database is replaced in one transaction.
 
 ## Upgrades
 

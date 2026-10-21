@@ -16,6 +16,7 @@ token) is never written to disk in plaintext.
 Environment:
     DOCNEST_MASTER_KEY_FILE      file containing the master key (required)
     DOCNEST_PROTON_SESSION_DIR   directory for the encrypted session (required)
+    DOCNEST_DATA_DIR             data volume; holds the master key of an imported instance
 """
 
 from __future__ import annotations
@@ -35,6 +36,9 @@ ALLOWED_NAMES = {"ch.proton.drive/drive-sdk-cli/auth-session"}
 HKDF_INFO = b"docnest/proton-session/v1"
 MIN_MASTER_KEY_BYTES = 32
 FORMAT_VERSION = 1
+IMPORTED_KEY_FILE = "master-key.imported"
+IMPORTED_KEY_INFO = b"docnest/imported-master-key/v1"
+IMPORTED_KEY_AAD = b"docnest-imported-master-key"
 
 
 def fail(message: str, code: int = 1) -> None:
@@ -49,6 +53,23 @@ def require_env(name: str) -> str:
     return value  # type: ignore[return-value]
 
 
+def imported_master_key(local: bytes) -> bytes | None:
+    """The master key of the instance this one was restored from (backend/docnest/instance_key.py)."""
+    data_dir = os.environ.get("DOCNEST_DATA_DIR")
+    path = Path(data_dir) / IMPORTED_KEY_FILE if data_dir else None
+    if path is None or not path.exists():
+        return None
+    try:
+        blob = json.loads(path.read_text())
+        wrapping = HKDF(algorithm=hashes.SHA256(), length=32, salt=None, info=IMPORTED_KEY_INFO).derive(local)
+        return AESGCM(wrapping).decrypt(
+            base64.b64decode(blob["nonce"]), base64.b64decode(blob["ct"]), IMPORTED_KEY_AAD
+        )
+    except Exception:
+        fail("cannot read the imported master key (secrets/master_key changed?)")
+    return None
+
+
 def derive_key() -> bytes:
     key_file = Path(require_env("DOCNEST_MASTER_KEY_FILE"))
     try:
@@ -57,6 +78,7 @@ def derive_key() -> bytes:
         fail(f"cannot read master key file: {exc.strerror}")
     if len(master) < MIN_MASTER_KEY_BYTES:
         fail("master key is too short")
+    master = imported_master_key(master) or master
     return HKDF(algorithm=hashes.SHA256(), length=32, salt=None, info=HKDF_INFO).derive(master)
 
 

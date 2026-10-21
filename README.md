@@ -19,6 +19,7 @@
 - **Series** — monthly payslips, phone bills or bank statements are grouped and labelled (“March 2026”), with gaps highlighted.
 - **Human override** — every automatic value can be corrected; your edits are never overwritten.
 - **Document sharing** — revocable read-only links, optionally protected by a passphrase, with PDF downloads, optional original/OCR access and copyable direct enhanced-PDF links.
+- **Move to another server** — export the whole instance (database, master key, settings, Proton Drive sign-in, files not yet in Proton Drive) into one password-protected ZIP and import it on a new server — after you have set up your own sign-in there.
 - **Proton Drive storage** — documents are stored end-to-end encrypted in your Proton Drive; DocNest holds files only temporarily.
 
 ## Security at a glance

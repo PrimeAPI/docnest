@@ -3,6 +3,7 @@ import { AppLayout } from "@/components/layout";
 import { AuthGate } from "@/features/auth/auth-gate";
 import { LoginPage } from "@/features/auth/login-page";
 import { SetupPage } from "@/features/auth/setup-page";
+import { RestorePage } from "@/features/transfer/restore-page";
 import { AssistantPage } from "@/pages/assistant-page";
 import { DocumentPage } from "@/pages/document-page";
 import { DocumentsPage } from "@/pages/documents-page";
@@ -20,6 +21,7 @@ import { SharedDocumentPage } from "@/pages/shared-document-page";
 export const router = createBrowserRouter([
   { path: "/login", element: <LoginPage /> },
   { path: "/setup", element: <SetupPage /> },
+  { path: "/restore", element: <RestorePage /> },
   { path: "/share/:shareId", element: <SharedDocumentPage /> },
   {
     element: (

@@ -1,7 +1,7 @@
 import { useQueryClient } from "@tanstack/react-query";
 import { KeyRound, ShieldCheck } from "lucide-react";
 import { type FormEvent, useEffect, useState } from "react";
-import { Navigate, useNavigate, useSearchParams } from "react-router";
+import { Link, Navigate, useNavigate, useSearchParams } from "react-router";
 import { call, client, ensureCsrf } from "@/api/client";
 import { keys, type SessionState, useSession } from "@/api/queries";
 import { Button } from "@/components/ui/button";
@@ -10,6 +10,7 @@ import { ErrorNote, Spinner } from "@/components/ui/misc";
 import { toast } from "sonner";
 import { describeAgent } from "@/lib/agent";
 import { formatDateTime } from "@/lib/utils";
+import { useTransferStatus } from "@/features/transfer/transfer-api";
 import { AuthShell } from "./auth-shell";
 import { cancelWebauthn, getAssertion, webauthnErrorMessage, webauthnSupported } from "./webauthn";
 
@@ -98,7 +99,27 @@ function PasswordStep({ onDone }: { onDone: (s: SessionState) => void }) {
           Continue
         </Button>
       </form>
+      <NewInstanceNote />
     </AuthShell>
+  );
+}
+
+/** A new instance has no users yet: create one on the server, or restore an export. */
+function NewInstanceNote() {
+  const status = useTransferStatus();
+  if (!status.data?.instance_empty) return null;
+  return (
+    <div className="mt-5 border-t pt-4 text-sm text-muted-foreground">
+      <p>
+        This server has no users yet. Create one with{" "}
+        <code className="font-mono text-xs">docker compose exec app docnest createuser NAME</code> — to move an existing
+        DocNest here, sign in afterwards and import it under Settings → System. Or take over the old server's accounts
+        too:
+      </p>
+      <Link to="/restore" className="mt-2 inline-block font-medium text-primary hover:underline">
+        Restore an export with its accounts
+      </Link>
+    </div>
   );
 }
 

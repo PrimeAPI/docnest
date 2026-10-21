@@ -20,6 +20,9 @@ CSP = "; ".join(
     ]
 )
 
+# An instance export: one large file (apps/transfer/api.py), checked against MAX_IMPORT_BYTES.
+IMPORT_UPLOAD_PATH = "/api/v1/transfer/import/upload"
+
 PERMISSIONS_POLICY = (
     "camera=(), microphone=(), geolocation=(), payment=(), usb=(), publickey-credentials-get=(self)"
 )
@@ -58,11 +61,12 @@ class UploadSizeLimitMiddleware:
             length = int(request.META.get("CONTENT_LENGTH") or 0)
         except ValueError:
             length = 0
-        limit = (
-            settings.MAX_UPLOAD_BYTES + 1024 * 1024
-            if request.path.startswith("/api/upload/")
-            else 10 * 1024 * 1024
-        )
+        if request.path.startswith("/api/upload/"):
+            limit = settings.MAX_UPLOAD_BYTES + 1024 * 1024
+        elif request.path == IMPORT_UPLOAD_PATH:
+            limit = settings.MAX_IMPORT_BYTES
+        else:
+            limit = 10 * 1024 * 1024
         if length > limit:
             return JsonResponse({"detail": "Request too large"}, status=413)
         return self.get_response(request)

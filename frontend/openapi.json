@@ -4882,6 +4882,237 @@
      }
     ]
    }
+  },
+  "/api/v1/transfer/status": {
+   "get": {
+    "operationId": "apps_transfer_api_transfer_status",
+    "summary": "Transfer Status",
+    "parameters": [],
+    "responses": {
+     "200": {
+      "description": "OK",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/TransferStatusOut"
+        }
+       }
+      }
+     }
+    },
+    "description": "Readable without a session: an import signs everyone out, and a new instance has no users.",
+    "tags": [
+     "transfer"
+    ]
+   }
+  },
+  "/api/v1/transfer/export": {
+   "post": {
+    "operationId": "apps_transfer_api_start_export",
+    "summary": "Start Export",
+    "parameters": [],
+    "responses": {
+     "200": {
+      "description": "OK",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/TransferStatusOut"
+        }
+       }
+      }
+     }
+    },
+    "tags": [
+     "transfer"
+    ],
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/ExportIn"
+       }
+      }
+     },
+     "required": true
+    },
+    "security": [
+     {
+      "MfaSessionAuth": []
+     }
+    ]
+   },
+   "delete": {
+    "operationId": "apps_transfer_api_delete_export",
+    "summary": "Delete Export",
+    "parameters": [],
+    "responses": {
+     "200": {
+      "description": "OK",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/TransferStatusOut"
+        }
+       }
+      }
+     }
+    },
+    "tags": [
+     "transfer"
+    ],
+    "security": [
+     {
+      "MfaSessionAuth": []
+     }
+    ]
+   }
+  },
+  "/api/v1/transfer/export/download": {
+   "get": {
+    "operationId": "apps_transfer_api_download_export",
+    "summary": "Download Export",
+    "parameters": [],
+    "responses": {
+     "200": {
+      "description": "OK"
+     }
+    },
+    "tags": [
+     "transfer"
+    ],
+    "security": [
+     {
+      "MfaSessionAuth": []
+     }
+    ]
+   }
+  },
+  "/api/v1/transfer/import/upload": {
+   "post": {
+    "operationId": "apps_transfer_api_upload_import",
+    "summary": "Upload Import",
+    "parameters": [],
+    "responses": {
+     "200": {
+      "description": "OK",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/UploadOut"
+        }
+       }
+      }
+     }
+    },
+    "description": "The export as the raw request body (application/octet-stream), stored on the data volume.",
+    "tags": [
+     "transfer"
+    ]
+   }
+  },
+  "/api/v1/transfer/import/inspect": {
+   "post": {
+    "operationId": "apps_transfer_api_inspect_import",
+    "summary": "Inspect Import",
+    "parameters": [],
+    "responses": {
+     "200": {
+      "description": "OK",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/ImportSummaryOut"
+        }
+       }
+      }
+     }
+    },
+    "tags": [
+     "transfer"
+    ],
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/ImportIn"
+       }
+      }
+     },
+     "required": true
+    }
+   }
+  },
+  "/api/v1/transfer/import/start": {
+   "post": {
+    "operationId": "apps_transfer_api_start_import",
+    "summary": "Start Import",
+    "parameters": [],
+    "responses": {
+     "200": {
+      "description": "OK",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/TransferStatusOut"
+        }
+       }
+      }
+     }
+    },
+    "tags": [
+     "transfer"
+    ],
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/ImportIn"
+       }
+      }
+     },
+     "required": true
+    }
+   }
+  },
+  "/api/v1/transfer/import": {
+   "delete": {
+    "operationId": "apps_transfer_api_discard_import",
+    "summary": "Discard Import",
+    "parameters": [
+     {
+      "in": "query",
+      "name": "setup_code",
+      "schema": {
+       "anyOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "title": "Setup Code"
+      },
+      "required": false
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "OK",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/TransferStatusOut"
+        }
+       }
+      }
+     }
+    },
+    "tags": [
+     "transfer"
+    ]
+   }
   }
  },
  "components": {
@@ -11449,6 +11680,236 @@
      "entries"
     ],
     "title": "HistoryOut",
+    "type": "object"
+   },
+   "ExportFileOut": {
+    "properties": {
+     "name": {
+      "title": "Name",
+      "type": "string"
+     },
+     "size": {
+      "title": "Size",
+      "type": "integer"
+     }
+    },
+    "required": [
+     "name",
+     "size"
+    ],
+    "title": "ExportFileOut",
+    "type": "object"
+   },
+   "TransferStatusOut": {
+    "properties": {
+     "instance_empty": {
+      "title": "Instance Empty",
+      "type": "boolean"
+     },
+     "running": {
+      "title": "Running",
+      "type": "boolean"
+     },
+     "operation": {
+      "title": "Operation",
+      "type": "string"
+     },
+     "state": {
+      "title": "State",
+      "type": "string"
+     },
+     "step": {
+      "title": "Step",
+      "type": "string"
+     },
+     "message": {
+      "title": "Message",
+      "type": "string"
+     },
+     "warnings": {
+      "items": {
+       "type": "string"
+      },
+      "title": "Warnings",
+      "type": "array"
+     },
+     "started_at": {
+      "anyOf": [
+       {
+        "format": "date-time",
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Started At"
+     },
+     "finished_at": {
+      "anyOf": [
+       {
+        "format": "date-time",
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Finished At"
+     },
+     "restarting": {
+      "title": "Restarting",
+      "type": "boolean"
+     },
+     "accounts_kept": {
+      "title": "Accounts Kept",
+      "type": "boolean"
+     },
+     "export": {
+      "anyOf": [
+       {
+        "$ref": "#/components/schemas/ExportFileOut"
+       },
+       {
+        "type": "null"
+       }
+      ]
+     },
+     "import_uploaded": {
+      "title": "Import Uploaded",
+      "type": "boolean"
+     }
+    },
+    "required": [
+     "instance_empty",
+     "running",
+     "operation",
+     "state",
+     "step",
+     "message",
+     "warnings",
+     "started_at",
+     "finished_at",
+     "restarting",
+     "accounts_kept",
+     "export",
+     "import_uploaded"
+    ],
+    "title": "TransferStatusOut",
+    "type": "object"
+   },
+   "ExportIn": {
+    "properties": {
+     "password": {
+      "maxLength": 1024,
+      "title": "Password",
+      "type": "string",
+      "writeOnly": true
+     }
+    },
+    "required": [
+     "password"
+    ],
+    "title": "ExportIn",
+    "type": "object"
+   },
+   "UploadOut": {
+    "properties": {
+     "size": {
+      "title": "Size",
+      "type": "integer"
+     }
+    },
+    "required": [
+     "size"
+    ],
+    "title": "UploadOut",
+    "type": "object"
+   },
+   "ImportSummaryOut": {
+    "properties": {
+     "created_at": {
+      "anyOf": [
+       {
+        "format": "date-time",
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Created At"
+     },
+     "docnest_version": {
+      "title": "Docnest Version",
+      "type": "string"
+     },
+     "base_url": {
+      "title": "Base Url",
+      "type": "string"
+     },
+     "documents": {
+      "title": "Documents",
+      "type": "integer"
+     },
+     "users": {
+      "title": "Users",
+      "type": "integer"
+     },
+     "size": {
+      "title": "Size",
+      "type": "integer"
+     },
+     "keeps_accounts": {
+      "title": "Keeps Accounts",
+      "type": "boolean"
+     },
+     "warnings": {
+      "items": {
+       "type": "string"
+      },
+      "title": "Warnings",
+      "type": "array"
+     }
+    },
+    "required": [
+     "created_at",
+     "docnest_version",
+     "base_url",
+     "documents",
+     "users",
+     "size",
+     "keeps_accounts",
+     "warnings"
+    ],
+    "title": "ImportSummaryOut",
+    "type": "object"
+   },
+   "ImportIn": {
+    "properties": {
+     "password": {
+      "maxLength": 1024,
+      "title": "Password",
+      "type": "string",
+      "writeOnly": true
+     },
+     "setup_code": {
+      "anyOf": [
+       {
+        "maxLength": 64,
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Setup Code"
+     }
+    },
+    "required": [
+     "password"
+    ],
+    "title": "ImportIn",
     "type": "object"
    }
   },

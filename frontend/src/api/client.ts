@@ -3,7 +3,7 @@ import type { components, paths } from "./schema";
 
 export type Schemas = components["schemas"];
 
-function csrfToken(): string {
+export function csrfToken(): string {
   const match = document.cookie.match(/(?:^|;\s*)(?:__Host-)?docnest_csrf=([^;]+)/);
   return match ? decodeURIComponent(match[1]) : "";
 }

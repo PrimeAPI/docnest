@@ -24,6 +24,9 @@ def isolated_dirs(settings, tmp_path: Path):
     settings.FILE_UPLOAD_TEMP_DIR = str(tmp_path / "work" / "uploads")
     settings.STORAGE_LOCAL_DIR = tmp_path / "storage"
     settings.VIEW_CACHE_DIR = tmp_path / "view-cache"
+    settings.TRANSFER_DIR = tmp_path / "transfer"
+    settings.PROTON_SESSION_DIR = str(tmp_path / "proton" / "session")
+    settings.PROTON_CACHE_DIR = str(tmp_path / "proton" / "cache")
     settings.STORAGE_BACKEND = "local"
     for d in ("intake", "work/uploads", "storage"):
         (tmp_path / d).mkdir(parents=True, exist_ok=True)

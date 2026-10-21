@@ -76,25 +76,37 @@ def schedule() -> Job | None:
     return queue.enqueue(Job.Kind.BACKUP_DATABASE)
 
 
-def dump(dest: Path) -> None:
-    """Write a custom-format dump of the current database to `dest`."""
+def pg_env() -> dict[str, str]:
+    """Environment for the PostgreSQL client tools: connects like Django does."""
     db = connection.settings_dict
-    env = {
+    return {
         "PATH": os.environ.get("PATH", "/usr/bin:/bin"),
         "PGPASSWORD": str(db.get("PASSWORD") or ""),
         "PGSSLMODE": str((db.get("OPTIONS") or {}).get("sslmode", "prefer")),
         "PGCONNECT_TIMEOUT": "30",
     }
-    cmd = [
-        "pg_dump",
-        "--format=custom",
-        "--compress=6",
+
+
+def pg_connection_args() -> list[str]:
+    db = connection.settings_dict
+    return [
         "--no-password",
         f"--host={db['HOST']}",
         f"--port={db['PORT'] or 5432}",
         f"--username={db['USER']}",
+    ]
+
+
+def dump(dest: Path) -> None:
+    """Write a custom-format dump of the current database to `dest`."""
+    env = pg_env()
+    cmd = [
+        "pg_dump",
+        "--format=custom",
+        "--compress=6",
+        *pg_connection_args(),
         f"--file={dest}",
-        str(db["NAME"]),
+        str(connection.settings_dict["NAME"]),
     ]
     try:
         proc = subprocess.run(

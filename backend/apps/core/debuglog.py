@@ -138,7 +138,7 @@ _SECRET_NAME = re.compile(r"SECRET|PASSWORD|PASSWD|TOKEN|API_KEY|MASTER_KEY|PRIV
 _SHOWN_ENV = ("DOCNEST_", "OLLAMA_", "HF_", "PROTON_", "OMP_", "TZ", "PYTHON", "DJANGO_")
 
 
-def _is_secret(name: str) -> bool:
+def is_secret(name: str) -> bool:
     # *_FILE names a secret's path (shown); *_HASHERS / *_VALIDATORS are password policy.
     if name.upper().endswith(("_FILE", "_HASHERS", "_VALIDATORS")):
         return False
@@ -152,7 +152,7 @@ def _masked(value: object) -> str:
 
 def safe_value(name: str, value: Any) -> Any:
     """`value` with secrets replaced by a note whether they are set."""
-    if _is_secret(name) and not isinstance(value, (dict, list, tuple)):
+    if is_secret(name) and not isinstance(value, (dict, list, tuple)):
         return _masked(value)
     if isinstance(value, dict):
         return {k: safe_value(str(k), v) for k, v in value.items()}
@@ -188,13 +188,13 @@ def log_startup(process_role: str) -> None:
     )
     for name in sorted(n for n in dir(settings) if n.isupper()):
         value = getattr(settings, name)
-        if _is_secret(name) and not isinstance(value, (dict, list, tuple)):
+        if is_secret(name) and not isinstance(value, (dict, list, tuple)):
             logger.info("setting %s is %s, hidden", name, _masked(value))
         else:
             logger.info("setting %s = %r", name, safe_value(name, value))
     for name in sorted(os.environ):
         if name.startswith(_SHOWN_ENV):
-            if _is_secret(name):
+            if is_secret(name):
                 logger.info("env %s is %s, hidden", name, _masked(os.environ[name]))
             else:
                 logger.info("env %s = %s", name, os.environ[name])

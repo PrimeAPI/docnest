@@ -11,6 +11,7 @@ import sys
 from pathlib import Path
 from urllib.parse import urlparse
 
+from docnest import instance_key
 from docnest.config import ConfigError, env, env_bool, env_int, is_dev, secret
 
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -57,11 +58,13 @@ INSTALLED_APPS = [
     "apps.paper",
     "apps.mail",
     "apps.assist",
+    "apps.transfer",
 ]
 
 MIDDLEWARE = [
     "apps.core.middleware.SecurityHeadersMiddleware",
     "apps.core.middleware.UploadSizeLimitMiddleware",
+    "apps.transfer.middleware.TransferPauseMiddleware",
     "django.middleware.security.SecurityMiddleware",
     "whitenoise.middleware.WhiteNoiseMiddleware",
     "django.contrib.sessions.middleware.SessionMiddleware",
@@ -183,17 +186,25 @@ STORAGE_LOCAL_DIR = Path(env("DOCNEST_STORAGE_LOCAL_DIR", str(DATA_DIR / "storag
 PROTON_ROOT = env("DOCNEST_PROTON_ROOT", "/my-files/DocNest")
 PROTON_CLI = env("DOCNEST_PROTON_CLI", "docnest-proton")
 PROTON_TIMEOUT_SECONDS = env_int("DOCNEST_PROTON_TIMEOUT_SECONDS", 600)
+# The Proton Drive CLI's sign-in (encrypted by docker/proton/docnest-pass) and cache; set by the image
+PROTON_SESSION_DIR = env("DOCNEST_PROTON_SESSION_DIR")
+PROTON_CACHE_DIR = env("PROTON_DRIVE_CACHE_DIR")
 VIEW_CACHE_MB = env_int("DOCNEST_VIEW_CACHE_MB", 0)  # 0 = disabled
 # Database backups uploaded to the storage backend (see docs/operations.md)
 BACKUP_INTERVAL_HOURS = env_int("DOCNEST_BACKUP_INTERVAL_HOURS", 24)  # 0 = disabled
 BACKUP_KEEP = max(1, env_int("DOCNEST_BACKUP_KEEP", 14))
 BACKUP_TIMEOUT_SECONDS = env_int("DOCNEST_BACKUP_TIMEOUT_SECONDS", 3600)
+# Instance export/import (apps/transfer): archives wait in TRANSFER_DIR on the data volume
+TRANSFER_DIR = Path(env("DOCNEST_TRANSFER_DIR", str(DATA_DIR / "transfer")))
+MAX_IMPORT_BYTES = env_int("DOCNEST_MAX_IMPORT_MB", 50_000) * 1024 * 1024
 
 # --- Crypto -----------------------------------------------------------------
 
-MASTER_KEY = secret("DOCNEST_MASTER_KEY", required=not DEV, min_length=32) or (
+LOCAL_MASTER_KEY = secret("DOCNEST_MASTER_KEY", required=not DEV, min_length=32) or (
     "insecure-dev-only-master-key-0123456789abcdef" if DEV else None
 )
+# After an import (apps/transfer) the exported instance's key, stored encrypted with the local one.
+MASTER_KEY = instance_key.effective(LOCAL_MASTER_KEY, DATA_DIR)
 
 # --- Processing -------------------------------------------------------------
 

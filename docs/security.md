@@ -7,11 +7,14 @@ DocNest assumes every document is sensitive (contracts, tax notices, bank statem
 | Attacker has… | Protected? |
 |---|---|
 | A copy of the database or a DB backup | **Yes.** Document text, titles, extracted values (amounts, IBANs, reference numbers), original file names, scanner metadata and thumbnails are encrypted. The search index contains only keyed hashes. |
-| The `data` volume (intake) or `proton` volume | **Yes.** Intake files and the Proton session are encrypted with keys derived from the master key, which is not stored in either volume. |
+| The `data` volume (intake) or `proton` volume | **Yes.** Intake files and the Proton session are encrypted with keys derived from the master key, which is not stored in either volume. (After an import, the data volume holds the exported instance's master key, encrypted with the server's own `secrets/master_key`.) |
+| An instance export (ZIP) | **Only with its password.** The ZIP is AES-256 encrypted and contains the master key and the Proton session, so the password must be strong (enforced: the account password policy). Exports are deleted from the server after 6 hours at most. |
 | A stolen scanner / its token | **Limited.** The token can upload documents and read the processing status of its *own* uploads. It cannot list, search, read or download anything. Revoke it in Settings → Scanners. |
 | A user's password | **No access** without the second factor. |
 | The running container (code execution as the app user) | **No.** The app must be able to read documents to work. Keep the host and image updated. |
 | Database **and** master key | **No.** Keep the master key separate from backups. |
+
+Importing an export into a new instance that has no users yet needs a setup code that only the server's operator can read (`docnest import-code`), so nobody who merely reaches a fresh server can take it over with an export of their own. On an instance with users, only a signed-in user who recently confirmed the password can export or import.
 
 ## Cryptography
 

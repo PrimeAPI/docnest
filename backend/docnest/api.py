@@ -17,6 +17,7 @@ from apps.scanners.api import manage_router as scanners_manage_router
 from apps.scanners.api import upload_router
 from apps.scanners.auth import scanner_auth
 from apps.taxonomy.api import router as taxonomy_router
+from apps.transfer.api import router as transfer_router
 
 _docs = settings.DEV  # interactive API docs only in development
 
@@ -40,6 +41,7 @@ web_api.add_router("/scanners", scanners_manage_router)
 web_api.add_router("/mail", mail_router)
 web_api.add_router("/assist", assist_router)
 web_api.add_router("/alterations", alterations_router)
+web_api.add_router("/transfer", transfer_router)
 
 upload_api = NinjaAPI(
     title="DocNest Upload API",

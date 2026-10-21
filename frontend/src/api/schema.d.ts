@@ -1756,6 +1756,132 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/transfer/status": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Transfer Status
+         * @description Readable without a session: an import signs everyone out, and a new instance has no users.
+         */
+        get: operations["apps_transfer_api_transfer_status"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/transfer/export": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Start Export */
+        post: operations["apps_transfer_api_start_export"];
+        /** Delete Export */
+        delete: operations["apps_transfer_api_delete_export"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/transfer/export/download": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Download Export */
+        get: operations["apps_transfer_api_download_export"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/transfer/import/upload": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Upload Import
+         * @description The export as the raw request body (application/octet-stream), stored on the data volume.
+         */
+        post: operations["apps_transfer_api_upload_import"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/transfer/import/inspect": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Inspect Import */
+        post: operations["apps_transfer_api_inspect_import"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/transfer/import/start": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Start Import */
+        post: operations["apps_transfer_api_start_import"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/transfer/import": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Discard Import */
+        delete: operations["apps_transfer_api_discard_import"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -4046,6 +4172,77 @@ export interface components {
             replaced_by: components["schemas"]["DocRef"][];
             /** Entries */
             entries: components["schemas"]["AlterationOut"][];
+        };
+        /** ExportFileOut */
+        ExportFileOut: {
+            /** Name */
+            name: string;
+            /** Size */
+            size: number;
+        };
+        /** TransferStatusOut */
+        TransferStatusOut: {
+            /** Instance Empty */
+            instance_empty: boolean;
+            /** Running */
+            running: boolean;
+            /** Operation */
+            operation: string;
+            /** State */
+            state: string;
+            /** Step */
+            step: string;
+            /** Message */
+            message: string;
+            /** Warnings */
+            warnings: string[];
+            /** Started At */
+            started_at: string | null;
+            /** Finished At */
+            finished_at: string | null;
+            /** Restarting */
+            restarting: boolean;
+            /** Accounts Kept */
+            accounts_kept: boolean;
+            export: components["schemas"]["ExportFileOut"] | null;
+            /** Import Uploaded */
+            import_uploaded: boolean;
+        };
+        /** ExportIn */
+        ExportIn: {
+            /** Password */
+            password: string;
+        };
+        /** UploadOut */
+        UploadOut: {
+            /** Size */
+            size: number;
+        };
+        /** ImportSummaryOut */
+        ImportSummaryOut: {
+            /** Created At */
+            created_at: string | null;
+            /** Docnest Version */
+            docnest_version: string;
+            /** Base Url */
+            base_url: string;
+            /** Documents */
+            documents: number;
+            /** Users */
+            users: number;
+            /** Size */
+            size: number;
+            /** Keeps Accounts */
+            keeps_accounts: boolean;
+            /** Warnings */
+            warnings: string[];
+        };
+        /** ImportIn */
+        ImportIn: {
+            /** Password */
+            password: string;
+            /** Setup Code */
+            setup_code?: string | null;
         };
     };
     responses: never;
@@ -6809,6 +7006,178 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HistoryOut"];
+                };
+            };
+        };
+    };
+    apps_transfer_api_transfer_status: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TransferStatusOut"];
+                };
+            };
+        };
+    };
+    apps_transfer_api_start_export: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ExportIn"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TransferStatusOut"];
+                };
+            };
+        };
+    };
+    apps_transfer_api_delete_export: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TransferStatusOut"];
+                };
+            };
+        };
+    };
+    apps_transfer_api_download_export: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    apps_transfer_api_upload_import: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UploadOut"];
+                };
+            };
+        };
+    };
+    apps_transfer_api_inspect_import: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ImportIn"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ImportSummaryOut"];
+                };
+            };
+        };
+    };
+    apps_transfer_api_start_import: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ImportIn"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TransferStatusOut"];
+                };
+            };
+        };
+    };
+    apps_transfer_api_discard_import: {
+        parameters: {
+            query?: {
+                setup_code?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TransferStatusOut"];
                 };
             };
         };

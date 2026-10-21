@@ -41,6 +41,7 @@ import { MailInboxCard } from "@/features/mail/mail-inbox";
 import { AiModelCard, ReprocessAllCard } from "@/features/processing/ai-model";
 import { EnhancementCard } from "@/features/processing/enhancement";
 import { StatsPanel } from "@/features/stats/stats-panel";
+import { TransferCard } from "@/features/transfer/transfer-card";
 import { Link } from "react-router";
 import { describeAction, describeAgent, describeMethod } from "@/lib/agent";
 import { cn, formatBytes, formatDateTime } from "@/lib/utils";
@@ -82,6 +83,7 @@ export function SettingsPage() {
         <TabsContent value="system" className="flex flex-col gap-6">
           <VersionCard />
           <SystemCard />
+          <TransferCard />
           <AuditLog />
         </TabsContent>
         <TabsContent value="security" className="flex flex-col gap-6">

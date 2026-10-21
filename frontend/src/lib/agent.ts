@@ -65,6 +65,11 @@ const ACTIONS: Record<string, string> = {
   "assist.requested": "Asked the assistant for changes",
   "mail.settings": "Changed email inbox",
   "mail.imported": "Imported an email",
+  "system.export_started": "Started an export of the instance",
+  "system.exported": "Exported the instance",
+  "system.export_downloaded": "Downloaded the export of the instance",
+  "system.import_started": "Started importing an export",
+  "system.imported": "Imported an export (replaced the instance)",
 };
 
 export function describeAction(action: string): string {

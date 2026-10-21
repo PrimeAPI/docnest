@@ -33,6 +33,7 @@ from apps.processing.preferences import (
 )
 from apps.storage import backup
 from apps.storage.backends import StorageAuthError, get_backend
+from apps.transfer import state as transfer
 
 logger = logging.getLogger("docnest.worker")
 
@@ -95,6 +96,11 @@ class Worker:
         try:
             while not self.stopping:
                 close_old_connections()
+                if transfer.paused():
+                    # An export or import runs: start nothing (it waits for running jobs to end).
+                    active = {lane: self._reap(futures) for lane, futures in active.items()}
+                    time.sleep(2)
+                    continue
                 self.periodic()
                 active = {lane: self._reap(futures) for lane, futures in active.items()}
                 concurrency = get_processing_concurrency()
@@ -480,6 +486,7 @@ class Worker:
 
         sessions.cleanup()
         self.sweep_workspace()
+        transfer.cleanup_exports()
 
         now = timezone.now()
         AuditLog.objects.filter(created_at__lt=now - timedelta(days=settings.AUDIT_RETENTION_DAYS)).delete()

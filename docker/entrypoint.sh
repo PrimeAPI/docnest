@@ -8,6 +8,9 @@
 #   models         pre-download all Docling models into the persistent cache
 #   proton <args>  run the Proton Drive CLI with DocNest's settings
 #   backup         back up the database to Proton Drive now
+#   export         export the whole instance into a password-protected ZIP
+#   import F|-     replace this instance with an export (a file, or - for stdin)
+#   import-code    the setup code a new instance asks for to import in the browser
 #   manage <args>  any Django management command
 set -eu
 
@@ -78,6 +81,18 @@ case "$cmd" in
   backup)
     wait_for_db
     exec python manage.py backup "$@"
+    ;;
+  export)
+    wait_for_db
+    exec python manage.py export_instance "$@"
+    ;;
+  import)
+    wait_for_db
+    exec python manage.py import_instance "$@"
+    ;;
+  import-code)
+    wait_for_db
+    exec python manage.py import_code
     ;;
   models)
     exec python manage.py download_docling_models "$@"
