@@ -297,6 +297,26 @@ def test_scan_session_upload_page_by_page(scanner, isolated_dirs, no_ocr):
     assert len(original.pages) == 3 and all(is_a4(p) for p in original.pages)  # size from dpi=150
 
 
+def test_scan_session_files_the_paper_original(scanner, no_ocr):
+    """A feeder scan put into a binder is already put away when the document appears."""
+    _, token = scanner
+    scan_id = open_scan(token, paper_location="Cabinet/Binder 3").json()["id"]
+    add_page(token, scan_id, page_image(["Seite 1"]), page=1)
+    doc_id = complete(token, scan_id).json()["id"]
+    Worker().run_until_empty()
+
+    doc = Document.objects.get(uuid=doc_id)
+    assert doc.processing_state == "done", doc.processing_error
+    assert doc.has_paper is True and doc.paper_placed_at is not None
+    assert doc.paper_location is not None and doc.paper_location.name == "Binder 3"
+
+
+def test_scan_session_rejects_a_contradictory_paper_filing(scanner):
+    _, token = scanner
+    r = open_scan(token, paper_location="Cabinet", no_paper="true")
+    assert r.status_code == 400 and ScanSession.objects.count() == 0
+
+
 def test_scan_session_rejects_gaps_and_empty_completion(scanner):
     _, token = scanner
     scan_id = open_scan(token).json()["id"]

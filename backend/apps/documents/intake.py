@@ -26,11 +26,14 @@ from typing import Any, BinaryIO
 
 from django.conf import settings
 from django.db import IntegrityError, transaction
+from django.utils import timezone
 from PIL import Image, UnidentifiedImageError
 
 from apps.crypto.aead import encrypt_bytes, encrypt_file, encrypt_text
 from apps.crypto.keys import Purpose, derive
 from apps.documents.models import Document, DocumentTag, Source
+from apps.paper.models import Location
+from apps.paper.services import ensure_location_path, split_location_path
 from apps.processing.assemble import IMAGE_FORMATS, AssemblyOptions
 from apps.processing.models import Job
 from apps.processing.preferences import get_default_ocr_backend
@@ -65,6 +68,14 @@ class IntakeRequest:
     metadata: dict[str, object] = field(default_factory=dict)
     filename: str = ""
     mail_id: int | None = None  # the email the file arrived with
+    paper_location: str = ""  # physical place of the paper original, e.g. "Cabinet/Binder 3"
+    paper_location_id: int | None = None  # takes precedence over `paper_location` (web upload)
+    no_paper: bool = False  # there is no paper original to file (born digital, or it was thrown out)
+
+    @property
+    def paper_filed(self) -> bool:
+        """Did the upload say where the paper original was put?"""
+        return bool(self.paper_location.strip()) or self.paper_location_id is not None
 
 
 @dataclass
@@ -99,6 +110,26 @@ def _resolve_type(value: str | None) -> DocumentType | None:
     if doc_type is None:
         raise IntakeError(f"Unknown document type '{value[:50]}'")
     return doc_type
+
+
+def _check_paper(req: IntakeRequest) -> None:
+    """A document either has a paper original somewhere, or none at all — not both."""
+    if req.no_paper and (req.paper_location.strip() or req.paper_location_id is not None):
+        raise IntakeError("Cannot file a paper original and mark the document as having none")
+    try:
+        split_location_path(req.paper_location)
+    except ValueError as exc:
+        raise IntakeError(str(exc)) from exc
+
+
+def _resolve_location(req: IntakeRequest) -> Location | None:
+    """The place the scanner says the paper went, or None if it named none."""
+    if req.paper_location_id is not None:
+        location = Location.objects.filter(pk=req.paper_location_id).first()
+        if location is None:
+            raise IntakeError("Unknown paper location")
+        return location
+    return ensure_location_path(req.paper_location)
 
 
 def content_hash_of(fileobj: BinaryIO) -> tuple[str, int]:
@@ -290,6 +321,7 @@ def validate_request(req: IntakeRequest) -> None:
     """Fail early on request fields that would be rejected at registration."""
     _check_folder_path(req.bucket)
     _resolve_type(req.document_type)
+    _check_paper(req)
     if len(json.dumps(req.metadata or {}, ensure_ascii=False).encode()) > MAX_METADATA_BYTES:
         raise IntakeError("Metadata too large")
 
@@ -314,6 +346,7 @@ def register(
 
     _check_folder_path(req.bucket)
     doc_type = _resolve_type(req.document_type)
+    _check_paper(req)
     metadata_json = json.dumps(req.metadata or {}, ensure_ascii=False)
     if len(metadata_json.encode()) > MAX_METADATA_BYTES:
         raise IntakeError("Metadata too large")
@@ -328,7 +361,8 @@ def register(
         ocr_backend=get_default_ocr_backend(),
         received_from=scanner,  # type: ignore[misc]
         mail_id=req.mail_id,
-        has_paper=scanner is not None,  # scanned = there is a sheet of paper; web uploads are often digital
+        # scanned = there is a sheet of paper; web uploads are often digital
+        has_paper=False if req.no_paper else (req.paper_filed or scanner is not None),
         scanner_metadata_enc=encrypt_bytes(metadata_json.encode()) if req.metadata else None,
         original_filename_enc=encrypt_text(req.filename[:200]) if req.filename else None,
     )
@@ -349,6 +383,11 @@ def register(
                 document.folder = ensure_folder_path(req.bucket)
             if document.folder is not None:
                 document.set_source("folder", Source.SCANNER if scanner else Source.USER)
+            if req.paper_filed:
+                # The scanner knows where the sheet went, so it is put away on arrival.
+                document.paper_location = _resolve_location(req)
+                document.paper_placed_at = timezone.now()
+                document.set_source("paper_location", Source.SCANNER if scanner else Source.USER)
             document.intake_path = intake_path_for(doc_uuid).name
             document.save()
             for name in tags:

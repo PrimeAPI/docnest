@@ -183,3 +183,138 @@ def test_scanner_uploads_have_paper_web_uploads_not(scanner, api):
     )
     assert r.status_code == 202, r.content
     assert Document.objects.get(uuid=r.json()["id"]).has_paper is False
+
+
+# --- Filing the paper original at upload time ---------------------------------------
+
+
+def scan(token: str, *lines: str, **fields: str):
+    from django.test import Client
+
+    from tests.conftest import upload
+    from tests.pdfs import text_pdf
+
+    return upload(Client(), token, text_pdf(list(lines) or ["scan"]), **fields)
+
+
+def test_scanner_files_the_paper_original_on_upload(scanner, api):
+    """The scanner says where it put the sheet, so the document is never pending."""
+    _, token = scanner
+    r = scan(token, "Stromrechnung", paper_location="Cabinet/Binder 3")
+    assert r.status_code == 202, r.content
+    doc = Document.objects.get(uuid=r.json()["id"])
+
+    assert doc.has_paper is True
+    assert doc.paper_location is not None and doc.paper_placed_at is not None
+    assert doc.paper_location.name == "Binder 3" and doc.paper_location.parent.name == "Cabinet"
+    assert doc.field_sources["paper_location"] == "scanner"
+    assert api.get("/api/v1/paper/pending").json()["documents"] == []
+    assert api.get("/api/v1/overview").json()["paper_pending"] == 0
+
+    detail = api.get(f"/api/v1/documents/{doc.uuid}").json()["paper"]
+    assert detail["location_path"] == "Cabinet / Binder 3" and detail["position"]["index_from_top"] == 1
+    stack = api.get(f"/api/v1/paper/locations/{doc.paper_location_id}/stack").json()
+    assert [d["id"] for d in stack["documents"]] == [str(doc.uuid)]
+
+
+def test_upload_reuses_an_existing_location_case_insensitively(scanner, api):
+    _, token = scanner
+    cabinet = create_location(api, "Cabinet")
+    binder = create_location(api, "Binder 3", parent_id=cabinet["id"])
+    doc = Document.objects.get(uuid=scan(token, "a", paper_location="cabinet / binder 3").json()["id"])
+    assert doc.paper_location_id == binder["id"]
+    assert Location.objects.count() == 2  # nothing new was created
+
+    # A second scan lands on top of the first one in the same binder.
+    other = Document.objects.get(uuid=scan(token, "b", paper_location="Cabinet/Binder 3").json()["id"])
+    stack = api.get(f"/api/v1/paper/locations/{binder['id']}/stack").json()
+    assert [d["id"] for d in stack["documents"]] == [str(other.uuid), str(doc.uuid)]  # top first
+
+
+def test_upload_without_a_location_leaves_the_document_pending(scanner, api):
+    _, token = scanner
+    doc = Document.objects.get(uuid=scan(token, "no location given").json()["id"])
+    assert doc.has_paper is True and doc.paper_location_id is None and doc.paper_placed_at is None
+    assert Location.objects.count() == 0
+    assert len(api.get("/api/v1/paper/pending").json()["documents"]) == 1
+
+
+def test_scanner_can_say_there_is_no_paper_original(scanner, api):
+    """ "I threw the sheet out": nothing to put away, so it stays out of the queue."""
+    _, token = scanner
+    doc = Document.objects.get(uuid=scan(token, "thrown out", no_paper="true").json()["id"])
+    assert doc.has_paper is False and doc.paper_location_id is None and doc.paper_placed_at is None
+    assert api.get("/api/v1/paper/pending").json()["documents"] == []
+    assert api.get(f"/api/v1/documents/{doc.uuid}").json()["paper"]["has_paper"] is False
+
+
+def test_a_location_and_no_paper_contradict_each_other(scanner, isolated_dirs):
+    _, token = scanner
+    r = scan(token, "both", paper_location="Cabinet", no_paper="true")
+    assert r.status_code == 400 and "having none" in r.json()["detail"]
+    assert Document.objects.count() == 0 and Location.objects.count() == 0
+    assert list((isolated_dirs / "intake").iterdir()) == []  # the rejected scan left nothing behind
+
+
+def test_location_path_depth_is_limited(scanner):
+    _, token = scanner
+    assert scan(token, "deep", paper_location="/".join("abcdefg")).status_code == 400
+    assert Document.objects.count() == 0 and Location.objects.count() == 0
+    assert scan(token, "ok", paper_location="/".join("abcdef")).status_code == 202
+
+
+def test_pending_filter_and_location_filter_see_the_upload(scanner, api):
+    _, token = scanner
+    filed = Document.objects.get(uuid=scan(token, "filed", paper_location="Shelf").json()["id"])
+    pending_doc = Document.objects.get(uuid=scan(token, "pending").json()["id"])
+
+    def ids(query: str) -> list[str]:
+        return [d["id"] for d in api.get(f"/api/v1/documents?{query}").json()["items"]]
+
+    assert ids("paper_pending=true") == [str(pending_doc.uuid)]
+    assert ids(f"paper_location={filed.paper_location_id}") == [str(filed.uuid)]
+
+
+def test_web_upload_can_file_the_paper_original_or_disclaim_it(api):
+    from django.core.files.uploadedfile import SimpleUploadedFile
+
+    from tests.pdfs import text_pdf
+
+    shelf = create_location(api, "Shelf")
+
+    def web_upload(text: str, **fields):
+        return api.post(
+            "/api/v1/documents/upload",
+            {
+                "file": SimpleUploadedFile(f"{text}.pdf", text_pdf([text]), content_type="application/pdf"),
+                **fields,
+            },
+        )
+
+    r = web_upload("filed by hand", paper_location_id=shelf["id"])
+    assert r.status_code == 202, r.content
+    doc = Document.objects.get(uuid=r.json()["id"])
+    assert doc.has_paper is True and doc.paper_location_id == shelf["id"]
+    assert doc.paper_placed_at is not None and doc.field_sources["paper_location"] == "user"
+
+    # A web upload has no paper original unless one is filed, so `no_paper` only confirms that.
+    other = Document.objects.get(uuid=web_upload("digital", no_paper="true").json()["id"])
+    assert other.has_paper is False
+
+    assert web_upload("bad location", paper_location_id=99999).status_code == 400
+    assert web_upload("both", paper_location_id=shelf["id"], no_paper="true").status_code == 400
+
+
+def test_scan_session_carries_the_filing_to_the_document(scanner):
+    from apps.documents.intake import IntakeRequest
+    from apps.processing.assemble import AssemblyOptions
+    from apps.scanners import sessions
+
+    client, _ = scanner
+    session, created = sessions.create(
+        client, IntakeRequest(bucket="private", paper_location="Cabinet/Binder 3"), AssemblyOptions()
+    )
+    assert created
+    decoded = sessions.decode_request(session).intake
+    assert decoded.paper_location == "Cabinet/Binder 3" and decoded.no_paper is False
+    assert decoded.paper_filed is True

@@ -109,6 +109,8 @@ Until assembly, the uploaded files are kept **encrypted** in the intake volume l
 | `important` | no | `false` | `true` → marked important. |
 | `tags` | no | – | Comma-separated tag names, e.g. `Tax,2026`. Existing tags and aliases are reused. Max 20. |
 | `metadata` | no | – | JSON object with any extra data, e.g. `{"device":"pi-scanner","duplex":true}` (stored encrypted, max 8 KB). |
+| `paper_location` | no | – | Where the **sheet of paper** was put, as a path: `Cabinet`, `Cabinet/Binder 3`. Matched case-insensitively against the locations under *Paper*; **missing locations are created**. Empty → the document waits under *Paper → Put away*. Max 6 levels. |
+| `no_paper` | no | `false` | `true` → there is **no paper original** to keep (it was thrown out, or the scan came from a file). The document never shows up under *Put away*. Cannot be combined with `paper_location`. |
 | `dpi` | no | from file, else 300 | Scan resolution (50–2400). **Overrides** the resolution stored in the images. Send it whenever you upload PNM files or know the scan resolution. |
 | `skip_blank_pages` | no | `false` | `true` → drop blank pages from the enhanced version even if blank-page removal is switched off in the settings. Blank pages are always kept in the original. |
 | `compression` | no | `auto` | `auto` or `lossless` — how grey/colour page images are stored (see step 6 above). |
@@ -150,6 +152,7 @@ curl -X POST https://docs.example.com/api/upload/v1/documents \
   -F bucket=private \
   -F todo=true \
   -F "tags=Car,Insurance" \
+  -F "paper_location=Cabinet/Binder 3" \
   -F 'metadata={"device":"desk-scanner"}'
 ```
 
@@ -298,7 +301,7 @@ Errors are JSON: `{"detail": "<message>"}`.
 
 | Status | Meaning |
 |---|---|
-| `400` | Unknown type, folder path too deep, invalid `metadata`, `dpi` or `compression`, empty file, invalid page number. |
+| `400` | Unknown type, folder or paper location path too deep, `paper_location` together with `no_paper`, invalid `metadata`, `dpi` or `compression`, empty file, invalid page number. |
 | `401` | Missing, wrong, revoked or expired token, or IP not allowed. |
 | `403` | Token lacks the required scope. |
 | `404` | Session/document not found (or belongs to another token). |

@@ -610,6 +610,9 @@ export interface paths {
         /**
          * Web Upload
          * @description Upload a PDF from the web UI. Uses the same durable intake and pipeline as scanners.
+         *
+         *     `paper_location_id` files the paper original straight away; `no_paper` says
+         *     there is none to keep. Neither leaves the document waiting to be put away.
          */
         post: operations["apps_documents_api_web_upload"];
         delete?: never;
@@ -5079,6 +5082,13 @@ export interface operations {
                      * @default false
                      */
                     important?: boolean;
+                    /** Paper Location Id */
+                    paper_location_id?: number | null;
+                    /**
+                     * No Paper
+                     * @default false
+                     */
+                    no_paper?: boolean;
                 };
             };
         };

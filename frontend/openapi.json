@@ -1725,7 +1725,7 @@
       }
      }
     },
-    "description": "Upload a PDF from the web UI. Uses the same durable intake and pipeline as scanners.",
+    "description": "Upload a PDF from the web UI. Uses the same durable intake and pipeline as scanners.\n\n`paper_location_id` files the paper original straight away; `no_paper` says\nthere is none to keep. Neither leaves the document waiting to be put away.",
     "tags": [
      "documents"
     ],
@@ -1763,6 +1763,22 @@
          "important": {
           "default": false,
           "title": "Important",
+          "type": "boolean"
+         },
+         "paper_location_id": {
+          "anyOf": [
+           {
+            "type": "integer"
+           },
+           {
+            "type": "null"
+           }
+          ],
+          "title": "Paper Location Id"
+         },
+         "no_paper": {
+          "default": false,
+          "title": "No Paper",
           "type": "boolean"
          }
         },

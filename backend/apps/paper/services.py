@@ -11,14 +11,16 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime
 
-from django.db import transaction
+from django.db import IntegrityError, transaction
 from django.db.models import QuerySet
 from django.utils import timezone
 
 from apps.documents.models import Document
 from apps.paper.models import Location
+from apps.taxonomy.services import normalize_label
 
 SHEET_MM = 0.1  # 80 g/m² office paper
+MAX_LOCATION_DEPTH = 6  # room / cabinet / drawer / binder / divider is already deeper than most homes
 
 
 def sheets_of(document: Document) -> int:
@@ -41,6 +43,34 @@ def location_paths() -> dict[int, str]:
     for pk in rows:
         resolve(pk)
     return paths
+
+
+def split_location_path(path: str) -> list[str]:
+    """Split "Cabinet/Binder 3" into cleaned location names (empty segments are dropped)."""
+    names = [normalize_label(part) for part in path.replace("\\", "/").split("/")]
+    names = [n for n in names if n]
+    if len(names) > MAX_LOCATION_DEPTH:
+        raise ValueError(f"Location paths can be at most {MAX_LOCATION_DEPTH} levels deep")
+    return names
+
+
+def ensure_location_path(path: str) -> Location | None:
+    """Resolve a location path case-insensitively, creating missing levels. Empty path = no location.
+
+    A scanner names the place it was configured with ("Cabinet/Binder 3"); creating
+    it on first use beats rejecting the scan, which would lose the sheet of paper.
+    """
+    location: Location | None = None
+    for name in split_location_path(path):
+        existing = Location.objects.filter(parent=location, name__iexact=name).first()
+        if existing is None:
+            try:
+                with transaction.atomic():
+                    existing = Location.objects.create(parent=location, name=name)
+            except IntegrityError:  # created concurrently
+                existing = Location.objects.get(parent=location, name__iexact=name)
+        location = existing
+    return location
 
 
 def location_subtree(location_id: int) -> set[int]:

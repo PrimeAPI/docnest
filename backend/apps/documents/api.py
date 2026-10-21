@@ -577,10 +577,18 @@ def web_upload(
     document_type: Form[str] = "auto",
     todo: Form[bool] = False,
     important: Form[bool] = False,
+    paper_location_id: Form[int | None] = None,
+    no_paper: Form[bool] = False,
 ) -> Status:
-    """Upload a PDF from the web UI. Uses the same durable intake and pipeline as scanners."""
+    """Upload a PDF from the web UI. Uses the same durable intake and pipeline as scanners.
+
+    `paper_location_id` files the paper original straight away; `no_paper` says
+    there is none to keep. Neither leaves the document waiting to be put away.
+    """
     if folder_id is not None and not Folder.objects.filter(pk=folder_id).exists():
         raise HttpError(400, "Unknown folder")
+    if paper_location_id is not None and not Location.objects.filter(pk=paper_location_id).exists():
+        raise HttpError(400, "Unknown paper location")
     temp = getattr(file, "temporary_file_path", None)
     if temp is None:
         raise HttpError(500, "upload was not streamed to disk")
@@ -589,6 +597,8 @@ def web_upload(
         document_type=document_type,
         todo=todo,
         important=important,
+        paper_location_id=paper_location_id,
+        no_paper=no_paper,
         filename=Path(file.name or "").name,
     )
     try:

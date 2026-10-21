@@ -77,6 +77,8 @@ def _encode(session_uuid: UUID, req: IntakeRequest, options: AssemblyOptions) ->
         "todo": req.todo,
         "tags": req.tags,
         "metadata": req.metadata,
+        "paper_location": req.paper_location,
+        "no_paper": req.no_paper,
         "options": options.to_json(),
     }
     return encrypt_bytes(json.dumps(data, ensure_ascii=False).encode(), aad=_request_aad(session_uuid))
@@ -92,6 +94,8 @@ def decode_request(session: ScanSession) -> SessionRequest:
             todo=data["todo"],
             tags=data["tags"],
             metadata=data["metadata"],
+            paper_location=data.get("paper_location", ""),  # sessions opened before paper filing
+            no_paper=data.get("no_paper", False),
         ),
         options=AssemblyOptions.from_json(data["options"]),
     )

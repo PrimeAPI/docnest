@@ -17,20 +17,24 @@ import {
 import { Label } from "@/components/ui/input";
 import { FolderSelect } from "@/features/folders/folder-ui";
 import { DOCS_MIME } from "@/features/folders/tree";
+import { LocationSelect, useInvalidatePaper, usePaperLocations } from "@/features/paper/paper";
 import { cn } from "@/lib/utils";
 
-type Options = { folderId: number | null; todo: boolean; important: boolean };
+/** `paperLocationId` is where the paper original was put; null = no paper original to keep. */
+type Options = { folderId: number | null; todo: boolean; important: boolean; paperLocationId: number | null };
 
 const STORAGE_KEY = "docnest-upload-options";
+
+const DEFAULTS: Options = { folderId: null, todo: false, important: false, paperLocationId: null };
 
 function loadOptions(): Options {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
-    if (raw) return { folderId: null, todo: false, important: false, ...JSON.parse(raw) };
+    if (raw) return { ...DEFAULTS, ...JSON.parse(raw) };
   } catch {
     /* storage unavailable */
   }
-  return { folderId: null, todo: false, important: false };
+  return DEFAULTS;
 }
 
 function saveOptions(options: Options) {
@@ -65,7 +69,9 @@ export function useUpload() {
  */
 export function UploadProvider({ children }: { children: ReactNode }) {
   const folders = useFolders();
+  const locations = usePaperLocations();
   const invalidate = useInvalidateDocuments();
+  const invalidatePaper = useInvalidatePaper();
   const navigate = useNavigate();
   const [options, setOptionsState] = useState<Options>(loadOptions);
   const [dragging, setDragging] = useState(false);
@@ -78,8 +84,12 @@ export function UploadProvider({ children }: { children: ReactNode }) {
     saveOptions(next);
   };
 
-  // A remembered folder may have been deleted meanwhile: fall back to unfiled.
+  // A remembered folder or location may have been deleted meanwhile: fall back to none.
   const folder = folders.data?.find((f) => f.id === options.folderId) ?? null;
+  const paperLocation = locations.data?.find((l) => l.id === options.paperLocationId) ?? null;
+  // Until the locations have loaded we cannot tell a deleted one from an unknown one,
+  // so keep the remembered id: the backend rejects it if it really is gone.
+  const paperLocationId = locations.data ? (paperLocation?.id ?? null) : options.paperLocationId;
 
   // On the Filing page, files dropped while a folder (or Unfiled) is open go there.
   const filing = useMatch("/filing/:folderId")?.params.folderId;
@@ -96,6 +106,7 @@ export function UploadProvider({ children }: { children: ReactNode }) {
         if (target) form.append("folder_id", String(target.id));
         form.append("todo", String(options.todo));
         form.append("important", String(options.important));
+        if (paperLocationId !== null) form.append("paper_location_id", String(paperLocationId));
         const response = await fetch("/api/v1/documents/upload", {
           method: "POST",
           body: form,
@@ -112,7 +123,7 @@ export function UploadProvider({ children }: { children: ReactNode }) {
         toast.error(`${file.name}: ${(err as Error).message}`, { id });
       }
     },
-    [options.todo, options.important, navigate],
+    [options.todo, options.important, paperLocationId, navigate],
   );
 
   const uploadFiles = useCallback(
@@ -121,9 +132,11 @@ export function UploadProvider({ children }: { children: ReactNode }) {
       const skipped = files.length - pdfs.length;
       if (skipped) toast.error(`${skipped} file(s) skipped — only PDF documents are supported.`);
       for (const file of pdfs) await uploadOne(file, target);
-      if (pdfs.length) invalidate();
+      if (!pdfs.length) return;
+      invalidate();
+      if (paperLocationId !== null) invalidatePaper(); // a stack grew
     },
-    [uploadOne, invalidate, folder],
+    [uploadOne, invalidate, invalidatePaper, paperLocationId, folder],
   );
 
   // Window-wide drag & drop
@@ -195,6 +208,7 @@ export function UploadProvider({ children }: { children: ReactNode }) {
               Into <span className="font-medium text-foreground">{dropFolder?.path ?? "Unfiled"}</span>
               {options.todo && " · as Todo"}
               {options.important && " · important"}
+              {paperLocation && ` · paper into ${paperLocation.path}`}
             </div>
           </div>
         </div>
@@ -228,6 +242,19 @@ export function UploadProvider({ children }: { children: ReactNode }) {
                 value={folder?.id ?? null}
                 onChange={(id) => setOptions({ ...options, folderId: id })}
               />
+            </div>
+            <div className="flex flex-col gap-1.5">
+              <Label htmlFor="upload-paper">Paper original</Label>
+              <LocationSelect
+                id="upload-paper"
+                value={paperLocation?.id ?? null}
+                locations={locations.data ?? []}
+                placeholder="No paper original"
+                onChange={(id) => setOptions({ ...options, paperLocationId: id })}
+              />
+              <p className="text-xs text-muted-foreground">
+                Where the sheet of paper went. Leave it at “No paper original” for a digital PDF.
+              </p>
             </div>
             <label className="flex items-center gap-2 text-sm">
               <Checkbox checked={options.todo} onCheckedChange={(v) => setOptions({ ...options, todo: v === true })} />

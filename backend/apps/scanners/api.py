@@ -83,7 +83,15 @@ def _metadata(metadata: str) -> dict[str, Any]:
 
 
 def _intake_request(
-    bucket: str, document_type: str, important: str, todo: str, tags: str, metadata: str, filename: str = ""
+    bucket: str,
+    document_type: str,
+    important: str,
+    todo: str,
+    tags: str,
+    metadata: str,
+    paper_location: str = "",
+    no_paper: str = "false",
+    filename: str = "",
 ) -> IntakeRequest:
     return IntakeRequest(
         bucket=bucket,
@@ -92,6 +100,8 @@ def _intake_request(
         todo=_parse_bool(todo),
         tags=[t for t in tags.split(",") if t.strip()],
         metadata=_metadata(metadata),
+        paper_location=paper_location,
+        no_paper=_parse_bool(no_paper),
         filename=filename,
     )
 
@@ -110,6 +120,8 @@ def upload_document(
     todo: Form[str] = "false",
     tags: Form[str] = "",
     metadata: Form[str] = "",
+    paper_location: Form[str] = "",
+    no_paper: Form[str] = "false",
     dpi: Form[str] = "",
     skip_blank_pages: Form[str] = "false",
     compression: Form[str] = "auto",
@@ -120,6 +132,10 @@ def upload_document(
     `bucket` is the folder path to file the document in (e.g. `Private/Taxes`);
     missing folders are created, an empty value leaves the document unfiled.
     `tags` is a comma-separated list; `metadata` an optional JSON object.
+    `paper_location` is the physical place the sheet of paper was put (e.g.
+    `Cabinet/Binder 3`); missing locations are created, and an empty value
+    leaves the document waiting to be put away. Send `no_paper=true` instead
+    when there is no paper original to keep.
     Send an `Idempotency-Key` header to make retries safe.
     """
     scanner = require_scope(request, ScannerClient.Scope.UPLOAD)
@@ -133,7 +149,15 @@ def upload_document(
                 return Status(200, _accepted(existing.document, duplicate=True))
 
         req = _intake_request(
-            bucket, document_type, important, todo, tags, metadata, filename=Path(file[0].name or "").name
+            bucket,
+            document_type,
+            important,
+            todo,
+            tags,
+            metadata,
+            paper_location,
+            no_paper,
+            filename=Path(file[0].name or "").name,
         )
         options = _assembly_options(dpi, skip_blank_pages, compression)
         paths = [_upload_path(f) for f in file]
@@ -251,6 +275,8 @@ def create_scan(
     todo: Form[str] = "false",
     tags: Form[str] = "",
     metadata: Form[str] = "",
+    paper_location: Form[str] = "",
+    no_paper: Form[str] = "false",
     dpi: Form[str] = "",
     skip_blank_pages: Form[str] = "false",
     compression: Form[str] = "auto",
@@ -261,7 +287,7 @@ def create_scan(
     `Idempotency-Key` header to make retries safe.
     """
     scanner = require_scope(request, ScannerClient.Scope.UPLOAD)
-    req = _intake_request(bucket, document_type, important, todo, tags, metadata)
+    req = _intake_request(bucket, document_type, important, todo, tags, metadata, paper_location, no_paper)
     options = _assembly_options(dpi, skip_blank_pages, compression)
     try:
         session, created = sessions.create(scanner, req, options, idempotency_key=_idempotency_key(request))

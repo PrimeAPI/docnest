@@ -80,6 +80,7 @@ test("a scanner uploads a scanned letter that gets OCR'd and is searchable", asy
       bucket: "private",
       document_type: "auto",
       todo: "true",
+      paper_location: "Cabinet/Binder 3",
     },
   });
   expect(upload.status()).toBe(202);
@@ -120,6 +121,15 @@ test("a scanner uploads a scanned letter that gets OCR'd and is searchable", asy
   await expect(page.getByText("Done", { exact: true }).first()).toBeVisible();
   await page.reload();
   await expect(page.getByLabel("Title")).toHaveValue("Car insurance 2026");
+
+  // the scanner said where the sheet went, so the document is already put away
+  await expect(page.getByText("Cabinet / Binder 3").first()).toBeVisible();
+  await page.getByRole("navigation").getByRole("link", { name: /^Paper/ }).click();
+  await expect(page.getByText("Every paper original has a location.")).toBeVisible();
+  // the location path the scanner named was created on the way in
+  await expect(page.getByText("Cabinet", { exact: true })).toBeVisible();
+  await expect(page.getByText("Binder 3", { exact: true })).toBeVisible();
+  await expect(page.getByText("1 document ·")).toBeVisible();
 
   // search by the new title
   await page.getByLabel("Search documents").fill("car insurance");

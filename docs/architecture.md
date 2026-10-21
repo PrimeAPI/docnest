@@ -103,6 +103,8 @@ Under Settings → Email the user connects an IMAP mailbox meant only for DocNes
 
 Scanner uploads are marked as having a paper original (web uploads can be marked by hand). Under *Paper* the user creates physical locations (nested, each with a capacity in sheets) and periodically puts away everything not yet placed: the batch goes on top of the location's stack, inside the batch in scan order with the newest on top. A document's position (documents/sheets above and below, its neighbours, ≈ depth at 0.1 mm per sheet, one sheet per page of the original) is computed from that order and shown with a binder pictogram on the document page.
 
+An upload can also name the place itself, so putting away by hand is only needed for scans that did not: a scanner sends `paper_location=Cabinet/Binder 3` (missing locations are created, as for folder paths) and the document arrives already on top of that stack; the web upload dialog offers the same as a location picker. `no_paper=true` says there is no sheet to keep — born digital, or thrown out after scanning — and keeps the document out of the *Put away* queue. Saying both is rejected. A document whose paper original is discarded later is switched to *No paper original* on the document page, which clears its location.
+
 ## Design decisions
 
 - **Blind index instead of plaintext full-text search** — see [security.md](security.md).
