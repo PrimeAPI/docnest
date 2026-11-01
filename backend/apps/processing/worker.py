@@ -54,6 +54,8 @@ LANES: dict[str, list[str]] = {
     # Hours long: its own lane, so quick requests and new documents never wait for it.
     "review": [Job.Kind.REVIEW],
     "pages": [Job.Kind.PAGES],  # a few seconds per document; the whole archive once
+    # One plan at a time: each one builds on the suggestions the previous one made.
+    "filing": [Job.Kind.PLAN_FILING],
 }
 INTAKE_SLOTS = 1
 LANE_OF = {kind: lane for lane, kinds in LANES.items() for kind in kinds}
@@ -230,6 +232,10 @@ class Worker:
                     from apps.taxonomy import filing
 
                     filing.run_proposal(int(job.payload.get("proposal", 0)))
+                elif job.kind == Job.Kind.PLAN_FILING:
+                    from apps.taxonomy import inbox_filing
+
+                    inbox_filing.run(job.payload)
                 elif job.kind == Job.Kind.ASSIST:
                     from apps.assist import tasks
 

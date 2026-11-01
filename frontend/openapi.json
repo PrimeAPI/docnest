@@ -2791,6 +2791,137 @@
     ]
    }
   },
+  "/api/v1/filing/inbox": {
+   "get": {
+    "operationId": "apps_taxonomy_api_inbox_filing_overview",
+    "summary": "Inbox Filing Overview",
+    "parameters": [],
+    "responses": {
+     "200": {
+      "description": "OK",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/InboxFilingOut"
+        }
+       }
+      }
+     }
+    },
+    "description": "Open suggestions for documents in the inbox, by target: one folder, all its documents.",
+    "tags": [
+     "taxonomy"
+    ],
+    "security": [
+     {
+      "MfaSessionAuth": []
+     }
+    ]
+   }
+  },
+  "/api/v1/filing/inbox/decide": {
+   "post": {
+    "operationId": "apps_taxonomy_api_inbox_filing_decide",
+    "summary": "Inbox Filing Decide",
+    "parameters": [],
+    "responses": {
+     "200": {
+      "description": "OK",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/InboxFilingDecideOut"
+        }
+       }
+      }
+     }
+    },
+    "description": "Approve suggestions (the documents move, folders are created) or dismiss them.",
+    "tags": [
+     "taxonomy"
+    ],
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/InboxFilingDecideIn"
+       }
+      }
+     },
+     "required": true
+    },
+    "security": [
+     {
+      "MfaSessionAuth": []
+     }
+    ]
+   }
+  },
+  "/api/v1/filing/inbox/plan": {
+   "post": {
+    "operationId": "apps_taxonomy_api_inbox_filing_plan",
+    "summary": "Inbox Filing Plan",
+    "parameters": [],
+    "responses": {
+     "200": {
+      "description": "OK",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/InboxFilingOut"
+        }
+       }
+      }
+     }
+    },
+    "description": "Plan the documents in the inbox that have no suggestion yet (e.g. from before it was on).",
+    "tags": [
+     "taxonomy"
+    ],
+    "security": [
+     {
+      "MfaSessionAuth": []
+     }
+    ]
+   }
+  },
+  "/api/v1/filing/inbox/settings": {
+   "put": {
+    "operationId": "apps_taxonomy_api_inbox_filing_settings",
+    "summary": "Inbox Filing Settings",
+    "parameters": [],
+    "responses": {
+     "200": {
+      "description": "OK",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/InboxFilingOut"
+        }
+       }
+      }
+     }
+    },
+    "tags": [
+     "taxonomy"
+    ],
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/InboxFilingSettingsIn"
+       }
+      }
+     },
+     "required": true
+    },
+    "security": [
+     {
+      "MfaSessionAuth": []
+     }
+    ]
+   }
+  },
   "/api/v1/document-types": {
    "get": {
     "operationId": "apps_taxonomy_api_list_types",
@@ -7761,6 +7892,16 @@
        }
       ]
      },
+     "filing_suggestion": {
+      "anyOf": [
+       {
+        "$ref": "#/components/schemas/FilingSuggestionOut"
+       },
+       {
+        "type": "null"
+       }
+      ]
+     },
      "field_sources": {
       "additionalProperties": true,
       "title": "Field Sources",
@@ -7871,6 +8012,7 @@
      "processing_error",
      "has_series_suggestion",
      "series_suggestion",
+     "filing_suggestion",
      "field_sources",
      "extracted",
      "scanner_metadata",
@@ -7924,6 +8066,49 @@
      "created_at"
     ],
     "title": "EventOut",
+    "type": "object"
+   },
+   "FilingSuggestionOut": {
+    "properties": {
+     "anchor_id": {
+      "anyOf": [
+       {
+        "type": "integer"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Anchor Id"
+     },
+     "anchor_path": {
+      "title": "Anchor Path",
+      "type": "string"
+     },
+     "new": {
+      "items": {
+       "type": "string"
+      },
+      "title": "New",
+      "type": "array"
+     },
+     "reason": {
+      "title": "Reason",
+      "type": "string"
+     },
+     "named_by": {
+      "title": "Named By",
+      "type": "string"
+     }
+    },
+    "required": [
+     "anchor_id",
+     "anchor_path",
+     "new",
+     "reason",
+     "named_by"
+    ],
+    "title": "FilingSuggestionOut",
     "type": "object"
    },
    "MailDocOut": {
@@ -8962,6 +9147,188 @@
      "ids"
     ],
     "title": "FilingMoveIn",
+    "type": "object"
+   },
+   "InboxFilingGroupOut": {
+    "properties": {
+     "anchor_id": {
+      "anyOf": [
+       {
+        "type": "integer"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Anchor Id"
+     },
+     "anchor_path": {
+      "title": "Anchor Path",
+      "type": "string"
+     },
+     "new": {
+      "items": {
+       "type": "string"
+      },
+      "title": "New",
+      "type": "array"
+     },
+     "reasons": {
+      "items": {
+       "type": "string"
+      },
+      "title": "Reasons",
+      "type": "array"
+     },
+     "named_by": {
+      "title": "Named By",
+      "type": "string"
+     },
+     "documents": {
+      "items": {
+       "$ref": "#/components/schemas/FilingDocOut"
+      },
+      "title": "Documents",
+      "type": "array"
+     }
+    },
+    "required": [
+     "anchor_id",
+     "anchor_path",
+     "new",
+     "reasons",
+     "named_by",
+     "documents"
+    ],
+    "title": "InboxFilingGroupOut",
+    "type": "object"
+   },
+   "InboxFilingOut": {
+    "properties": {
+     "enabled": {
+      "title": "Enabled",
+      "type": "boolean"
+     },
+     "planning": {
+      "title": "Planning",
+      "type": "boolean"
+     },
+     "waiting": {
+      "title": "Waiting",
+      "type": "integer"
+     },
+     "groups": {
+      "items": {
+       "$ref": "#/components/schemas/InboxFilingGroupOut"
+      },
+      "title": "Groups",
+      "type": "array"
+     }
+    },
+    "required": [
+     "enabled",
+     "planning",
+     "waiting",
+     "groups"
+    ],
+    "title": "InboxFilingOut",
+    "type": "object"
+   },
+   "InboxFilingDecideOut": {
+    "properties": {
+     "moved": {
+      "title": "Moved",
+      "type": "integer"
+     },
+     "created": {
+      "title": "Created",
+      "type": "integer"
+     },
+     "dismissed": {
+      "title": "Dismissed",
+      "type": "integer"
+     }
+    },
+    "required": [
+     "moved",
+     "created",
+     "dismissed"
+    ],
+    "title": "InboxFilingDecideOut",
+    "type": "object"
+   },
+   "InboxFilingDecideIn": {
+    "properties": {
+     "ids": {
+      "items": {
+       "format": "uuid",
+       "type": "string"
+      },
+      "title": "Ids",
+      "type": "array"
+     },
+     "action": {
+      "enum": [
+       "accept",
+       "dismiss"
+      ],
+      "title": "Action",
+      "type": "string"
+     },
+     "target": {
+      "anyOf": [
+       {
+        "$ref": "#/components/schemas/InboxFilingTargetIn"
+       },
+       {
+        "type": "null"
+       }
+      ]
+     }
+    },
+    "required": [
+     "ids",
+     "action"
+    ],
+    "title": "InboxFilingDecideIn",
+    "type": "object"
+   },
+   "InboxFilingTargetIn": {
+    "properties": {
+     "anchor_id": {
+      "anyOf": [
+       {
+        "type": "integer"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Anchor Id"
+     },
+     "new": {
+      "default": [],
+      "items": {
+       "type": "string"
+      },
+      "title": "New",
+      "type": "array"
+     }
+    },
+    "title": "InboxFilingTargetIn",
+    "type": "object"
+   },
+   "InboxFilingSettingsIn": {
+    "properties": {
+     "enabled": {
+      "title": "Enabled",
+      "type": "boolean"
+     }
+    },
+    "required": [
+     "enabled"
+    ],
+    "title": "InboxFilingSettingsIn",
     "type": "object"
    },
    "TypeOut": {

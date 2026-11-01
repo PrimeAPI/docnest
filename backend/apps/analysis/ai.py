@@ -794,6 +794,128 @@ def name_folders(
     return names
 
 
+# --- Where new documents belong in the whole folder tree -------------------------------------
+#
+# For the inbox: the model sees the folder tree (with what is in each folder, and the folders
+# other new documents are proposed for) and answers a full path per group. The planner checks
+# every answer against the tree; a path it cannot resolve is not used.
+
+PLACE_INSTRUCTIONS = """\
+New documents should be filed into this folder tree{below}:
+{folders}
+
+Groups of new documents:
+{groups}
+
+For each group give "folder": the full path of the folder it belongs in, segments joined by "/".
+- Prefer an existing or proposed folder, spelled exactly as listed. Put a document as deep as fits.
+{new_rule}
+- No years in folder names: year folders are added automatically.
+- null when no folder fits{null_new}.
+"""
+PLACE_RULE_NEW = """\
+- When no listed folder fits well, add up to 2 new folders at the end of the best listed path
+  (or at the top level), e.g. "Privat/Versicherungen/Kfz". New names are short {language} plural
+  nouns for what the documents are, e.g. {examples}; no sender name unless needed to tell
+  folders apart."""
+PLACE_RULE_NO_NEW = "- No new folders: only listed ones."
+MAX_PLACE_FOLDERS = 80  # folder lines shown to the model; the planner picks the likeliest ones
+
+
+@dataclass(frozen=True)
+class TreeFolder:
+    path: str  # "Privat/Versicherungen"
+    count: int  # documents in it and below
+    senders: list[str]  # its most frequent senders
+    proposed: bool = False  # does not exist yet: other new documents are proposed for it
+
+
+def choose_folders(
+    model: str,
+    *,
+    folders: list[TreeFolder],
+    groups: list[FolderGroup],
+    below: str = "",
+    style: str | None = None,
+    allow_new: bool = True,
+) -> list[str | None]:
+    """Ask `model` for the full folder path each group belongs in, or None.
+
+    `below` is the folder the documents must stay inside ("" = anywhere). The answers are
+    unchecked: the caller resolves them against the tree.
+    """
+    lines = []
+    for f in folders[:MAX_PLACE_FOLDERS]:
+        notes = [f"{f.count} document{'s' if f.count != 1 else ''}"] if f.count else []
+        if f.senders:
+            notes.append(", ".join(f.senders[:3]))
+        if f.proposed:
+            notes.insert(0, "proposed")
+        lines.append(f"- {f.path}" + (f" ({'; '.join(notes)})" if notes else ""))
+    group_lines = []
+    for number, group in enumerate(groups, start=1):
+        about = ", ".join(
+            part
+            for part in (
+                f"{group.count} document{'s' if group.count != 1 else ''}",
+                f"sender {group.sender}" if group.sender else "",
+                f"type {group.doc_type}" if group.doc_type else "",
+            )
+            if part
+        )
+        titles = "; ".join(f'"{t}"' for t in group.titles[:4])
+        group_lines.append(f"{number}. {about}: {titles}")
+    examples = FOLDER_EXAMPLES if not style else f"{FOLDER_EXAMPLES}, but {style}"
+    prompt = PLACE_INSTRUCTIONS.format(
+        below=f' (inside "{below}")' if below else "",
+        folders="\n".join(lines) or "(no folders yet)",
+        groups="\n".join(group_lines),
+        new_rule=PLACE_RULE_NEW.format(language=style or "German", examples=examples)
+        if allow_new
+        else PLACE_RULE_NO_NEW,
+        null_new=" and none should be made" if allow_new else "",
+    )
+    payload: dict[str, Any] = {
+        "model": model,
+        "messages": [
+            {"role": "system", "content": FOLDER_SYSTEM_PROMPT},
+            {"role": "user", "content": prompt},
+        ],
+        "format": {
+            "type": "object",
+            "properties": {
+                "groups": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "properties": {"group": {"type": "integer"}, "folder": {"type": ["string", "null"]}},
+                        "required": ["group", "folder"],
+                    },
+                }
+            },
+            "required": ["groups"],
+        },
+        "think": False,
+        "keep_alive": "10m",
+        "options": {
+            "temperature": 0,
+            **_context(),
+            "num_predict": MAX_ANSWER_TOKENS,
+        },
+    }
+    data = _chat(payload)
+    paths: list[str | None] = [None] * len(groups)
+    answers = data.get("groups")
+    for item in answers if isinstance(answers, list) else []:
+        if not isinstance(item, dict) or not isinstance(item.get("group"), int):
+            continue
+        index = item["group"] - 1
+        path = clean(item.get("folder"), limit=MAX_FOLDER_NAME * 6)
+        if 0 <= index < len(groups) and path:
+            paths[index] = path
+    return paths
+
+
 # --- The user's filing wishes ---------------------------------------------------------------
 #
 # A small model does not follow free-text wishes while it does another job (naming folders):

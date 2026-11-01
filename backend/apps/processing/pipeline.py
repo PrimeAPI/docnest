@@ -775,6 +775,12 @@ def run(document_id: int, *, intake_only: bool = False, check: Callable[[], None
             processing_plan={},
             updated_at=timezone.now(),
         )
+    from apps.taxonomy import inbox_filing
+
+    try:  # where it should be filed: a suggestion, never a reason for processing to fail
+        inbox_filing.request(document.pk)
+    except Exception:
+        logger.warning("could not ask for a filing plan", extra={"document": doc}, exc_info=True)
 
 
 def restart_from(document: Document, stage: str, plan: dict[str, object] | None = None) -> None:

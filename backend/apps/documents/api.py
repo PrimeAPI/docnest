@@ -33,7 +33,8 @@ from apps.processing.schemas import EnhanceSettingsIn
 from apps.search import index as search_index
 from apps.search.snippets import make_snippet
 from apps.storage.backends import StorageAuthError, StorageError
-from apps.taxonomy.models import Correspondent, DocumentType, Folder, Series, Tag
+from apps.taxonomy import inbox_filing
+from apps.taxonomy.models import Correspondent, DocumentType, FilingSuggestion, Folder, Series, Tag
 from apps.taxonomy.services import (
     find_correspondent,
     folder_paths,
@@ -150,8 +151,17 @@ class MailOut(Schema):
     documents: list[MailDocOut]  # everything that arrived with this email
 
 
+class FilingSuggestionOut(Schema):
+    anchor_id: int | None  # deepest existing folder of the target; null = top level
+    anchor_path: str
+    new: list[str]  # folders approving creates below the anchor
+    reason: str
+    named_by: str  # "ai" | "rules"
+
+
 class DocumentDetail(DocumentListItem):
     series_suggestion: RefOut | None
+    filing_suggestion: FilingSuggestionOut | None  # where it should be filed, awaiting approval
     field_sources: dict[str, object]
     extracted: dict[str, object]
     scanner_metadata: dict[str, object]
@@ -367,6 +377,7 @@ def to_detail(document: Document) -> DocumentDetail:
     return DocumentDetail(
         **item.dict(),
         series_suggestion=_ref(document.series_suggestion),
+        filing_suggestion=_filing_suggestion(document),
         field_sources={k: v for k, v in document.field_sources.items() if k != "tags_removed"},
         extracted=crypto_fields.get_extracted(document),
         scanner_metadata=crypto_fields.get_scanner_metadata(document),
@@ -399,6 +410,21 @@ def to_detail(document: Document) -> DocumentDetail:
             )
             for e in events
         ],
+    )
+
+
+def _filing_suggestion(document: Document) -> FilingSuggestionOut | None:
+    s = FilingSuggestion.objects.filter(document=document, state=FilingSuggestion.State.PENDING).first()
+    if s is None:
+        return None
+    folders = inbox_filing.Folders()
+    anchor, new = folders.current(s.anchor_id, s.new)
+    return FilingSuggestionOut(
+        anchor_id=anchor,
+        anchor_path=folders.path(anchor),
+        new=new,
+        reason=inbox_filing.reason(s, document),
+        named_by=s.named_by,
     )
 
 
@@ -646,6 +672,7 @@ def bulk_update(request: HttpRequest, data: BulkAction) -> dict[str, int]:
                 document.save(update_fields=["folder", "field_sources", "updated_at"])
                 alterations.record_edit(document, before)
                 n += 1
+            inbox_filing.filed_by_user(list(qs.values_list("pk", flat=True)), data.folder_id)
         audit("document.bulk", request=request, operation="move", count=n, folder=data.folder_id)
         return {"updated": n}
     if data.action == "reprocess":
@@ -808,6 +835,8 @@ def update_document(request: HttpRequest, doc_id: UUID, data: DocumentPatch) -> 
             changed.append("paper_location")
 
         document.save()
+        if "folder" in changed:
+            inbox_filing.filed_by_user([document.pk], document.folder_id)
 
         if data.tag_ids is not None or data.tag_names is not None:
             wanted: set[int] = set(data.tag_ids or [])

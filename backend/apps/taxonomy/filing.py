@@ -39,7 +39,7 @@ import logging
 import re
 from collections import Counter, defaultdict
 from collections.abc import Iterable
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 
 from django.db import transaction
 from django.utils import timezone
@@ -174,6 +174,8 @@ class Group:
     new: list[str] = field(default_factory=list)  # folders to create below the anchor
     matched: bool = False  # placed into an existing subfolder
     wished: bool = False  # placed by the user's instructions
+    score: float = 0.0  # how well the folder it was placed into fits (see `_score`)
+    by_model: bool = False  # the AI model chose the target (inbox filing)
 
     def top_words(self) -> set[str]:
         counts = Counter(w for d in self.docs for w in set(d.words))
@@ -247,24 +249,55 @@ class Tree:
             .select_related("document_type")
             .only("pk", "uuid", "folder", "series", "correspondent", "document_type__slug", "title_enc")
         )
+        self.proposed: set[int] = set()  # folders other suggestions will create (negative ids)
         for d in docs:
             words = {w for w, _ in significant_words(crypto_fields.get_title(d))}
             type_id = (
                 d.document_type_id if d.document_type and d.document_type.slug not in SKIP_TYPES else None
             )
-            # A document describes its folder and every folder above it.
-            pk: int | None = d.folder_id
-            while pk is not None and pk in self.profiles:
-                p = self.profiles[pk]
-                p.total += 1
-                if d.series_id:
-                    p.series[d.series_id] += 1
-                if d.correspondent_id:
-                    p.corrs[d.correspondent_id] += 1
-                if type_id:
-                    p.types[type_id] += 1
-                p.words.update(words)
-                pk = self.folders[pk].parent_id
+            self._describe(d.folder_id, d.series_id, d.correspondent_id, type_id, words)
+
+    def _describe(
+        self, pk: int | None, series: int | None, corr: int | None, type_id: int | None, words: set[str]
+    ) -> None:
+        # A document describes its folder and every folder above it.
+        while pk is not None and pk in self.profiles:
+            p = self.profiles[pk]
+            p.total += 1
+            if series:
+                p.series[series] += 1
+            if corr:
+                p.corrs[corr] += 1
+            if type_id:
+                p.types[type_id] += 1
+            p.words.update(words)
+            pk = self.folders[pk].parent_id
+
+    def describe(self, pk: int, doc: Doc) -> None:
+        """Count `doc` as lying in folder `pk` (one another suggestion sends it to)."""
+        self._describe(pk, doc.series_id, doc.corr_id, doc.type_id, set(doc.words))
+
+    def propose(self, parent: int | None, name: str) -> int:
+        """A folder another suggestion will create; from now on it is matched like an existing one."""
+        existing = self.child_named(parent, name)
+        if existing is not None:
+            return existing
+        pk = -(len(self.proposed) + 1)
+        folder = Folder(pk=pk, name=name, parent_id=parent)
+        self.folders[pk] = folder
+        self.children[parent].append(pk)
+        self.paths[pk] = f"{self.path(parent)} / {name}" if parent is not None else name
+        self.profiles[pk] = Profile(folder=folder, name_words={w for w, _ in significant_words(name)})
+        self.proposed.add(pk)
+        return pk
+
+    def real(self, pk: int | None, new: list[str]) -> tuple[int | None, list[str]]:
+        """(deepest existing folder, folders to create) for a target that may lie in proposed folders."""
+        names = list(new)
+        while pk is not None and pk in self.proposed:
+            names.insert(0, self.folders[pk].name)
+            pk = self.folders[pk].parent_id
+        return pk, names
 
     def subfolders(self, parent: int | None) -> list[int]:
         """Children that are not year folders (years are handled on their own)."""
@@ -398,6 +431,7 @@ def place(group: Group, tree: Tree, base: int | None) -> None:
         if best is None:
             break
         anchor = best[1]
+        group.score = best[0]
         if best[2]:
             reasons.append(best[2])
     if anchor != base:
@@ -472,7 +506,7 @@ def split_years(group: Group, tree: Tree, options: Options | None = None) -> lis
     for d in group.docs:
         by_year[d.year].append(d)
     for year, docs in sorted(by_year.items(), key=lambda item: item[0] or 0):
-        part = Group(docs, group.reason, group.anchor_id, list(group.new), group.matched, group.wished)
+        part = replace(group, docs=docs, new=list(group.new))
         if year is not None:
             if not group.new and str(year) in existing_years:
                 part.anchor_id = existing_years[str(year)]
@@ -773,6 +807,36 @@ def clean_names(names: Iterable[str]) -> list[str]:
     return out
 
 
+def ensure_target(
+    anchor_id: int | None, names: list[str], parents: dict[int, int | None]
+) -> tuple[Folder, int]:
+    """The folder `names` below `anchor_id`, created where missing: (folder, folders created).
+
+    `parents` maps every folder to its parent and learns the new ones. Reuses a folder of the
+    same name, so a target another move has created meanwhile is found, not made twice.
+    """
+    if anchor_id is not None and anchor_id not in parents:
+        raise ApplyError("A target folder no longer exists")
+    if anchor_id is None and not names:
+        raise ApplyError("Documents cannot be moved to the top level")
+    depth, level = 0, anchor_id
+    while level is not None:
+        depth, level = depth + 1, parents[level]
+    created = 0
+    target = Folder.objects.get(pk=anchor_id) if anchor_id is not None else None
+    for name in names:
+        child = Folder.objects.filter(parent=target, name__iexact=name).first()
+        if child is None:
+            if depth >= MAX_FOLDER_DEPTH:
+                raise ApplyError(f"Folder paths can be at most {MAX_FOLDER_DEPTH} levels deep")
+            child = Folder.objects.create(parent=target, name=name)
+            parents[child.pk] = child.parent_id
+            created += 1
+        target, depth = child, depth + 1
+    assert target is not None
+    return target, created
+
+
 def apply(moves: list[Move]) -> tuple[int, int]:
     """Move documents into their targets, creating folders as needed. Returns (moved, created folders).
 
@@ -783,29 +847,13 @@ def apply(moves: list[Move]) -> tuple[int, int]:
         parents: dict[int, int | None] = dict(Folder.objects.values_list("pk", "parent_id"))
         for move in moves:
             names = clean_names(move.new)
-            if move.anchor_id is not None and move.anchor_id not in parents:
-                raise ApplyError("A target folder no longer exists")
-            if move.anchor_id is None and not names:
-                raise ApplyError("Documents cannot be moved to the top level")
-            depth, level = 0, move.anchor_id
-            while level is not None:
-                depth, level = depth + 1, parents[level]
-            if depth + len(names) > MAX_FOLDER_DEPTH:
-                raise ApplyError(f"Folder paths can be at most {MAX_FOLDER_DEPTH} levels deep")
             documents = list(
                 Document.objects.select_for_update().filter(uuid__in=move.documents, deleted_at__isnull=True)
             )
             if not documents:
                 continue
-            target = Folder.objects.get(pk=move.anchor_id) if move.anchor_id is not None else None
-            for name in names:
-                child = Folder.objects.filter(parent=target, name__iexact=name).first()
-                if child is None:
-                    child = Folder.objects.create(parent=target, name=name)
-                    parents[child.pk] = child.parent_id
-                    created += 1
-                target = child
-            assert target is not None
+            target, made = ensure_target(move.anchor_id, names, parents)
+            created += made
             ancestors: set[int] = set()
             up: int | None = target.pk
             while up is not None:

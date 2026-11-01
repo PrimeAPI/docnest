@@ -7,6 +7,7 @@ import { Card } from "@/components/ui/card";
 import { EmptyState, PageHeader, Spinner } from "@/components/ui/misc";
 import { BulkBar } from "@/features/documents/document-row";
 import { DocumentCollection, useViewMode, ViewSwitch } from "@/features/documents/document-views";
+import { InboxFilingSection } from "@/features/folders/inbox-filing";
 import { cn } from "@/lib/utils";
 
 function StatCard({
@@ -91,6 +92,8 @@ export function InboxPage() {
           <DocumentCollection docs={failed.data?.items ?? []} mode={view} className="border-destructive/40" />
         </section>
       )}
+
+      <InboxFilingSection />
 
       {withSuggestion.length > 0 && (
         <section className="mb-6">

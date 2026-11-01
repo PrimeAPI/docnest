@@ -15,6 +15,7 @@
 - **Overnight document review** — review a selection, folder or the archive, now or at a scheduled time. Choose an installed local model and a deadline, or run page checks without AI. Find duplicate scans and pages, split letters, missing pages and gaps; inspect the evidence, compare pages, edit the proposed changes and apply only what you choose. [How reviews work](docs/document-review.md).
 - **Edit pages and keep originals** — blank pages are hidden in Enhanced, not Original. Hiding or reordering pages keeps the same document without OCR or AI reprocessing; splitting keeps the first part's identity. Only extra parts and merged documents are new, reusing existing processed pages. Encrypted history and undo retain provenance; originals are never overwritten or permanently deleted. [Operation rules](docs/document-operations.md).
 - **Three views** — every document list switches between *List* (a table), *Compact* (rows with a small preview) and *Cards* (big previews); dialogs that name documents have the same switch, starting as a list. The Filing page has a quick search (title, sender, text) over the folder it shows.
+- **Filing for new documents** — every new document gets a suggested folder, approved in the inbox with one click. Documents arriving together are planned together, and later ones join the folders proposed for earlier ones, so a batch never scatters into near-duplicate folders. [How it works](docs/inbox-filing.md).
 - **Filing suggestions** — select the loose documents of a folder and DocNest proposes subfolders for them (`Work` → `Work/Verdienstabrechnungen/2026`), learning what each folder means from what is already in it. Add instructions (“Stadtwerke nach Wohnung/Nebenkosten”, “English folder names”) and ask again; move single documents between the suggested folders; nothing moves until you apply.
 - **Series** — monthly payslips, phone bills or bank statements are grouped and labelled (“March 2026”), with gaps highlighted.
 - **Human override** — every automatic value can be corrected; your edits are never overwritten.
@@ -93,6 +94,7 @@ For long feeder scans, upload page by page with a scan session. Full reference, 
 - [Security model](docs/security.md)
 - [Scanner upload API](docs/scanner-api.md)
 - [Proton Drive integration](docs/proton-drive.md)
+- [Filing new documents](docs/inbox-filing.md)
 - [Architecture](docs/architecture.md)
 - [Development](docs/development.md)
 

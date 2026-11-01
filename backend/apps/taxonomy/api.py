@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import date
+from typing import Literal
 from uuid import UUID
 
 from django.db import IntegrityError, transaction
@@ -17,11 +18,12 @@ from apps.documents import crypto_fields
 from apps.documents.models import Document
 from apps.processing import queue
 from apps.processing.models import Job, SystemState
-from apps.taxonomy import filing
+from apps.taxonomy import filing, inbox_filing
 from apps.taxonomy.models import (
     Correspondent,
     DocumentType,
     FilingProposal,
+    FilingSuggestion,
     Folder,
     MatchRule,
     Series,
@@ -410,6 +412,139 @@ def apply_filing(request: HttpRequest, data: FilingApplyIn) -> dict[str, int]:
         raise HttpError(400, str(exc)) from exc
     audit("filing.applied", request=request, count=moved, folders_created=created)
     return {"moved": moved, "created": created}
+
+
+# --- Filing suggestions for new documents (the inbox) -----------------------------
+
+
+class InboxFilingGroupOut(Schema):
+    anchor_id: int | None  # deepest existing folder of the target; null = top level
+    anchor_path: str
+    new: list[str]  # folders approving creates below the anchor
+    reasons: list[str]
+    named_by: str  # "ai" when the AI model chose the target of any of its documents
+    documents: list[FilingDocOut]
+
+
+class InboxFilingOut(Schema):
+    enabled: bool
+    planning: bool  # a plan is queued or running
+    waiting: int  # documents in the inbox without a suggestion yet (some may still be processed)
+    groups: list[InboxFilingGroupOut]
+
+
+class InboxFilingTargetIn(Schema):
+    anchor_id: int | None = None
+    new: list[str] = []
+
+
+class InboxFilingDecideIn(Schema):
+    ids: list[UUID]
+    action: Literal["accept", "dismiss"]
+    target: InboxFilingTargetIn | None = None  # accept: somewhere else than suggested
+
+
+class InboxFilingDecideOut(Schema):
+    moved: int
+    created: int
+    dismissed: int
+
+
+class InboxFilingSettingsIn(Schema):
+    enabled: bool
+
+
+@router.get("/filing/inbox", response=InboxFilingOut)
+def inbox_filing_overview(request: HttpRequest) -> InboxFilingOut:
+    """Open suggestions for documents in the inbox, by target: one folder, all its documents."""
+    suggestions = (
+        FilingSuggestion.objects.filter(
+            state=FilingSuggestion.State.PENDING,
+            document__deleted_at__isnull=True,
+            document__status=Document.Status.NEW,
+        )
+        .select_related("document", "document__correspondent", "document__document_type")
+        .order_by("document__document_date", "document__uploaded_at")
+    )
+    folders = inbox_filing.Folders()
+    groups: dict[tuple[int | None, tuple[str, ...]], InboxFilingGroupOut] = {}
+    for s in suggestions:
+        d = s.document
+        anchor, new = folders.current(s.anchor_id, s.new)
+        key = (anchor, tuple(n.casefold() for n in new))
+        group = groups.setdefault(
+            key,
+            InboxFilingGroupOut(
+                anchor_id=anchor,
+                anchor_path=folders.path(anchor),
+                new=new,
+                reasons=[],
+                named_by="rules",
+                documents=[],
+            ),
+        )
+        why = inbox_filing.reason(s, d)
+        if why and why not in group.reasons:
+            group.reasons.append(why)
+        if s.named_by == "ai":
+            group.named_by = "ai"
+        group.documents.append(
+            FilingDocOut(
+                id=d.uuid,
+                title=crypto_fields.get_title(d) or "Processing…",
+                document_date=d.document_date,
+                correspondent=d.correspondent.name if d.correspondent else None,
+                document_type=d.document_type.name if d.document_type else None,
+                folder_path=folders.path(d.folder_id),
+            )
+        )
+    waiting = (
+        Document.objects.filter(
+            deleted_at__isnull=True, status=Document.Status.NEW, filing_suggestion__isnull=True
+        )
+        .exclude(processing_state=Document.State.FAILED)  # planned once it is processed after all
+        .count()
+    )
+    return InboxFilingOut(
+        enabled=inbox_filing.enabled(),
+        planning=inbox_filing.planning(),
+        waiting=waiting,
+        groups=sorted(
+            groups.values(), key=lambda g: (g.anchor_path.casefold(), [n.casefold() for n in g.new])
+        ),
+    )
+
+
+@router.post("/filing/inbox/decide", response=InboxFilingDecideOut)
+def inbox_filing_decide(request: HttpRequest, data: InboxFilingDecideIn) -> dict[str, int]:
+    """Approve suggestions (the documents move, folders are created) or dismiss them."""
+    ids = [str(i) for i in data.ids[: filing.MAX_DOCUMENTS]]
+    if data.action == "dismiss":
+        n = inbox_filing.dismiss(ids)
+        audit("filing.inbox_dismissed", request=request, count=n)
+        return {"moved": 0, "created": 0, "dismissed": n}
+    target = (data.target.anchor_id, data.target.new) if data.target else None
+    try:
+        moved, created = inbox_filing.accept(ids, target)
+    except filing.ApplyError as exc:
+        raise HttpError(400, str(exc)) from exc
+    audit("filing.inbox_accepted", request=request, count=moved, folders_created=created)
+    return {"moved": moved, "created": created, "dismissed": 0}
+
+
+@router.post("/filing/inbox/plan", response=InboxFilingOut)
+def inbox_filing_plan(request: HttpRequest) -> InboxFilingOut:
+    """Plan the documents in the inbox that have no suggestion yet (e.g. from before it was on)."""
+    if inbox_filing.enabled():
+        inbox_filing.schedule()
+    return inbox_filing_overview(request)
+
+
+@router.put("/filing/inbox/settings", response=InboxFilingOut)
+def inbox_filing_settings(request: HttpRequest, data: InboxFilingSettingsIn) -> InboxFilingOut:
+    inbox_filing.set_enabled(data.enabled)
+    audit("filing.inbox_settings", request=request, enabled=data.enabled)
+    return inbox_filing_overview(request)
 
 
 # --- Document types ---------------------------------------------------------------

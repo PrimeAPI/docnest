@@ -37,6 +37,7 @@ import { EmptyState, ErrorNote, Kbd, Spinner } from "@/components/ui/misc";
 import { TagChip } from "@/features/documents/document-row";
 import { DocumentViewer } from "@/features/documents/document-viewer";
 import { FolderSelect } from "@/features/folders/folder-ui";
+import { FilingTarget, useDecideFiling } from "@/features/folders/inbox-filing";
 import { cn } from "@/lib/utils";
 
 type Status = "new" | "todo" | "done";
@@ -297,6 +298,22 @@ function ReviewWorkspace({
   useEffect(() => titleRef.current?.focus(), []);
 
   const set = <K extends keyof Draft>(key: K, value: Draft[K]) => setDraft((d) => ({ ...d, [key]: value }));
+  const decide = useDecideFiling();
+  // Approving moves the document at once; the draft follows, so saving does not move it back.
+  const fileAsSuggested = () =>
+    decide.mutate(
+      { ids: [doc.id], action: "accept" },
+      {
+        onSuccess: async () => {
+          const fresh = await call(() =>
+            client.GET("/api/v1/documents/{doc_id}", { params: { path: { doc_id: doc.id } } }),
+          );
+          const folderId = fresh.folder?.id ?? null;
+          setInitial((d) => ({ ...d, folderId }));
+          setDraft((d) => ({ ...d, folderId }));
+        },
+      },
+    );
   // The status choice is a preference, not an edit — ignore it for "unsaved changes".
   const dirty = JSON.stringify({ ...draft, status: "" }) !== JSON.stringify({ ...initial, status: "" });
 
@@ -432,7 +449,14 @@ function ReviewWorkspace({
       </div>
       <aside className="flex w-full shrink-0 flex-col bg-background lg:w-[400px]">
         <div className="min-h-0 flex-1 overflow-y-auto p-4">
-          <ReviewForm doc={doc} draft={draft} set={set} titleRef={titleRef} />
+          <ReviewForm
+            doc={doc}
+            draft={draft}
+            set={set}
+            titleRef={titleRef}
+            onFileAsSuggested={fileAsSuggested}
+            filing={decide.isPending}
+          />
         </div>
         <div className="border-t bg-card p-4">
           <Label className="mb-1.5 block text-xs text-muted-foreground">After saving, the document is</Label>
@@ -593,11 +617,15 @@ function ReviewForm({
   draft,
   set,
   titleRef,
+  onFileAsSuggested,
+  filing,
 }: {
   doc: DocumentDetail;
   draft: Draft;
   set: <K extends keyof Draft>(key: K, value: Draft[K]) => void;
   titleRef: React.RefObject<HTMLInputElement | null>;
+  onFileAsSuggested: () => void;
+  filing: boolean;
 }) {
   const types = useTypes();
   const correspondents = useCorrespondents();
@@ -657,6 +685,15 @@ function ReviewForm({
       <div className="grid grid-cols-2 gap-3">
         <FormField label="Folder" htmlFor="review-folder">
           <FolderSelect id="review-folder" value={draft.folderId} onChange={(id) => set("folderId", id)} />
+          {doc.filing_suggestion && draft.folderId === (doc.folder?.id ?? null) && (
+            <div className="mt-1 flex flex-wrap items-center gap-2 text-xs">
+              <span className="text-muted-foreground">Suggested:</span>
+              <FilingTarget anchorPath={doc.filing_suggestion.anchor_path} names={doc.filing_suggestion.new} />
+              <Button size="sm" variant="outline" className="h-6 px-2 text-xs" disabled={filing} onClick={onFileAsSuggested}>
+                <Check /> Use
+              </Button>
+            </div>
+          )}
         </FormField>
         <FormField label="Series" htmlFor="review-series">
           <Select

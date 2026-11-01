@@ -18,6 +18,7 @@ class Job(models.Model):
         REINDEX_DOCUMENT = "reindex_document"
         BACKUP_DATABASE = "backup_database"
         SUGGEST_FILING = "suggest_filing"  # group selected documents into subfolders, on request
+        PLAN_FILING = "plan_filing"  # where new documents in the inbox should go, for the user to approve
         FETCH_MAIL = "fetch_mail"  # import attachments from the email inbox
         ASSIST = "assist"  # changes the AI model proposes for selected documents, on request
         PAGES = "pages"  # picture and fingerprint of each page, for finding pages again

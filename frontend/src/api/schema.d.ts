@@ -995,6 +995,83 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/filing/inbox": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Inbox Filing Overview
+         * @description Open suggestions for documents in the inbox, by target: one folder, all its documents.
+         */
+        get: operations["apps_taxonomy_api_inbox_filing_overview"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/filing/inbox/decide": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Inbox Filing Decide
+         * @description Approve suggestions (the documents move, folders are created) or dismiss them.
+         */
+        post: operations["apps_taxonomy_api_inbox_filing_decide"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/filing/inbox/plan": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Inbox Filing Plan
+         * @description Plan the documents in the inbox that have no suggestion yet (e.g. from before it was on).
+         */
+        post: operations["apps_taxonomy_api_inbox_filing_plan"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/filing/inbox/settings": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /** Inbox Filing Settings */
+        put: operations["apps_taxonomy_api_inbox_filing_settings"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/document-types": {
         parameters: {
             query?: never;
@@ -2762,6 +2839,7 @@ export interface components {
             score?: number | null;
             snippet?: components["schemas"]["SnippetOut"] | null;
             series_suggestion: components["schemas"]["RefOut"] | null;
+            filing_suggestion: components["schemas"]["FilingSuggestionOut"] | null;
             /** Field Sources */
             field_sources: {
                 [key: string]: unknown;
@@ -2818,6 +2896,19 @@ export interface components {
              * Format: date-time
              */
             created_at: string;
+        };
+        /** FilingSuggestionOut */
+        FilingSuggestionOut: {
+            /** Anchor Id */
+            anchor_id: number | null;
+            /** Anchor Path */
+            anchor_path: string;
+            /** New */
+            new: string[];
+            /** Reason */
+            reason: string;
+            /** Named By */
+            named_by: string;
         };
         /** MailDocOut */
         MailDocOut: {
@@ -3193,6 +3284,67 @@ export interface components {
              * @default []
              */
             new: string[];
+        };
+        /** InboxFilingGroupOut */
+        InboxFilingGroupOut: {
+            /** Anchor Id */
+            anchor_id: number | null;
+            /** Anchor Path */
+            anchor_path: string;
+            /** New */
+            new: string[];
+            /** Reasons */
+            reasons: string[];
+            /** Named By */
+            named_by: string;
+            /** Documents */
+            documents: components["schemas"]["FilingDocOut"][];
+        };
+        /** InboxFilingOut */
+        InboxFilingOut: {
+            /** Enabled */
+            enabled: boolean;
+            /** Planning */
+            planning: boolean;
+            /** Waiting */
+            waiting: number;
+            /** Groups */
+            groups: components["schemas"]["InboxFilingGroupOut"][];
+        };
+        /** InboxFilingDecideOut */
+        InboxFilingDecideOut: {
+            /** Moved */
+            moved: number;
+            /** Created */
+            created: number;
+            /** Dismissed */
+            dismissed: number;
+        };
+        /** InboxFilingDecideIn */
+        InboxFilingDecideIn: {
+            /** Ids */
+            ids: string[];
+            /**
+             * Action
+             * @enum {string}
+             */
+            action: "accept" | "dismiss";
+            target?: components["schemas"]["InboxFilingTargetIn"] | null;
+        };
+        /** InboxFilingTargetIn */
+        InboxFilingTargetIn: {
+            /** Anchor Id */
+            anchor_id?: number | null;
+            /**
+             * New
+             * @default []
+             */
+            new: string[];
+        };
+        /** InboxFilingSettingsIn */
+        InboxFilingSettingsIn: {
+            /** Enabled */
+            enabled: boolean;
         };
         /** TypeOut */
         TypeOut: {
@@ -5698,6 +5850,94 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["FilingApplyOut"];
+                };
+            };
+        };
+    };
+    apps_taxonomy_api_inbox_filing_overview: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["InboxFilingOut"];
+                };
+            };
+        };
+    };
+    apps_taxonomy_api_inbox_filing_decide: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["InboxFilingDecideIn"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["InboxFilingDecideOut"];
+                };
+            };
+        };
+    };
+    apps_taxonomy_api_inbox_filing_plan: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["InboxFilingOut"];
+                };
+            };
+        };
+    };
+    apps_taxonomy_api_inbox_filing_settings: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["InboxFilingSettingsIn"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["InboxFilingOut"];
                 };
             };
         };

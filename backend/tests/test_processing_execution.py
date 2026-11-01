@@ -21,6 +21,7 @@ from apps.documents.models import Document, ProcessingEvent
 from apps.processing import execution, pipeline, queue
 from apps.processing.models import Job
 from apps.processing.worker import Worker
+from apps.taxonomy.models import FilingSuggestion
 from tests.conftest import upload
 from tests.pdfs import INVOICE_LINES, text_pdf
 from tests.processing_children import (
@@ -117,8 +118,10 @@ def test_hung_stage_times_out_and_releases_its_slot(scanner, isolated_dirs, sett
 
 def test_real_spawned_pipeline_completes(scanner, api, isolated_dirs):
     doc_id = upload(Client(), scanner[1], text_pdf(INVOICE_LINES)).json()["id"]
-    assert Worker(isolate_documents=True).run_until_empty() == 2
+    # Intake, processing, then the plan of where to file it.
+    assert Worker(isolate_documents=True).run_until_empty() == 3
     assert Document.objects.get(uuid=doc_id).processing_state == "done"
+    assert FilingSuggestion.objects.filter(document__uuid=doc_id).exists()
     assert api.get("/api/v1/documents", {"q": "Stromlieferung"}).json()["total"] == 1
     assert not list((isolated_dirs / "work").glob("job-*"))
 

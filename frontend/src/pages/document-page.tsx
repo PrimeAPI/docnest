@@ -55,6 +55,7 @@ import { StatusBadge, TagChip } from "@/features/documents/document-row";
 import { DocumentViewer } from "@/features/documents/document-viewer";
 import { ShareDialog } from "@/features/documents/share-dialog";
 import { FolderSelect } from "@/features/folders/folder-ui";
+import { FilingSuggestionCard } from "@/features/folders/inbox-filing";
 import { PaperCard } from "@/features/paper/paper";
 import { describeEnhancement } from "@/features/processing/enhancement";
 import { ReprocessDialog } from "@/features/processing/reprocess-dialog";
@@ -122,6 +123,7 @@ function SidePanel({ doc }: { doc: DocumentDetail }) {
         </div>
       )}
       {doc.series_suggestion && <SeriesSuggestion doc={doc} />}
+      <FilingSuggestionCard doc={doc} />
       <Tabs defaultValue="details">
         <TabsList className="grid w-full grid-cols-3">
           <TabsTrigger value="details">

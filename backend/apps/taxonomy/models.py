@@ -135,3 +135,30 @@ class FilingProposal(models.Model):
     error = models.CharField(max_length=500, blank=True)
     created_at = models.DateTimeField(default=timezone.now)
     finished_at = models.DateTimeField(null=True, blank=True)
+
+
+class FilingSuggestion(models.Model):
+    """Where a new document should be filed, planned automatically (apps.taxonomy.inbox_filing).
+
+    The document only moves when the user approves. The target is the deepest folder that
+    existed when it was planned plus the folders to create below it, so a folder created
+    meanwhile (another approved suggestion) is found again instead of made twice.
+    """
+
+    class State(models.TextChoices):
+        PENDING = "pending"  # a target, waiting for the user
+        NONE = "none"  # nothing fitting yet: planned again when new documents arrive
+        ACCEPTED = "accepted"
+        DISMISSED = "dismissed"  # rejected, or the user filed the document themselves
+
+    document = models.OneToOneField(
+        "documents.Document", on_delete=models.CASCADE, related_name="filing_suggestion"
+    )
+    state = models.CharField(max_length=10, choices=State.choices, default=State.PENDING, db_index=True)
+    # Deleting it makes the target meaningless: the suggestion goes, and the document is planned anew.
+    anchor = models.ForeignKey(Folder, null=True, blank=True, on_delete=models.CASCADE, related_name="+")
+    new = models.JSONField(default=list, blank=True)  # folder names to create below the anchor
+    reason_enc = models.BinaryField(null=True)  # may quote title words: encrypted like the titles
+    named_by = models.CharField(max_length=10, blank=True)  # "ai" | "rules"
+    created_at = models.DateTimeField(default=timezone.now)
+    decided_at = models.DateTimeField(null=True, blank=True)
